@@ -27,4 +27,4 @@
 ## Заметки для следующих шагов
 
 ### Шаг 1
-- Репозиторий: приватный `github.com/senneco/duet`, ветка `main`, push по ssh.
+- Репозиторий: приватный `github.com/senneco/duet`, ветка `main`, push по https (git использует учётку gh; ssh не настроен — нет ключа хоста github.com).
