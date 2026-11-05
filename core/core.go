@@ -108,8 +108,8 @@ func (p *Response) touches(c *Core, path string) bool {
 }
 
 type Busy struct {
-	Path     string
-	ReviewID string
+	Path     string `json:"path"`
+	ReviewID string `json:"reviewId"`
 }
 
 type Review struct {
@@ -161,6 +161,7 @@ type Core struct {
 	// drift — файлы с пометкой «изменён на диске»: путь → что лежит на диске.
 	drift  map[string]*Version
 	stamps map[string]string
+	subsState
 }
 
 // Open открывает (или создаёт) хранилище в папке dir.
@@ -170,6 +171,7 @@ func Open(dir string) (*Core, error) {
 	}
 	c := &Core{path: filepath.Join(dir, "state.json"), now: time.Now, disk: osDisk{},
 		synced: map[string]bool{}, drift: map[string]*Version{}, stamps: map[string]string{}}
+	c.subs = map[*Subscription]bool{}
 	c.s = state{Reviews: map[string]*Review{}, Files: map[string]*File{}}
 	data, err := os.ReadFile(c.path)
 	if err == nil {
@@ -403,6 +405,7 @@ func (c *Core) AgentFinish(reviewID string, files []Submission, answers []Answer
 	d.At = c.now()
 	if c.count(r, CommentWaiting) > 0 {
 		r.Draft = d
+		c.changed(r.ID)
 		return false, c.save()
 	}
 	r.Working = false
@@ -676,24 +679,24 @@ func (c *Core) MarkOpened(reviewID, path string) error {
 
 // FileView — всё, что клиенту нужно знать о файле.
 type FileView struct {
-	Path            string
-	State           FileState
-	MovedTo         string
-	Ripple          bool // непросмотренный ответ касается файла
-	HasBase         bool
-	Base            string
-	BaseIsOriginal  bool
-	OriginSource    string
-	Current         string
-	CurrentDeleted  bool
-	Response        *string // версия из непросмотренного ответа
-	ResponseDeleted bool
-	Comments        []CommentView // открытые комментарии: без решённых и удалённых
-	AgentWorking    bool          // есть «ожидает» или «в работе» — в дереве бегают точки
+	Path            string        `json:"path"`
+	State           FileState     `json:"state"`
+	MovedTo         string        `json:"movedTo"`
+	Ripple          bool          `json:"ripple"` // непросмотренный ответ касается файла
+	HasBase         bool          `json:"hasBase"`
+	Base            string        `json:"base"`
+	BaseIsOriginal  bool          `json:"baseIsOriginal"`
+	OriginSource    string        `json:"originSource"`
+	Current         string        `json:"current"`
+	CurrentDeleted  bool          `json:"currentDeleted"`
+	Response        *string       `json:"response"` // версия из непросмотренного ответа
+	ResponseDeleted bool          `json:"responseDeleted"`
+	Comments        []CommentView `json:"comments"`     // открытые комментарии: без решённых и удалённых
+	AgentWorking    bool          `json:"agentWorking"` // есть «ожидает» или «в работе» — в дереве бегают точки
 	// DiskChanged — «изменён на диске»: на диске не то, что ожидается. Disk — что там лежит.
-	DiskChanged bool
-	Disk        string
-	DiskDeleted bool
+	DiskChanged bool   `json:"diskChanged"`
+	Disk        string `json:"disk"`
+	DiskDeleted bool   `json:"diskDeleted"`
 }
 
 // isAccepted — текущая версия совпадает с базой, и нет комментариев «отвечен», ждущих `␣a`.
@@ -773,22 +776,22 @@ func (c *Core) File(reviewID, path string) (FileView, error) {
 
 // ReviewView — ревью целиком.
 type ReviewView struct {
-	ID          string
-	Title       string
-	Created     time.Time
-	Working     bool
-	HasResponse bool
-	Accepted    bool       // ревью принято целиком
-	Agent       bool       // агент подключён
-	AgentLost   bool       // агент пропал посреди работы: есть «в работе», а агента нет
-	Unsent      int        // неотправленные комментарии (без написанных в окне ответа)
-	Questions   int        // неотвеченные вопросы агента
-	Files       []FileView // файлы, которых нет в текущей версии (только в ответе), не показываются
-	NotAdded    []Busy
-	Stopping    bool     // «останавливается…» после «прервать»
-	Restored    []string // файлы, которые duet перезаписал после последнего «прервать»
-	DiskChanged []string // файлы с пометкой «изменён на диске»
-	Synced      bool     // ревью сверено с диском после запуска duet
+	ID          string     `json:"id"`
+	Title       string     `json:"title"`
+	Created     time.Time  `json:"created"`
+	Working     bool       `json:"working"`
+	HasResponse bool       `json:"hasResponse"`
+	Accepted    bool       `json:"accepted"`  // ревью принято целиком
+	Agent       bool       `json:"agent"`     // агент подключён
+	AgentLost   bool       `json:"agentLost"` // агент пропал посреди работы: есть «в работе», а агента нет
+	Unsent      int        `json:"unsent"`    // неотправленные комментарии (без написанных в окне ответа)
+	Questions   int        `json:"questions"` // неотвеченные вопросы агента
+	Files       []FileView `json:"files"`     // файлы, которых нет в текущей версии (только в ответе), не показываются
+	NotAdded    []Busy     `json:"notAdded"`
+	Stopping    bool       `json:"stopping"`    // «останавливается…» после «прервать»
+	Restored    []string   `json:"restored"`    // файлы, которые duet перезаписал после последнего «прервать»
+	DiskChanged []string   `json:"diskChanged"` // файлы с пометкой «изменён на диске»
+	Synced      bool       `json:"synced"`      // ревью сверено с диском после запуска duet
 }
 
 // allDone — ревью принято целиком, если не считать расхождений с диском.

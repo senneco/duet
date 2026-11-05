@@ -189,7 +189,7 @@ func (c *Core) files(r *Review) []*File {
 func (c *Core) checkFile(r *Review, f *File) {
 	exp, ok := c.expected(r, f)
 	if !ok {
-		delete(c.drift, f.Path)
+		c.undrift(r, f.Path)
 		return
 	}
 	d, err := c.readDisk(f.Path)
@@ -197,9 +197,20 @@ func (c *Core) checkFile(r *Review, f *File) {
 		return // не прочитали — оставляем как было, попробуем в следующий раз
 	}
 	if same(d, exp) {
-		delete(c.drift, f.Path)
-	} else {
-		c.drift[f.Path] = &d
+		c.undrift(r, f.Path)
+		return
+	}
+	if old, ok := c.drift[f.Path]; !ok || !same(*old, d) {
+		c.changed(r.ID)
+	}
+	c.drift[f.Path] = &d
+}
+
+// undrift снимает пометку «изменён на диске».
+func (c *Core) undrift(r *Review, path string) {
+	if _, ok := c.drift[path]; ok {
+		delete(c.drift, path)
+		c.changed(r.ID)
 	}
 }
 
@@ -208,7 +219,7 @@ func (c *Core) recheck(r *Review, progress func(done, total int)) {
 	fs := c.files(r)
 	if !c.watched(r) {
 		for _, f := range fs {
-			delete(c.drift, f.Path)
+			c.undrift(r, f.Path)
 		}
 		return
 	}
@@ -232,6 +243,7 @@ func (c *Core) touch(r *Review) {
 // commit — сохранить состояние после изменения ревью и сверить его с диском.
 func (c *Core) commit(r *Review) error {
 	c.touch(r)
+	c.changed(r.ID)
 	return c.save()
 }
 
@@ -247,7 +259,10 @@ func (c *Core) Sync(reviewID string, progress func(done, total int)) error {
 	if c.disk == nil {
 		return nil
 	}
-	c.synced[r.ID] = true
+	if !c.synced[r.ID] {
+		c.synced[r.ID] = true
+		c.changed(r.ID)
+	}
 	c.recheck(r, progress)
 	return nil
 }

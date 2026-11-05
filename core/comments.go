@@ -63,34 +63,34 @@ type Comment struct {
 
 // Answer — ответ агента на комментарий.
 type Answer struct {
-	CommentID string
-	Text      string
-	Question  bool
-	Options   []string
+	CommentID string   `json:"commentId"`
+	Text      string   `json:"text"`
+	Question  bool     `json:"question"`
+	Options   []string `json:"options"`
 	// Anchor — новое место в версии файла из ответа, если агент его указал.
-	Anchor *Range
+	Anchor *Range `json:"anchor"`
 }
 
 // AgentComment — комментарий, как его получает агент.
 type AgentComment struct {
-	ID     string
-	Path   string
-	Whole  bool
-	Quote  string
-	Thread []Message
+	ID     string    `json:"id"`
+	Path   string    `json:"path"`
+	Whole  bool      `json:"whole"`
+	Quote  string    `json:"quote"`
+	Thread []Message `json:"thread"`
 }
 
 // CommentView — комментарий для клиента.
 type CommentView struct {
-	ID         string
-	Whole      bool
-	Range      Range
-	Was        string // цитата «было: …», если текст изменён, удалён или удалён файл
-	Changed    bool   // «текст изменён»
-	Removed    bool
-	InResponse bool
-	Status     CommentStatus
-	Thread     []Message
+	ID         string        `json:"id"`
+	Whole      bool          `json:"whole"`
+	Range      Range         `json:"range"`
+	Was        string        `json:"was"`     // цитата «было: …», если текст изменён, удалён или удалён файл
+	Changed    bool          `json:"changed"` // «текст изменён»
+	Removed    bool          `json:"removed"`
+	InResponse bool          `json:"inResponse"`
+	Status     CommentStatus `json:"status"`
+	Thread     []Message     `json:"thread"`
 }
 
 func (c *Core) comment(r *Review, id string) (*File, *Comment, error) {
@@ -333,6 +333,7 @@ func (c *Core) Take(reviewID string) ([]AgentComment, error) {
 	if len(out) > 0 {
 		r.Working = true
 	}
+	c.changed(r.ID)
 	return out, c.save()
 }
 
