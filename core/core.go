@@ -20,6 +20,7 @@ var (
 	ErrNoResponse       = errors.New("нет ответа агента")
 	ErrNotFound         = errors.New("не найдено")
 	ErrMoved            = errors.New("файл перешёл в другое ревью")
+	ErrEditing          = errors.New("открыт редактор правки")
 )
 
 // FileState — состояние файла в дереве.
@@ -68,6 +69,8 @@ type File struct {
 	// Current — номер текущей версии, -1 если файла ещё нет в текущей версии.
 	Current int  `json:"current"`
 	Opened  bool `json:"opened,omitempty"`
+	// Comments — все комментарии файла, включая закрытые и удалённые (история).
+	Comments []*Comment `json:"comments,omitempty"`
 }
 
 type ResponseStatus string
@@ -76,14 +79,32 @@ const (
 	ResponsePending  ResponseStatus = "pending"
 	ResponseAccepted ResponseStatus = "accepted"
 	ResponseRejected ResponseStatus = "rejected"
+	// ResponseInterrupted — заход прерван владельцем, сделанное выброшено.
+	ResponseInterrupted ResponseStatus = "interrupted"
 )
 
 // Response — ответ агента: новые версии файлов поверх текущей.
 type Response struct {
-	ID     int            `json:"id"`
-	Files  map[string]int `json:"files"` // путь → номер версии
-	Status ResponseStatus `json:"status"`
-	At     time.Time      `json:"at"`
+	ID      int               `json:"id"`
+	Files   map[string]int    `json:"files"`             // путь → номер версии
+	Answers map[string]Answer `json:"answers,omitempty"` // комментарий → ответ агента
+	Status  ResponseStatus    `json:"status"`
+	At      time.Time         `json:"at"`
+}
+
+// touches — ответ касается файла: меняет его или отвечает на его комментарий.
+func (p *Response) touches(c *Core, path string) bool {
+	if _, ok := p.Files[path]; ok {
+		return true
+	}
+	if f, ok := c.s.Files[path]; ok {
+		for _, cm := range f.Comments {
+			if _, ok := p.Answers[cm.ID]; ok {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 type Busy struct {
@@ -92,14 +113,18 @@ type Busy struct {
 }
 
 type Review struct {
-	ID        string            `json:"id"`
-	Title     string            `json:"title"`
-	Created   time.Time         `json:"created"`
-	Paths     []string          `json:"paths"`
-	Moved     map[string]string `json:"moved,omitempty"` // путь → ревью, куда ушёл
-	NotAdded  []Busy            `json:"notAdded,omitempty"`
-	Working   bool              `json:"working,omitempty"`
-	Responses []*Response       `json:"responses,omitempty"` // вся история
+	ID       string            `json:"id"`
+	Title    string            `json:"title"`
+	Created  time.Time         `json:"created"`
+	Paths    []string          `json:"paths"`
+	Moved    map[string]string `json:"moved,omitempty"` // путь → ревью, куда ушёл
+	NotAdded []Busy            `json:"notAdded,omitempty"`
+	Working  bool              `json:"working,omitempty"`
+	Agent    bool              `json:"agent,omitempty"`   // агент подключён
+	Editing  bool              `json:"editing,omitempty"` // открыт редактор правки
+	// Draft — то, что агент уже сделал в заходе, который ещё продолжается.
+	Draft     *Response   `json:"draft,omitempty"`
+	Responses []*Response `json:"responses,omitempty"` // вся история
 }
 
 func (r *Review) pending() *Response {
@@ -187,8 +212,7 @@ func (c *Core) busy(f *File) bool {
 		return true
 	}
 	if p := r.pending(); p != nil {
-		_, touched := p.Files[f.Path]
-		return touched
+		return p.touches(c, f.Path)
 	}
 	return false
 }
@@ -199,7 +223,7 @@ func (c *Core) CreateReview(title string, files []Submission) (string, []Busy, e
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.s.Seq++
-	r := &Review{ID: fmt.Sprintf("r%d", c.s.Seq), Title: title, Created: c.now()}
+	r := &Review{ID: fmt.Sprintf("r%d", c.s.Seq), Title: title, Created: c.now(), Agent: true}
 	c.s.Reviews[r.ID] = r
 	for _, sub := range files {
 		if f, ok := c.s.Files[sub.Path]; ok && f.ReviewID != r.ID && c.busy(f) {
@@ -264,7 +288,9 @@ func (c *Core) addFirst(r *Review, sub Submission) {
 	} else if f.Base >= 0 && f.Current < 0 && same(f.Versions[f.Base], v) {
 		f.Current = f.Base
 	} else {
-		f.Current = c.addVersion(f, v)
+		n := c.addVersion(f, v)
+		c.reanchor(f, f.Current, n, nil)
+		f.Current = n
 	}
 	r.Paths = append(r.Paths, f.Path)
 	delete(r.Moved, f.Path)
@@ -285,9 +311,11 @@ func (c *Core) AgentStart(reviewID string) error {
 	return c.save()
 }
 
-// AgentFinish — агент закончил. Присланные версии, отличные от текущих, становятся ответом.
+// AgentFinish — агент закончил заход: присланные версии, отличные от текущих, и ответы на комментарии.
+// Если на какой-то комментарий агент не ответил, тот снова «ожидает». Если есть «ожидает»,
+// агент продолжает работу, а ответ копится и появится, когда он закончит снова.
 // Возвращает true, если ответ появился.
-func (c *Core) AgentFinish(reviewID string, files []Submission) (bool, error) {
+func (c *Core) AgentFinish(reviewID string, files []Submission, answers []Answer) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	r, err := c.review(reviewID)
@@ -297,7 +325,22 @@ func (c *Core) AgentFinish(reviewID string, files []Submission) (bool, error) {
 	if !r.Working {
 		return false, ErrAgentNotWorking
 	}
-	resp := &Response{ID: len(r.Responses) + 1, Files: map[string]int{}, Status: ResponsePending, At: c.now()}
+	d := r.Draft
+	if d == nil {
+		d = &Response{ID: len(r.Responses) + 1, Files: map[string]int{}, Answers: map[string]Answer{}, Status: ResponsePending}
+	}
+	if d.Answers == nil {
+		d.Answers = map[string]Answer{}
+	}
+	for _, a := range answers {
+		_, cm, err := c.comment(r, a.CommentID)
+		if err != nil {
+			return false, err
+		}
+		if cm.Status != CommentWorking || !cm.Delivered {
+			return false, fmt.Errorf("комментарий %s не в работе у агента: %w", cm.ID, ErrCommentStatus)
+		}
+	}
 	for _, sub := range files {
 		if _, moved := r.Moved[sub.Path]; moved {
 			return false, fmt.Errorf("%s: %w", sub.Path, ErrMoved)
@@ -313,15 +356,43 @@ func (c *Core) AgentFinish(reviewID string, files []Submission) (bool, error) {
 		}
 		v := Version{Content: sub.Content, Deleted: sub.Deleted, Author: "agent"}
 		if f.Current >= 0 && same(f.Versions[f.Current], v) {
+			delete(d.Files, f.Path)
 			continue
 		}
-		resp.Files[f.Path] = c.addVersion(f, v)
+		if n, ok := d.Files[f.Path]; ok && same(f.Versions[n], v) {
+			continue
+		}
+		d.Files[f.Path] = c.addVersion(f, v)
 	}
-	r.Working = false
-	if len(resp.Files) == 0 {
+	for _, a := range answers {
+		d.Answers[a.CommentID] = a
+	}
+	// Не отвеченные агентом комментарии снова ждут его.
+	c.eachComment(r, func(_ *File, cm *Comment) {
+		if _, ok := d.Answers[cm.ID]; cm.Status == CommentWorking && !ok {
+			cm.Status, cm.Delivered = CommentWaiting, false
+		}
+	})
+	d.At = c.now()
+	if c.count(r, CommentWaiting) > 0 {
+		r.Draft = d
 		return false, c.save()
 	}
-	r.Responses = append(r.Responses, resp)
+	r.Working = false
+	r.Draft = nil
+	if len(d.Files) == 0 && len(d.Answers) == 0 {
+		return false, c.save()
+	}
+	for id, a := range d.Answers {
+		_, cm, _ := c.comment(r, id)
+		cm.Thread = append(cm.Thread, Message{Author: "agent", Text: a.Text, Question: a.Question, Options: a.Options, Response: d.ID, At: c.stamp()})
+		cm.Status = CommentAnswered
+		if a.Question {
+			cm.Status = CommentQuestion
+		}
+		cm.Delivered = false
+	}
+	r.Responses = append(r.Responses, d)
 	return true, c.save()
 }
 
@@ -351,9 +422,45 @@ func (c *Core) closeResponse(reviewID string, st ResponseStatus) error {
 	}
 	if st == ResponseAccepted {
 		for path, v := range p.Files {
-			c.s.Files[path].Current = v
+			f := c.s.Files[path]
+			anchors := map[string]Range{}
+			for _, cm := range f.Comments {
+				if a, ok := p.Answers[cm.ID]; ok && a.Anchor != nil {
+					anchors[cm.ID] = *a.Anchor
+				}
+			}
+			c.reanchor(f, f.Current, v, anchors)
+			f.Current = v
 		}
 	}
+	c.eachComment(r, func(_ *File, cm *Comment) {
+		if cm.InResponse == p.ID {
+			if st == ResponseAccepted {
+				cm.InResponse = 0
+			} else {
+				cm.Status = CommentDeleted // написанные в окне комментарии уходят вместе с ответом
+			}
+		}
+		if _, ok := p.Answers[cm.ID]; ok && st == ResponseRejected {
+			th := cm.Thread[:0]
+			for _, m := range cm.Thread {
+				if m.Response != p.ID {
+					th = append(th, m)
+				}
+			}
+			cm.Thread = th
+			cm.Status, cm.Prev, cm.Delivered = CommentUnsent, "", false
+			for i := len(th) - 1; i >= 0; i-- {
+				if th[i].Author == "agent" {
+					cm.Prev = CommentAnswered
+					if th[i].Question {
+						cm.Prev = CommentQuestion
+					}
+					break
+				}
+			}
+		}
+	})
 	p.Status = st
 	return c.save()
 }
@@ -363,7 +470,7 @@ func (c *Core) checkChange(r *Review) error {
 	if r.pending() != nil {
 		return ErrUnviewedResponse
 	}
-	if r.Working {
+	if r.Working || c.count(r, CommentWaiting, CommentWorking) > 0 {
 		return ErrAgentWorking
 	}
 	return nil
@@ -381,16 +488,21 @@ func (c *Core) AcceptFile(reviewID, path string) error {
 	if err != nil {
 		return err
 	}
-	if p := r.pending(); p != nil {
-		if _, ok := p.Files[path]; ok {
-			return ErrUnviewedResponse
-		}
+	if p := r.pending(); p != nil && p.touches(c, path) {
+		return ErrUnviewedResponse
 	}
 	if f.Current < 0 {
 		return fmt.Errorf("файл %s: %w", path, ErrNotFound)
 	}
-	f.Base = f.Current
-	f.BaseIsOriginal = false
+	if f.Base != f.Current {
+		f.Base = f.Current
+		f.BaseIsOriginal = false
+	}
+	for _, cm := range f.Comments {
+		if cm.Status == CommentAnswered {
+			cm.Status = CommentResolved
+		}
+	}
 	return c.save()
 }
 
@@ -413,11 +525,12 @@ func (c *Core) Edit(reviewID, path, content string) error {
 	if f.Current >= 0 && same(f.Versions[f.Current], v) {
 		return nil
 	}
-	if f.Base >= 0 && same(f.Versions[f.Base], v) {
-		f.Current = f.Base
-	} else {
-		f.Current = c.addVersion(f, v)
+	n := f.Base
+	if f.Base < 0 || !same(f.Versions[f.Base], v) {
+		n = c.addVersion(f, v)
 	}
+	c.reanchor(f, f.Current, n, nil)
+	f.Current = n
 	return c.save()
 }
 
@@ -439,7 +552,25 @@ func (c *Core) RevertToBase(reviewID, path string) error {
 	if f.Base < 0 {
 		return fmt.Errorf("у файла %s нет базы", path)
 	}
+	c.reanchor(f, f.Current, f.Base, nil)
 	f.Current = f.Base
+	return c.save()
+}
+
+// SetEditing — владелец открыл или закрыл редактор правки.
+func (c *Core) SetEditing(reviewID string, on bool) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r, err := c.review(reviewID)
+	if err != nil {
+		return err
+	}
+	if on {
+		if err := c.checkChange(r); err != nil {
+			return err
+		}
+	}
+	r.Editing = on
 	return c.save()
 }
 
@@ -476,10 +607,21 @@ type FileView struct {
 	CurrentDeleted  bool
 	Response        *string // версия из непросмотренного ответа
 	ResponseDeleted bool
+	Comments        []CommentView // открытые комментарии: без решённых и удалённых
+	AgentWorking    bool          // есть «ожидает» или «в работе» — в дереве бегают точки
 }
 
+// isAccepted — текущая версия совпадает с базой, и нет комментариев «отвечен», ждущих `␣a`.
 func isAccepted(f *File) bool {
-	return f.Base >= 0 && f.Current >= 0 && same(f.Versions[f.Base], f.Versions[f.Current])
+	if f.Base < 0 || f.Current < 0 || !same(f.Versions[f.Base], f.Versions[f.Current]) {
+		return false
+	}
+	for _, cm := range f.Comments {
+		if cm.Status == CommentAnswered {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *Core) view(r *Review, path string) FileView {
@@ -496,11 +638,17 @@ func (c *Core) view(r *Review, path string) FileView {
 		v.CurrentDeleted = f.Versions[f.Current].Deleted
 	}
 	if p := r.pending(); p != nil {
+		v.Ripple = p.touches(c, path)
 		if n, ok := p.Files[path]; ok {
-			v.Ripple = true
 			s := f.Versions[n].Content
 			v.Response = &s
 			v.ResponseDeleted = f.Versions[n].Deleted
+		}
+	}
+	v.Comments = c.commentViews(r, f)
+	for _, cm := range f.Comments {
+		if cm.Status == CommentWaiting || cm.Status == CommentWorking {
+			v.AgentWorking = true
 		}
 	}
 	acc := isAccepted(f)
@@ -543,6 +691,10 @@ type ReviewView struct {
 	Working     bool
 	HasResponse bool
 	Accepted    bool       // ревью принято целиком
+	Agent       bool       // агент подключён
+	AgentLost   bool       // агент пропал посреди работы: есть «в работе», а агента нет
+	Unsent      int        // неотправленные комментарии (без написанных в окне ответа)
+	Questions   int        // неотвеченные вопросы агента
 	Files       []FileView // файлы, которых нет в текущей версии (только в ответе), не показываются
 	NotAdded    []Busy
 }
@@ -560,7 +712,18 @@ func (c *Core) reviewView(r *Review) ReviewView {
 			all = false
 		}
 	}
-	rv.Accepted = all && !r.Working && !rv.HasResponse
+	c.eachComment(r, func(_ *File, cm *Comment) {
+		switch {
+		case cm.Status == CommentUnsent && cm.InResponse == 0:
+			rv.Unsent++
+		case cm.Status == CommentQuestion:
+			rv.Questions++
+		}
+	})
+	rv.Agent = r.Agent
+	rv.AgentLost = !r.Agent && c.count(r, CommentWorking) > 0
+	rv.Accepted = all && !r.Working && !rv.HasResponse && rv.Unsent == 0 && rv.Questions == 0 &&
+		c.count(r, CommentWaiting, CommentWorking) == 0
 	return rv
 }
 

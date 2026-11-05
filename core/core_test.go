@@ -39,7 +39,7 @@ func fv(t *testing.T, c *Core, r, p string) FileView {
 func respond(t *testing.T, c *Core, r string, files ...Submission) {
 	t.Helper()
 	must(t, c.AgentStart(r))
-	if _, err := c.AgentFinish(r, files); err != nil {
+	if _, err := c.AgentFinish(r, files, nil); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -188,7 +188,7 @@ func TestNoResponseWithoutChanges(t *testing.T) {
 	if err := c.Edit(r, "/a", "x"); !errors.Is(err, ErrAgentWorking) {
 		t.Fatal(err)
 	}
-	got, err := c.AgentFinish(r, []Submission{{Path: "/a", Content: "1"}})
+	got, err := c.AgentFinish(r, []Submission{{Path: "/a", Content: "1"}}, nil)
 	must(t, err)
 	if got {
 		t.Fatal("пустой ответ")
