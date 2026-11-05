@@ -177,7 +177,7 @@ func (c *Core) AddComment(reviewID, path string, sel *Range, text string, images
 	cm.ID = fmt.Sprintf("c%d", c.s.Seq)
 	cm.Thread = []Message{{Author: "owner", Text: text, Images: images, At: c.stamp()}}
 	f.Comments = append(f.Comments, cm)
-	return cm.ID, c.save()
+	return cm.ID, c.commit(r)
 }
 
 // EditComment — правка неотправленного комментария (или неотправленного ответа в ветке).
@@ -197,7 +197,7 @@ func (c *Core) EditComment(reviewID, id, text string, images []string) error {
 	}
 	m := &cm.Thread[len(cm.Thread)-1]
 	m.Text, m.Images, m.At = text, images, c.stamp()
-	return c.save()
+	return c.commit(r)
 }
 
 // DeleteComment — удалить неотправленный комментарий. Если это ответ владельца в ветке,
@@ -222,7 +222,7 @@ func (c *Core) DeleteComment(reviewID, id string) error {
 	} else {
 		cm.Status = CommentDeleted
 	}
-	return c.save()
+	return c.commit(r)
 }
 
 // Reply — владелец отвечает в ветке на «вопрос» или «отвечен». Ответ ждёт `␣s`.
@@ -245,7 +245,7 @@ func (c *Core) Reply(reviewID, id, text string, images []string) error {
 	}
 	cm.Thread = append(cm.Thread, Message{Author: "owner", Text: text, Images: images, At: c.stamp()})
 	cm.Prev, cm.Status = cm.Status, CommentUnsent
-	return c.save()
+	return c.commit(r)
 }
 
 // DismissQuestion — владелец убирает вопрос агента: комментарий решён, агенту ничего не уходит.
@@ -264,7 +264,7 @@ func (c *Core) DismissQuestion(reviewID, id string) error {
 		return ErrCommentStatus
 	}
 	cm.Status = CommentResolved
-	return c.save()
+	return c.commit(r)
 }
 
 // Send — `␣s`: отправить все неотправленные комментарии ревью.
@@ -282,8 +282,15 @@ func (c *Core) Send(reviewID string) error {
 	if r.Editing {
 		return ErrEditing
 	}
+	if r.Stopping {
+		return ErrStopping
+	}
 	if !r.Agent {
 		return ErrNoAgent
+	}
+	c.touch(r)
+	if d := c.drifted(r); len(d) > 0 {
+		return &DiskChangedError{d}
 	}
 	st := CommentWorking
 	if r.Working {
@@ -300,7 +307,8 @@ func (c *Core) Send(reviewID string) error {
 		return ErrNothingToSend
 	}
 	r.Working = true
-	return c.save()
+	r.Restored = nil
+	return c.commit(r)
 }
 
 // Take — агент забирает новые комментарии: «ожидает» становятся «в работе».
@@ -337,7 +345,7 @@ func (c *Core) Connect(reviewID string) error {
 		return err
 	}
 	r.Agent = true
-	return c.save()
+	return c.commit(r)
 }
 
 // Disconnect — сессия агента закрыта. «Ожидает» возвращаются владельцу, «в работе» остаются.
@@ -357,11 +365,20 @@ func (c *Core) Disconnect(reviewID string) error {
 	if c.count(r, CommentWorking) == 0 && r.Draft == nil {
 		r.Working = false
 	}
-	return c.save()
+	var err2 error
+	if r.Stopping {
+		err2 = c.restore(r) // агента больше нет — возвращаем диск
+	}
+	if err := c.commit(r); err != nil {
+		return err
+	}
+	return err2
 }
 
 // Interrupt — «прервать»: текущий заход агента выбрасывается целиком,
-// «ожидает» и «в работе» становятся «не отправлен».
+// «ожидает» и «в работе» становятся «не отправлен». Пока агент не остановился (AgentStopped,
+// Disconnect или RestoreAnyway), ревью «останавливается»: диск не трогаем, отправлять и править нельзя.
+// Если агента нет, диск возвращается сразу.
 func (c *Core) Interrupt(reviewID string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -377,13 +394,24 @@ func (c *Core) Interrupt(reviewID string) error {
 		r.Responses = append(r.Responses, r.Draft)
 		r.Draft = nil
 	}
+	var returned []string
 	c.eachComment(r, func(_ *File, cm *Comment) {
 		if cm.Status == CommentWaiting || cm.Status == CommentWorking {
 			cm.Status, cm.Delivered = CommentUnsent, false
+			returned = append(returned, cm.ID)
 		}
 	})
 	r.Working = false
-	return c.save()
+	r.Stopping = true
+	r.Returned = returned
+	var err2 error
+	if !r.Agent {
+		err2 = c.restore(r) // ждать некого: агента нет
+	}
+	if err := c.commit(r); err != nil {
+		return err
+	}
+	return err2
 }
 
 func (c *Core) fileDeleted(f *File) bool { return f.Current >= 0 && f.Versions[f.Current].Deleted }

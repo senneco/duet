@@ -12,7 +12,19 @@ func open(t *testing.T) (*Core, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	c.disk = nil // выдуманные пути: эти тесты проверяют поведение без диска
 	return c, dir
+}
+
+// reopen — как после перезапуска duet, без диска.
+func reopen(t *testing.T, dir string) *Core {
+	t.Helper()
+	c, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.disk = nil
+	return c
 }
 
 func must(t *testing.T, err error) {
@@ -357,14 +369,13 @@ func TestPersistence(t *testing.T) {
 	r := create(t, c, Submission{Path: "/a", Content: "2", Original: orig("1")})
 	must(t, c.MarkOpened(r, "/a"))
 	respond(t, c, r, Submission{Path: "/a", Content: "3"})
-	c2, err := Open(dir)
-	must(t, err)
+	c2 := reopen(t, dir)
 	v := fv(t, c2, r, "/a")
 	if v.Base != "1" || v.Current != "2" || *v.Response != "3" || v.State != StateOpened || !v.BaseIsOriginal {
 		t.Fatalf("%+v", v)
 	}
 	must(t, c2.RejectResponse(r))
-	c3, _ := Open(dir)
+	c3 := reopen(t, dir)
 	if h, _ := c3.Responses(r); len(h) != 1 || h[0].Status != ResponseRejected {
 		t.Fatal(h)
 	}

@@ -122,6 +122,14 @@ type Review struct {
 	Working  bool              `json:"working,omitempty"`
 	Agent    bool              `json:"agent,omitempty"`   // агент подключён
 	Editing  bool              `json:"editing,omitempty"` // открыт редактор правки
+	// Stopping — владелец нажал «прервать», агент ещё не остановился; диск не трогаем.
+	Stopping bool `json:"stopping,omitempty"`
+	// Returned — комментарии, вернувшиеся владельцу при «прервать», для сообщения агенту.
+	Returned []string `json:"returned,omitempty"`
+	// Restored — файлы, которые duet перезаписал после последнего «прервать».
+	Restored []string `json:"restored,omitempty"`
+	// Notices — сообщения агенту, которые он ещё не забрал.
+	Notices []Notice `json:"notices,omitempty"`
 	// Draft — то, что агент уже сделал в заходе, который ещё продолжается.
 	Draft     *Response   `json:"draft,omitempty"`
 	Responses []*Response `json:"responses,omitempty"` // вся история
@@ -146,6 +154,13 @@ type Core struct {
 	path string
 	s    state
 	now  func() time.Time
+	// disk — файлы проекта; nil — у файлов нет диска (страницы Вики, тесты без диска).
+	disk Disk
+	// synced — ревью, которые сверялись с диском после запуска; за ними duet следит.
+	synced map[string]bool
+	// drift — файлы с пометкой «изменён на диске»: путь → что лежит на диске.
+	drift  map[string]*Version
+	stamps map[string]string
 }
 
 // Open открывает (или создаёт) хранилище в папке dir.
@@ -153,7 +168,8 @@ func Open(dir string) (*Core, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	c := &Core{path: filepath.Join(dir, "state.json"), now: time.Now}
+	c := &Core{path: filepath.Join(dir, "state.json"), now: time.Now, disk: osDisk{},
+		synced: map[string]bool{}, drift: map[string]*Version{}, stamps: map[string]string{}}
 	c.s = state{Reviews: map[string]*Review{}, Files: map[string]*File{}}
 	data, err := os.ReadFile(c.path)
 	if err == nil {
@@ -232,7 +248,7 @@ func (c *Core) CreateReview(title string, files []Submission) (string, []Busy, e
 		}
 		c.addFirst(r, sub)
 	}
-	return r.ID, r.NotAdded, c.save()
+	return r.ID, r.NotAdded, c.commit(r)
 }
 
 // AddFiles — агент досылает в ревью файлы, которых там ещё не было.
@@ -259,7 +275,7 @@ func (c *Core) AddFiles(reviewID string, files []Submission) ([]Busy, error) {
 		}
 		c.addFirst(r, sub)
 	}
-	return notAdded, c.save()
+	return notAdded, c.commit(r)
 }
 
 func (c *Core) addFirst(r *Review, sub Submission) {
@@ -273,6 +289,14 @@ func (c *Core) addFirst(r *Review, sub Submission) {
 		old.Moved[f.Path] = r.ID
 		f.ReviewID = r.ID
 		f.Opened = false
+		// Принятый файл мог меняться мимо duet после принятия: база — исходная версия от агента.
+		if sub.Original != nil && isAccepted(f) && !same(f.Versions[f.Base], Version{Content: sub.Original.Content}) {
+			n := c.addVersion(f, Version{Content: sub.Original.Content, Author: "original"})
+			c.reanchor(f, f.Current, n, nil)
+			f.Base, f.Current = n, n
+			f.BaseIsOriginal = true
+			f.OriginSource = sub.Original.Source
+		}
 	} else {
 		f = &File{Path: sub.Path, ReviewID: r.ID, Base: -1, Current: -1}
 		c.s.Files[sub.Path] = f
@@ -307,8 +331,11 @@ func (c *Core) AgentStart(reviewID string) error {
 	if r.pending() != nil {
 		return ErrUnviewedResponse
 	}
+	if r.Stopping {
+		return ErrStopping
+	}
 	r.Working = true
-	return c.save()
+	return c.commit(r)
 }
 
 // AgentFinish — агент закончил заход: присланные версии, отличные от текущих, и ответы на комментарии.
@@ -381,7 +408,7 @@ func (c *Core) AgentFinish(reviewID string, files []Submission, answers []Answer
 	r.Working = false
 	r.Draft = nil
 	if len(d.Files) == 0 && len(d.Answers) == 0 {
-		return false, c.save()
+		return false, c.commit(r)
 	}
 	for id, a := range d.Answers {
 		_, cm, _ := c.comment(r, id)
@@ -393,7 +420,7 @@ func (c *Core) AgentFinish(reviewID string, files []Submission, answers []Answer
 		cm.Delivered = false
 	}
 	r.Responses = append(r.Responses, d)
-	return true, c.save()
+	return true, c.commit(r)
 }
 
 // AcceptResponse — владелец просмотрел ответ: версии из него становятся текущими.
@@ -420,6 +447,31 @@ func (c *Core) closeResponse(reviewID string, st ResponseStatus) error {
 	if r.Working {
 		return ErrAgentWorking
 	}
+	var files []string
+	for path := range p.Files {
+		files = append(files, path)
+	}
+	sort.Strings(files)
+	if st == ResponseRejected {
+		// Диск возвращается к текущей версии, но только если там лежит ответ, как ожидается.
+		var fs []*File
+		for _, path := range files {
+			fs = append(fs, c.s.Files[path])
+		}
+		if err := c.diskCheck(r, fs...); err != nil {
+			return err
+		}
+		for _, f := range fs {
+			want := Version{Deleted: true}
+			if f.Current >= 0 {
+				want = f.Versions[f.Current]
+			}
+			if err := c.writeDisk(f.Path, want); err != nil {
+				return err
+			}
+		}
+	}
+	var returned []string
 	if st == ResponseAccepted {
 		for path, v := range p.Files {
 			f := c.s.Files[path]
@@ -442,6 +494,7 @@ func (c *Core) closeResponse(reviewID string, st ResponseStatus) error {
 			}
 		}
 		if _, ok := p.Answers[cm.ID]; ok && st == ResponseRejected {
+			returned = append(returned, cm.ID)
 			th := cm.Thread[:0]
 			for _, m := range cm.Thread {
 				if m.Response != p.ID {
@@ -462,13 +515,20 @@ func (c *Core) closeResponse(reviewID string, st ResponseStatus) error {
 		}
 	})
 	p.Status = st
-	return c.save()
+	if st == ResponseRejected {
+		sort.Strings(returned)
+		c.notice(r, NoticeRejected, files, returned)
+	}
+	return c.commit(r)
 }
 
 // checkChange — можно ли менять текущую версию файлов ревью.
 func (c *Core) checkChange(r *Review) error {
 	if r.pending() != nil {
 		return ErrUnviewedResponse
+	}
+	if r.Stopping {
+		return ErrStopping
 	}
 	if r.Working || c.count(r, CommentWaiting, CommentWorking) > 0 {
 		return ErrAgentWorking
@@ -494,6 +554,10 @@ func (c *Core) AcceptFile(reviewID, path string) error {
 	if f.Current < 0 {
 		return fmt.Errorf("файл %s: %w", path, ErrNotFound)
 	}
+	c.touch(r)
+	if _, ok := c.drift[path]; ok {
+		return &DiskChangedError{[]string{path}}
+	}
 	if f.Base != f.Current {
 		f.Base = f.Current
 		f.BaseIsOriginal = false
@@ -503,7 +567,7 @@ func (c *Core) AcceptFile(reviewID, path string) error {
 			cm.Status = CommentResolved
 		}
 	}
-	return c.save()
+	return c.commit(r)
 }
 
 // Edit — правка владельца.
@@ -525,13 +589,20 @@ func (c *Core) Edit(reviewID, path, content string) error {
 	if f.Current >= 0 && same(f.Versions[f.Current], v) {
 		return nil
 	}
+	if err := c.diskCheck(r, f); err != nil {
+		return err
+	}
+	if err := c.writeDisk(path, v); err != nil {
+		return err
+	}
 	n := f.Base
 	if f.Base < 0 || !same(f.Versions[f.Base], v) {
 		n = c.addVersion(f, v)
 	}
 	c.reanchor(f, f.Current, n, nil)
 	f.Current = n
-	return c.save()
+	c.notice(r, NoticeOwnerEdit, []string{path}, nil)
+	return c.commit(r)
 }
 
 // RevertToBase — «вернуть к базе».
@@ -552,9 +623,19 @@ func (c *Core) RevertToBase(reviewID, path string) error {
 	if f.Base < 0 {
 		return fmt.Errorf("у файла %s нет базы", path)
 	}
+	if f.Current == f.Base {
+		return nil
+	}
+	if err := c.diskCheck(r, f); err != nil {
+		return err
+	}
+	if err := c.writeDisk(path, f.Versions[f.Base]); err != nil {
+		return err
+	}
 	c.reanchor(f, f.Current, f.Base, nil)
 	f.Current = f.Base
-	return c.save()
+	c.notice(r, NoticeRevert, []string{path}, nil)
+	return c.commit(r)
 }
 
 // SetEditing — владелец открыл или закрыл редактор правки.
@@ -571,7 +652,7 @@ func (c *Core) SetEditing(reviewID string, on bool) error {
 		}
 	}
 	r.Editing = on
-	return c.save()
+	return c.commit(r)
 }
 
 // MarkOpened — владелец открыл файл.
@@ -590,7 +671,7 @@ func (c *Core) MarkOpened(reviewID, path string) error {
 		return nil
 	}
 	f.Opened = true
-	return c.save()
+	return c.commit(r)
 }
 
 // FileView — всё, что клиенту нужно знать о файле.
@@ -609,6 +690,10 @@ type FileView struct {
 	ResponseDeleted bool
 	Comments        []CommentView // открытые комментарии: без решённых и удалённых
 	AgentWorking    bool          // есть «ожидает» или «в работе» — в дереве бегают точки
+	// DiskChanged — «изменён на диске»: на диске не то, что ожидается. Disk — что там лежит.
+	DiskChanged bool
+	Disk        string
+	DiskDeleted bool
 }
 
 // isAccepted — текущая версия совпадает с базой, и нет комментариев «отвечен», ждущих `␣a`.
@@ -644,6 +729,9 @@ func (c *Core) view(r *Review, path string) FileView {
 			v.Response = &s
 			v.ResponseDeleted = f.Versions[n].Deleted
 		}
+	}
+	if d, ok := c.drift[path]; ok {
+		v.DiskChanged, v.Disk, v.DiskDeleted = true, d.Content, d.Deleted
 	}
 	v.Comments = c.commentViews(r, f)
 	for _, cm := range f.Comments {
@@ -697,20 +785,41 @@ type ReviewView struct {
 	Questions   int        // неотвеченные вопросы агента
 	Files       []FileView // файлы, которых нет в текущей версии (только в ответе), не показываются
 	NotAdded    []Busy
+	Stopping    bool     // «останавливается…» после «прервать»
+	Restored    []string // файлы, которые duet перезаписал после последнего «прервать»
+	DiskChanged []string // файлы с пометкой «изменён на диске»
+	Synced      bool     // ревью сверено с диском после запуска duet
+}
+
+// allDone — ревью принято целиком, если не считать расхождений с диском.
+func (c *Core) allDone(r *Review) bool {
+	if r.Working || r.Stopping || r.pending() != nil {
+		return false
+	}
+	for _, f := range c.files(r) {
+		if f.Current >= 0 && !isAccepted(f) {
+			return false
+		}
+	}
+	done := true
+	c.eachComment(r, func(_ *File, cm *Comment) {
+		switch cm.Status {
+		case CommentUnsent, CommentQuestion, CommentWaiting, CommentWorking:
+			done = false
+		}
+	})
+	return done
 }
 
 func (c *Core) reviewView(r *Review) ReviewView {
-	rv := ReviewView{ID: r.ID, Title: r.Title, Created: r.Created, Working: r.Working, HasResponse: r.pending() != nil, NotAdded: r.NotAdded}
-	all := true
+	rv := ReviewView{ID: r.ID, Title: r.Title, Created: r.Created, Working: r.Working, HasResponse: r.pending() != nil, NotAdded: r.NotAdded,
+		Stopping: r.Stopping, Restored: r.Restored, DiskChanged: c.drifted(r), Synced: c.synced[r.ID]}
 	for _, p := range r.Paths {
 		v := c.view(r, p)
 		if v.State != StateMoved && c.s.Files[p].Current < 0 && !v.Ripple {
 			continue
 		}
 		rv.Files = append(rv.Files, v)
-		if v.State != StateMoved && v.State != StateAccepted && v.State != StateDeletedAccepted {
-			all = false
-		}
 	}
 	c.eachComment(r, func(_ *File, cm *Comment) {
 		switch {
@@ -722,8 +831,7 @@ func (c *Core) reviewView(r *Review) ReviewView {
 	})
 	rv.Agent = r.Agent
 	rv.AgentLost = !r.Agent && c.count(r, CommentWorking) > 0
-	rv.Accepted = all && !r.Working && !rv.HasResponse && rv.Unsent == 0 && rv.Questions == 0 &&
-		c.count(r, CommentWaiting, CommentWorking) == 0
+	rv.Accepted = c.allDone(r) && len(rv.DiskChanged) == 0
 	return rv
 }
 

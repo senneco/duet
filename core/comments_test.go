@@ -439,8 +439,7 @@ func TestCommentsPersist(t *testing.T) {
 	c, dir := open(t)
 	r := create(t, c, Submission{Path: "/a", Content: doc})
 	a := addC(t, c, r, "/a", sel(doc, "два"), "А")
-	c2, err := Open(dir)
-	must(t, err)
+	c2 := reopen(t, dir)
 	if x := cv(t, c2, r, "/a", a); x.Thread[0].Text != "А" || x.Range != *sel(doc, "два") {
 		t.Fatalf("%+v", x)
 	}
