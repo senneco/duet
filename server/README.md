@@ -32,7 +32,9 @@
 
 Команды и хуки агентов — `POST /api/agent/...`, см. `agent/README.md`.
 
-Действия — `POST /api/reviews/{id}/{action}` с JSON-телом: `sync`, `opened {path}`, `accept-file {path}`, `edit {path, content}`, `editing {on}`, `revert {path}`, `accept-response`, `reject-response`, `take-from-disk {paths}`, `overwrite {paths}`, `interrupt`, `restore-anyway`, `send`, `comment {path, range?, text, images, inResponse}` → `{id}`, `comment-edit {id, text, images}`, `comment-delete {id}`, `reply {id, text, images}`, `dismiss {id}`. `POST /api/shutdown` — остановить ядро.
+Действия — `POST /api/reviews/{id}/{action}` с JSON-телом: `sync`, `opened {path}`, `accept-file {path}`, `edit {path, content}`, `editing {on}`, `revert {path}`, `accept-response`, `reject-response`, `take-from-disk {paths}`, `overwrite {paths}`, `interrupt`, `restore-anyway`, `send`, `comment {path, range?, text, images, inResponse, was?}` → `{id}` (`was` — комментарий к удалённому тексту: что было; `range` — точка, где это было), `comment-edit {id, text, images}`, `comment-delete {id}`, `reply {id, text, images}`, `dismiss {id}`. `POST /api/shutdown` — остановить ядро.
+
+Картинки в комментариях — `POST /api/images {data: "data:image/png;base64,…"}` → `{path, url}`: файл в папке данных (`images/`, имя по содержимому), `path` уходит в `images` комментария — его открывает агент, `url` (`GET /api/images/{имя}`) — для клиента.
 
 Ошибки — `{error, message, paths?}`: `error` — код, по нему клиент выбирает текст на своём языке (`unviewed-response`, `agent-working`, `disk-changed` с `paths`, `no-agent`, `stopping`, `nothing-to-send` и т. д., список в `codes`). 404 — нет ревью или файла, 409 — ядро запретило действие.
 
@@ -47,13 +49,15 @@
 
 ## Веб-клиент (`server/web/`)
 
-Поведение — `docs/specs/` (шаг 6a: `docs/changes/06a-reading/proposal.md`), вид — макет D `docs/changes/06a-reading/mockups/d-keyboard.html`.
+Поведение — `docs/specs/` (шаг 6a: `docs/changes/06a-reading/proposal.md`, шаг 6b: `docs/changes/06b-comments/proposal.md`), вид — макет D `docs/changes/06a-reading/mockups/d-keyboard.html`, комментарии — `docs/changes/06b-comments/mockups/comments.html`.
 
 Обычные модули JS без сборки: `index.html` и `app.css` отдаются по `/` и `/r/{id}`, модули — по `/web/…`. Всё встроено в программу, поэтому после правок клиента нужно пересобрать duet (новая сборка сама заменит работающее ядро, открытые вкладки перезагрузятся).
 
 - `js/main.js` — состояние, маршрут (`/`, `/r/<ревью>`), загрузка, живые обновления, клавиши, дерево, строка состояния, всплывающее. Настройки (колонки, документ, тема, язык, место в ревью, свёрнутые папки) — в `localStorage` с приставкой `duet:`.
 - `js/view.js` — отличия ядра в HTML: код (одна и две колонки, свёрнутые куски), документ (`docUnits`: блоки старой и новой версии, связанные общими строками и правками, — единицы «было / стало / новое»). Ничего не пересчитывает.
 - `js/markdown.js` — блоки markdown и текст внутри них; подсветка правок переносится из строк в текст и не пересекает теги.
+- Места в исходнике: отрисовка помечает каждый кусок текста `data-p="n12.5"` (сторона `o` — база, `n` — текущая; строка с 0; символ строки). По этим пометкам `js/anchors.js` переводит выделение в байты текущей версии (как их хранит ядро), а выделение удалённого — в точку, где оно было, и цитату «было».
+- `js/comments.js` — карточки (под абзацем, строкой кода или строкой двух колонок), окно комментария, отметки текста (CSS Custom Highlight API — текст не оборачивается), своё выделение одной фигурой и правки в несколько строк одной фигурой (SVG под текстом). Родного выделения в тексте файла нет: `main.js` гасит нажатие мыши и сам следит за ней — поэтому плашки браузера не появляются.
 - `js/syntax.js` — подсветка синтаксиса по словам, состояние переносится между строками.
 - `js/tree.js` — дерево файлов; `js/i18n.js` — тексты на русском и английском; `js/util.js` — мелочи (места подсветки из байтов UTF-8 в символы).
 

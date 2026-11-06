@@ -89,13 +89,25 @@ export function parseBlocks(lines) {
 
 // ── отрисовка ──
 
-// Source — текст блока, собранный из кусков строк, и где в нём каждая строка.
+// Source — текст блока, собранный из кусков строк, и где в нём каждая строка. side — сторона
+// (o — база, n — текущая): если задана, каждый кусок текста помечен местом в исходнике (data-p),
+// по этим пометкам выделение переводится в место в тексте файла.
 class Source {
-  constructor(rangesOf) {
+  constructor(rangesOf, side = '') {
     this.text = '';
     this.rs = [];
     this.rangesOf = rangesOf;
+    this.side = side;
+    this.segs = []; // [начало в text, строка, с какого символа строки, длина]
   }
+  // posOf — место символа i текста блока в исходнике: «n12.5» — сторона, строка (с 0), символ строки.
+  posOf(i) {
+    let seg = this.segs[0];
+    for (const g of this.segs) { if (g[0] <= i) seg = g; else break; }
+    return `${this.side}${seg[1]}.${seg[2] + Math.min(Math.max(i - seg[0], 0), seg[3])}`;
+  }
+  // cut — на символе i начинается или кончается кусок строки: здесь пометку нужно начать заново.
+  cut(i) { return this.side && this.segs.some((g) => g[0] === i || g[0] + g[3] === i); }
   // add — кусок строки line с позиции from (до to). Между строками — перевод строки,
   // он подсвечен, если подсвечены обе стороны: так подсветка абзаца без дыр.
   add(line, lineText, from, to = lineText.length, sep = '\n') {
@@ -105,6 +117,7 @@ class Source {
       if (prev && inRanges(this.rangesOf(line), from)) this.rs[this.rs.length - 1][1] = this.text.length;
     }
     const at = this.text.length;
+    this.segs.push([at, line, from, Math.max(0, to - from)]);
     for (const [a, b] of this.rangesOf(line)) {
       const x = Math.max(a, from), y = Math.min(b, to);
       if (y > x) {
@@ -119,8 +132,8 @@ class Source {
 }
 
 // renderBlock — блок как HTML. rangesOf(i) — подсвеченные места строки i, cls — класс подсветки.
-export function renderBlock(b, lines, rangesOf = () => [], cls = '') {
-  const src = new Source(rangesOf);
+export function renderBlock(b, lines, rangesOf = () => [], cls = '', side = '') {
+  const src = new Source(rangesOf, side);
   switch (b.type) {
     case 'heading': {
       if (b.setext) {
@@ -161,22 +174,22 @@ export function renderBlock(b, lines, rangesOf = () => [], cls = '') {
     case 'hr':
       return '<hr>';
     case 'table':
-      return table(b, lines, rangesOf, cls);
+      return table(b, lines, rangesOf, cls, side);
     case 'code':
-      return `<pre class="cb">${codeLines(b, lines, rangesOf, cls)}</pre>`;
+      return `<pre class="cb">${codeLines(b, lines, rangesOf, cls, side)}</pre>`;
   }
   return '';
 }
 
 // codeLineList — строки блока кода с подсветкой синтаксиса и правок, по одной.
-export function codeLineList(b, lines, rangesOf, cls) {
+export function codeLineList(b, lines, rangesOf, cls, side = '') {
   const [a, z] = b.inner;
   const body = lines.slice(a, z);
   const toks = tokenize(body.join('\n'), langOf(b.lang));
-  return body.map((l, k) => `<span class="cl">${paint(l, toks && toks[k], rangesOf(a + k), cls) || '​'}</span>`);
+  return body.map((l, k) => `<span class="cl"${side ? ` data-p="${side}${a + k}.0"` : ''}>${paint(l, toks && toks[k], rangesOf(a + k), cls) || '​'}</span>`);
 }
 
-export const codeLines = (b, lines, rangesOf, cls) => codeLineList(b, lines, rangesOf, cls).join('');
+export const codeLines = (b, lines, rangesOf, cls, side) => codeLineList(b, lines, rangesOf, cls, side).join('');
 
 function cells(line) {
   // Границы ячеек: «|» вне `кода` и не экранированные.
@@ -200,7 +213,7 @@ function cells(line) {
   });
 }
 
-function table(b, lines, rangesOf, cls) {
+function table(b, lines, rangesOf, cls, side) {
   const align = cells(lines[b.start + 1]).map(([a, z]) => {
     const t = lines[b.start + 1].slice(a, z);
     return t.startsWith(':') && t.endsWith(':') ? 'center' : t.endsWith(':') ? 'right' : '';
@@ -208,7 +221,7 @@ function table(b, lines, rangesOf, cls) {
   const row = (i, tag) => {
     const cs = cells(lines[i]);
     return '<tr>' + cs.map(([a, z], k) => {
-      const src = new Source(rangesOf);
+      const src = new Source(rangesOf, side);
       src.add(i, lines[i], a, z);
       const al = align[k] ? ` style="text-align:${align[k]}"` : '';
       return `<${tag}${al}>${inline(src, cls)}</${tag}>`;
@@ -233,9 +246,10 @@ function inline(src, cls) {
     while (i < t.s.length) {
       const on = cls && inRanges(src.rs, t.at + i);
       let j = i + 1;
-      while (j < t.s.length && (cls && inRanges(src.rs, t.at + j)) === on) j++;
+      while (j < t.s.length && (cls && inRanges(src.rs, t.at + j)) === on && !src.cut(t.at + j)) j++;
       const s = esc(t.s.slice(i, j));
-      out += on ? `<mark class="${cls}">${s}</mark>` : s;
+      const body = on ? `<mark class="${cls}">${s}</mark>` : s;
+      out += src.side ? `<span data-p="${src.posOf(t.at + i)}">${body}</span>` : body;
       i = j;
     }
   }

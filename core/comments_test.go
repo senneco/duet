@@ -500,3 +500,28 @@ func TestDiffRandom(t *testing.T) {
 		}
 	}
 }
+
+// 151 (шаг 6b): комментарий к удалённому тексту висит точкой там, где был текст, с цитатой «было»;
+// агент знает, что цитаты в файле больше нет. Точка едет вместе с текстом.
+func TestRemovedTextComment(t *testing.T) {
+	c, r := setup(t)
+	at := strings.Index(doc, "три")
+	a, err := c.AddRemovedComment(r, "/a", at, "старая строка", "Зачем удалил?", nil)
+	must(t, err)
+	x := cv(t, c, r, "/a", a)
+	if x.Range != (Range{at, at}) || !x.Removed || x.Was != "старая строка" {
+		t.Fatalf("%+v", x)
+	}
+	if _, err := c.AddRemovedComment(r, "/a", at, "", "А", nil); !errors.Is(err, ErrBadRange) {
+		t.Fatal(err)
+	}
+	nw := "ноль\n" + doc
+	must(t, c.Edit(r, "/a", nw))
+	if x := cv(t, c, r, "/a", a); x.Range.Start != strings.Index(nw, "три") || x.Was != "старая строка" {
+		t.Fatalf("%+v", x)
+	}
+	got := sendTake(t, c, r)
+	if len(got) != 1 || !got[0].Removed || got[0].Quote != "старая строка" {
+		t.Fatalf("%+v", got)
+	}
+}

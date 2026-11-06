@@ -6,6 +6,8 @@ import { langOf } from './syntax.js';
 import { dict, defaultLang, fmtDate } from './i18n.js';
 import { buildTree, flatten, fileOrder, isAccepted, counts } from './tree.js';
 import { renderCode, renderDoc, renderDocPlain, renderLines } from './view.js';
+import { target, commentOrder } from './anchors.js';
+import { cardHTML, editorHTML, threadState, placeCards, anchorRanges, paintAnchors, pointPos, shapeMarks, drawSelection } from './comments.js';
 
 const $ = (s) => document.querySelector(s);
 
@@ -43,6 +45,14 @@ const S = {
   listSel: 0,
   pending: '',
   blockLines: [],
+  // комментарии (шаг 6b)
+  sel: null, // своё выделение: {range, a, b, lines} — a, b — места в исходнике
+  menuSel: false, // меню «Комментарий gc» у выделения
+  ed: null, // открытое окно: {kind: new|edit|reply, id, whole, target, text, images, ask, x, y}
+  act: null, // выбранный комментарий
+  ask: null, // «удалить?» у выбранного комментария
+  ranges: new Map(), // места комментариев на экране
+  stopSince: 0, // когда увидели «останавливается…»
 };
 const T = () => dict(S.lang);
 
@@ -82,6 +92,7 @@ window.addEventListener('popstate', enter);
 async function enter() {
   S.review = null; S.missing = false; S.path = null; S.file = null; S.chunks = null; S.contentKey = '';
   S.overlay = ''; S.toast = null; S.sync = null; S.expanded = new Set();
+  S.sel = null; S.menuSel = false; S.ed = null; S.act = null; S.ask = null;
   const id = routeId();
   if (!id) {
     await loadList();
@@ -110,6 +121,16 @@ async function loadReview(id) {
   const { tree } = buildTree(S.review.files);
   S.tree = tree;
   S.order = fileOrder(tree);
+  // «Вернуть файлы всё равно» — через 10 секунд после «останавливается…».
+  if (S.review.stopping && !S.stopSince) { S.stopSince = Date.now(); setTimeout(renderOverlays, 10100); }
+  if (!S.review.stopping) S.stopSince = 0;
+}
+
+function copyLink() {
+  const btn = document.querySelector('[data-act="copylink"]');
+  const link = btn ? btn.dataset.link : '';
+  if (link && navigator.clipboard) navigator.clipboard.writeText(link).catch(() => {});
+  toast({ ok: true, short: `✓ ${T().copied}`, title: T().copied });
 }
 
 // openReview — открыть ревью: сверить с диском, прочитать, открыть файл.
@@ -138,7 +159,11 @@ function act0(id, action) {
 
 async function openFile(path, { line = 0, off, keep = false } = {}) {
   const changed = path !== S.path;
-  if (changed) { S.expanded = new Set(); S.blocksHidden = false; if (S.toast && !S.toast.ok) { S.toast = null; renderOverlays(); } }
+  if (changed) {
+    S.expanded = new Set(); S.blocksHidden = false; if (S.toast && !S.toast.ok) { S.toast = null; renderOverlays(); }
+    S.sel = null; S.menuSel = false; S.act = null; S.ask = null;
+    if (S.ed) S.ed = null;
+  }
   S.path = path;
   const anchor = keep ? anchorOf() : null;
   let file, chunks;
@@ -230,6 +255,7 @@ function renderAll() {
   if (!id) {
     $('#tree').innerHTML = '';
     $('#winbar').innerHTML = '';
+    $('#banner').innerHTML = '';
     $('#map').innerHTML = '';
     $('#sc').innerHTML = listHTML();
     S.contentKey = '';
@@ -237,7 +263,9 @@ function renderAll() {
   } else {
     renderTree();
     renderWinbar();
+    renderBanner();
     renderContent();
+    renderComments();
     document.title = S.review ? `${S.review.title || S.review.id} — duet` : 'duet';
   }
   renderStatus();
@@ -302,7 +330,7 @@ function renderTree() {
     const f = r.file;
     const open = f.path === S.path;
     const gone = ['deleted', 'deleted-accepted', 'moved'].includes(f.state) ? ' gone' : '';
-    h += `<div class="tr${open ? ' open' : ''}${gone}" data-file="${esc(f.path)}" title="${esc(f.path)}"><span class="pad"></span>${ind(r.depth)}<span class="ic">${fileIcon(f)}</span><span class="nm">${esc(f.name)}</span><span class="fill"></span>${fileTag(f)}</div>`;
+    h += `<div class="tr${open ? ' open' : ''}${gone}" data-file="${esc(f.path)}" title="${esc(f.path)}"><span class="pad"></span>${ind(r.depth)}<span class="ic">${fileIcon(f)}</span><span class="nm">${esc(f.name)}</span>${f.open ? `<span class="cmk${f.questions ? ' q' : ''}">${f.open}</span>` : ''}<span class="fill"></span>${fileTag(f)}</div>`;
     if (open && !S.blocksHidden && S.file && S.file.path === f.path) {
       const cur = currentBlock();
       for (const [k, b] of (S.file.blocks || []).entries()) {
@@ -340,7 +368,8 @@ function renderWinbar() {
   const acc = isAccepted(f)
     ? `<span class="kb done">✓ ${t.accepted}</span>`
     : f.state === 'moved' ? '' : `<button class="kb" data-act="accept">${t.accept} <kbd>␣a</kbd></button>`;
-  el.innerHTML = `<span><span class="dir">${esc(rel.slice(0, slash + 1))}</span><span class="fn">${esc(rel.slice(slash + 1))}</span></span><span class="st">${stateText(f)}</span><span class="sp"></span>${acc}`;
+  const cm = canComment() ? `<button class="kb" data-act="comment">${t.menuComment} <kbd>␣c</kbd></button>` : '';
+  el.innerHTML = `<span><span class="dir">${esc(rel.slice(0, slash + 1))}</span><span class="fn">${esc(rel.slice(slash + 1))}</span></span><span class="st">${stateText(f)}</span><span class="sp"></span>${cm}${acc}`;
 }
 
 function relPath(p) {
@@ -381,6 +410,8 @@ function renderContent() {
   if (key === S.contentKey) return;
   S.contentKey = key;
   sc.innerHTML = contentHTML();
+  S.sel = null; S.menuSel = false;
+  shapeMarks(sc);
   resolveBlocks();
   renderMap();
 }
@@ -440,8 +471,9 @@ function renderStatus() {
   h += '<span class="sp"></span>';
   if (S.review) {
     const c = counts(S.review.files);
+    if (S.review.unsent) h += `<span class="seg uns" data-act="send">${t.unsentN} <b>${S.review.unsent}</b> · ␣s</span>`;
     h += seg(`${S.lang === 'ru' ? 'принято' : 'accepted'} <b>${c.done}</b>/${c.total} <span class="pbar"><i style="width:${c.total ? (c.done / c.total) * 100 : 0}%"></i></span>`);
-    h += seg(agentText(S.review));
+    h += seg(agentText(S.review) + (canInterrupt() ? `<button class="kb int" data-act="interrupt">${t.interrupt} <kbd>␣u</kbd></button>` : ''));
   }
   h += seg(position(), 'pos');
   h += seg(`<span class="k">␣</span> ${t.menu} · <span class="k">?</span> ${t.keys}`, 'click" data-act="menu');
@@ -477,9 +509,11 @@ function renderOverlays() {
   if (S.overlay === 'menu') {
     const it = (k, ds, now, later) => `<div class="it${later ? ' later' : ''}" ${later ? '' : `data-key="${k}"`}><span class="key">${k}</span><span class="ar">→</span><span class="ds">${ds}</span>${now ? `<span class="now">${now}</span>` : ''}</div>`;
     const file = S.file && !isAccepted(S.file) && S.file.state !== 'moved' ? it('a', t.menuAccept, t.menuAcceptNext) : '';
+    const r = S.review || {};
     h += `<div class="wk"><div class="top"><span class="crumb">␣</span><span>${t.menuTitle}${S.file ? ' · ' + esc(relPath(S.file.path)) : ''}</span><span class="sp"></span><kbd>esc</kbd> ${t.close}</div>
-<div class="grid"><div><div class="grp">${t.menuFile}</div>${file || `<div class="it later"><span class="key">a</span><span class="ar">→</span><span class="ds">${t.menuAccept}</span><span class="now">${S.file && isAccepted(S.file) ? '✓ ' + t.accepted : ''}</span></div>`}</div>
-<div><div class="grp">${t.menuLater}</div>${it('c', t.menuComment, '', 1)}${it('s', t.menuSend, '', 1)}${it('r', t.menuResponse, '', 1)}${it('e', t.menuEdit, '', 1)}</div></div></div>`;
+<div class="grid" style="grid-template-columns:repeat(3,max-content)"><div><div class="grp">${t.menuFile}</div>${file || `<div class="it later"><span class="key">a</span><span class="ar">→</span><span class="ds">${t.menuAccept}</span><span class="now">${S.file && isAccepted(S.file) ? '✓ ' + t.accepted : ''}</span></div>`}${it('c', t.menuComment, t.menuCommentNow, !canComment())}</div>
+<div><div class="grp">${t.menuAgent}</div>${it('s', t.menuSend, r.unsent ? t.menuSendNow(r.unsent) : '', !r.unsent)}${it('u', t.menuInterrupt, t.menuInterruptNow, !canInterrupt())}</div>
+<div><div class="grp">${t.menuLater}</div>${it('r', t.menuResponse, '', 1)}${it('e', t.menuEdit, '', 1)}</div></div></div>`;
   }
   if (S.overlay === 'help') {
     const k = (keys, ds) => `<div class="k"><span class="ks">${keys.map((x) => `<kbd>${x}</kbd>`).join('')}</span><span class="ds">${ds}</span></div>`;
@@ -488,11 +522,20 @@ function renderOverlays() {
 <div><div class="grp">${t.navigation}</div>${k([']c', '[c'], t.kChange)}${k([']f', '[f'], t.kFile)}${k([']b', '[b'], t.kBlock)}</div>
 <div><div class="grp">${t.actions}</div>${k(['␣'], t.kMenu)}${k(['␣a'], t.kAccept)}${k(['?'], t.kHelp)}${k(['esc'], t.kEsc)}</div>
 <div><div class="grp">${t.view}</div>${k(['␣v'], t.kCols)}${k(['␣m'], t.kDoc)}</div>
+<div><div class="grp">${t.comments}</div>${k(['gc'], t.kComment)}${k(['␣c'], t.kCommentAny)}${k(['␣s'], t.kSend)}${k(['␣u'], t.kInterrupt)}${k([']n', '[n'], t.kNextComment)}</div>
+<div><div class="grp">${t.selected}</div>${k(['↵'], t.kCardEnter)}${k(['x'], t.kCardX)}${k(['1', '2', '3'], t.kCardNum)}</div>
 <div><div class="grp">${t.reviews.toLowerCase()}</div>${k(['j', 'k', '↵'], t.kList)}</div>
 </div></div>`;
   }
-  if (S.toast && S.toast.title) {
-    h += `<div class="toast${S.toast.ok ? ' ok' : ''}"><span class="x">${S.toast.ok ? '✓' : '✕'}</span><div class="t1">${esc(S.toast.title)}</div>${S.toast.text ? `<div class="t2">${S.toast.text}</div>` : ''}<div class="t3"><span><kbd>esc</kbd> ${t.close}</span></div></div>`;
+  if (S.overlay === 'interrupt') {
+    h += `<div class="dimmer" data-act="close"></div><div class="off-card"><div class="h"><span class="pt"></span>${t.intTitle}</div><p>${t.intText}</p><div class="ft"><button class="btn err" data-act="interrupt-go">${t.intGo} <kbd>↵</kbd></button><span><kbd>esc</kbd> ${t.intNo}</span></div></div>`;
+  }
+  if (S.review && S.review.stopping && routeId()) {
+    const late = S.stopSince && Date.now() - S.stopSince >= 10000;
+    h += `<div class="toast"><span class="x w"><span class="spin"></span></span><div class="t1">${t.stopTitle}</div><div class="t2">${t.stopText}</div>${late ? `<div class="t3"><button class="btn2" data-act="restore">${t.restoreAnyway}</button></div>` : ''}</div>`;
+  } else if (S.toast && S.toast.title) {
+    const icon = S.toast.icon || (S.toast.ok ? '✓' : '✕');
+    h += `<div class="toast${S.toast.ok ? ' ok' : ''}"><span class="x${S.toast.cls ? ' ' + S.toast.cls : ''}">${icon}</span><div class="t1">${esc(S.toast.title)}</div>${S.toast.text ? `<div class="t2">${S.toast.text}</div>` : ''}<div class="t3">${S.toast.btn || ''}<span><kbd>esc</kbd> ${t.close}</span></div></div>`;
   }
   if (!S.online) {
     h += `<div class="dimmer"></div><div class="off-card"><div class="h"><span class="pt"></span>${t.offTitle}</div><p>${t.offText}</p><div class="ft"><span class="spin"></span> ${t.offWait}</div></div>`;
@@ -703,12 +746,456 @@ function closeOverlay() {
   renderStatus();
 }
 
+// ── комментарии ──
+
+function canComment() {
+  const f = S.file;
+  return !!(S.review && f && f.state !== 'moved' && !f.currentDeleted);
+}
+
+function canInterrupt() {
+  const r = S.review;
+  return !!(r && !r.stopping && (r.agentLost || r.files.some((f) => f.agentWorking)));
+}
+
+const openComments = () => (S.file && S.file.state !== 'moved' ? S.file.comments || [] : []).filter((c) => !c.inResponse);
+const commentById = (id) => openComments().find((c) => c.id === id);
+
+function renderBanner() {
+  const el = $('#banner');
+  const r = S.review;
+  if (!r || !r.agentLost || r.stopping) { el.innerHTML = ''; return; }
+  const t = T();
+  el.innerHTML = `<span class="pt"></span><span><b>${t.lostTitle}</b> ${t.lostText}</span><span class="sp"></span><button class="btn err" data-act="interrupt">${t.intGo} <kbd>␣u</kbd></button>`;
+}
+
+// keepEditor / restoreEditor — окно комментария переживает перерисовку: текст, фокус, курсор.
+function keepEditor() {
+  const ta = document.querySelector('#ced textarea');
+  if (!ta || !S.ed || S.ed.ask) return;
+  S.ed.text = ta.value;
+  S.ed.focus = document.activeElement === ta;
+  S.ed.caret = [ta.selectionStart, ta.selectionEnd];
+}
+
+function restoreEditor() {
+  const ta = document.querySelector('#ced textarea');
+  if (!ta || !S.ed) return;
+  ta.value = S.ed.text || '';
+  if (S.ed.ask) return;
+  if (S.ed.focus !== false) {
+    ta.focus({ preventScroll: true });
+    const [a, b] = S.ed.caret || [ta.value.length, ta.value.length];
+    ta.setSelectionRange(a, b);
+  }
+  ta.oninput = () => { S.ed.text = ta.value; };
+}
+
+function renderComments() {
+  const sc = $('#sc');
+  if (!S.file || !routeId()) return;
+  keepEditor();
+  const t = T();
+  const list = commentOrder(openComments());
+  if (S.act && !list.some((c) => c.id === S.act)) { S.act = null; S.ask = null; }
+  const items = list.map((c, i) => {
+    const mine = S.ed && S.ed.id === c.id;
+    let html = cardHTML(c, {
+      t, n: i + 1, on: S.act === c.id,
+      edit: mine && S.ed.kind === 'edit' ? editorHTML(S.ed, t) : '',
+      reply: mine && S.ed.kind === 'reply' ? editorHTML(S.ed, t) : '',
+    });
+    if (S.ask && S.ask.id === c.id) {
+      const q = S.ask.kind === 'draft' ? t.cDeleteReplyQ : t.cDeleteQ;
+      html = html.replace(/<div class="acts">[\s\S]*?<\/div><\/div>$/, `<div class="ced incard"><div class="ft ask"><span class="q">${q}</span><span class="sp"></span><button class="btn err" data-cact="delete-go">${t.cDelete} <kbd>↵</kbd></button><button class="btn2" data-cact="delete-no">${t.cCancel} <kbd>esc</kbd></button></div></div></div>`);
+    }
+    return { c, html };
+  });
+  const current = S.file.current || '';
+  placeCards(sc, items, current);
+  S.ranges = anchorRanges(sc, list, current);
+  paintAnchors(S.ranges, list, S.act);
+  sc.querySelectorAll(':scope > .ced, :scope > .smenu').forEach((e) => e.remove());
+  if (S.ed && S.ed.kind === 'new') {
+    if (S.ed.whole) {
+      const box = sc.querySelector('.doc, .code, .two, .code2');
+      if (box) {
+        const d = document.createElement('div');
+        d.className = `cc-slot cc-whole ${box.classList.contains('doc') ? 'cc-doc' : 'cc-code'}`;
+        d.innerHTML = editorHTML(S.ed, t);
+        const hd = box.querySelector(':scope > .hd');
+        const first = box.querySelector(':scope > .cc-whole');
+        if (first) first.before(d); else if (hd) hd.after(d); else box.prepend(d);
+      }
+    } else {
+      sc.insertAdjacentHTML('beforeend', editorHTML(S.ed, t));
+      const e = sc.lastElementChild;
+      e.style.left = S.ed.x + 'px';
+      e.style.top = S.ed.y + 'px';
+    }
+  }
+  const ls = drawSelection(sc, S.sel && S.sel.range && !S.sel.range.collapsed ? S.sel.range : null);
+  if (S.sel) S.sel.lines = ls.length ? ls : S.sel.lines;
+  if (S.sel && S.menuSel && !S.ed && ls.length) {
+    const last = ls[ls.length - 1];
+    sc.insertAdjacentHTML('beforeend', `<div class="smenu" data-act="comment"><span class="ic">✎</span>${t.cComment} <kbd>gc</kbd></div>`);
+    const m = sc.lastElementChild;
+    m.style.left = Math.max(8, Math.min(last.r - 60, sc.clientWidth - 200)) + 'px';
+    m.style.top = last.b + 6 + 'px';
+  }
+  restoreEditor();
+}
+
+// Окно нового комментария: к выделенному или, без выделения, ко всему файлу.
+function openNew() {
+  if (!canComment()) return;
+  const f = S.file;
+  if (S.ed) { document.querySelector('#ced textarea')?.focus(); return; }
+  if (!S.sel) {
+    S.ed = { kind: 'new', whole: true, text: '', images: [] };
+    renderComments();
+    document.querySelector('#ced')?.scrollIntoView({ block: 'nearest' });
+    return;
+  }
+  const tg = target(S.sel.a, S.sel.b, f.base || '', f.current || '', S.chunks || []);
+  if (!tg) return;
+  const sc = $('#sc');
+  const ls = S.sel.lines || [];
+  const last = ls[ls.length - 1] || { b: sc.scrollTop + 40 };
+  const left = Math.min(...ls.map((x) => x.l), sc.clientWidth - 460);
+  S.ed = { kind: 'new', target: tg, text: '', images: [], x: Math.max(16, left), y: last.b + 8 };
+  S.menuSel = false;
+  renderComments();
+}
+
+function openEdit(c) {
+  const { fresh, draft, last } = threadState(c);
+  if (!fresh && !draft) return;
+  const m = fresh ? c.thread[0] : last;
+  S.ed = { kind: 'edit', id: c.id, draft, text: m.text, images: [...(m.images || [])] };
+  S.act = c.id;
+  renderComments();
+}
+
+function openReply(c) {
+  S.ed = { kind: 'reply', id: c.id, text: '', images: [] };
+  S.act = c.id;
+  renderComments();
+}
+
+function closeEditor() {
+  S.ed = null;
+  renderComments();
+}
+
+function escEditor() {
+  keepEditor();
+  const ed = S.ed;
+  if (ed.ask) { ed.ask = null; ed.focus = true; renderComments(); return; }
+  if (!(ed.text || '').trim() && !(ed.images || []).length) { if (ed.kind === 'new') S.sel = null; closeEditor(); return; }
+  ed.ask = 'discard';
+  renderComments();
+}
+
+async function saveEditor() {
+  keepEditor();
+  const ed = S.ed;
+  const t = T();
+  const text = (ed.text || '').trim();
+  if (!text && !(ed.images || []).length) return;
+  try {
+    if (ed.kind === 'new') {
+      const b = { path: S.file.path, text, images: ed.images };
+      if (ed.target && ed.target.range) b.range = ed.target.range;
+      if (ed.target && ed.target.was) { b.range = { start: ed.target.at, end: ed.target.at }; b.was = ed.target.was; }
+      const r = await act('comment', b);
+      S.act = r.id;
+    } else if (ed.kind === 'edit') {
+      await act('comment-edit', { id: ed.id, text, images: ed.images });
+    } else {
+      await act('reply', { id: ed.id, text, images: ed.images });
+    }
+  } catch (e) {
+    commentError(e);
+    return;
+  }
+  S.ed = null;
+  S.sel = null;
+  S.menuSel = false;
+  await reloadFile();
+}
+
+async function reloadFile() {
+  if (!S.review) return;
+  await loadReview(S.review.id);
+  if (S.path) await openFile(S.path, { keep: true });
+}
+
+function commentError(e) {
+  const t = T();
+  const map = {
+    'unviewed-response': [t.unviewedTitle, t.errUnviewedSend],
+    'no-agent': null,
+    stopping: [t.sendDenied, t.errStopping],
+    editing: [t.sendDenied, t.errEditing],
+    'disk-changed': [t.sendDenied, t.errDiskSend],
+    'comment-status': [t.errSave, t.errStatus],
+  };
+  const m = map[e.code] || [t.errSave, esc(e.message || t.errNet)];
+  toast({ title: m[0], text: m[1], short: `✕ ${m[0]}` });
+}
+
+async function cardAction(kind, c, i) {
+  const { fresh, draft, ask } = threadState(c);
+  try {
+    switch (kind) {
+      case 'edit': openEdit(c); return;
+      case 'reply': openReply(c); return;
+      case 'delete':
+        if (fresh || draft) { S.ask = { id: c.id, kind: draft ? 'draft' : 'comment' }; renderComments(); }
+        return;
+      case 'delete-no': S.ask = null; renderComments(); return;
+      case 'delete-go': S.ask = null; await act('comment-delete', { id: c.id }); break;
+      case 'dismiss': if (c.status === 'question') await act('dismiss', { id: c.id }); break;
+      case 'opt': {
+        const opts = ask >= 0 ? c.thread[ask].options || [] : [];
+        if (i >= opts.length) { openReply(c); return; }
+        if (draft) await act('comment-edit', { id: c.id, text: opts[i], images: [] });
+        else await act('reply', { id: c.id, text: opts[i], images: [] });
+        break;
+      }
+      default: return;
+    }
+  } catch (e) {
+    commentError(e);
+    return;
+  }
+  await reloadFile();
+}
+
+// Главное действие выбранного комментария (Enter): свой неотправленный — править, иначе — ответить.
+function cardPrimary(c) {
+  const { fresh, draft } = threadState(c);
+  if (fresh || draft) openEdit(c);
+  else if (c.status === 'question' || c.status === 'answered') openReply(c);
+}
+
+function selectComment(id, scroll) {
+  S.act = id;
+  S.ask = null;
+  renderComments();
+  if (!scroll) return;
+  const sc = $('#sc');
+  const r = S.ranges.get(id);
+  const el = r || sc.querySelector(`.cc[data-cid="${CSS.escape(id)}"]`);
+  if (!el) return;
+  const y = el.getBoundingClientRect().top - sc.getBoundingClientRect().top;
+  if (y < 60 || y > sc.clientHeight - 160) sc.scrollTop += y - 160;
+}
+
+function jumpComment(dir) {
+  const list = commentOrder(openComments());
+  if (!list.length) return;
+  let i = list.findIndex((c) => c.id === S.act);
+  if (i < 0) i = dir > 0 ? -1 : 0;
+  selectComment(list[(i + dir + list.length) % list.length].id, true);
+}
+
+async function send() {
+  const t = T();
+  const r = S.review;
+  if (!r) return;
+  const n = r.unsent;
+  try {
+    await act('send');
+  } catch (e) {
+    if (e.code === 'no-agent') {
+      const link = `${location.origin}/r/${encodeURIComponent(r.id)}`;
+      toast({ title: t.noAgentTitle, text: `${t.noAgentText}<br><code>${esc(link)}</code>`, short: `✕ ${t.noAgentTitle}`, btn: `<button class="btn" data-act="copylink" data-link="${esc(link)}">${t.copyLink} <kbd>↵</kbd></button>`, enter: 'copylink' });
+    } else if (e.code === 'nothing-to-send') {
+      toast({ ok: true, short: t.nothingToSend });
+    } else commentError(e);
+    return;
+  }
+  await loadReview(r.id);
+  toast({ ok: true, title: t.sent(n), text: S.review.agentBusy || S.review.working ? t.sentWait : t.sentWork, short: `✓ ${t.sent(n)}` });
+  if (S.path) await openFile(S.path, { keep: true });
+}
+
+function askInterrupt() {
+  if (!canInterrupt()) return;
+  S.overlay = 'interrupt';
+  renderOverlays();
+  renderStatus();
+}
+
+async function interrupt() {
+  closeOverlay();
+  try { await act('interrupt'); } catch (e) { commentError(e); return; }
+  await reloadFile();
+}
+
+// Картинки: из буфера (⌘V) или перетащенные в окно.
+async function addImages(files) {
+  const ed = S.ed;
+  if (!ed) return;
+  keepEditor();
+  for (const f of files) {
+    if (!f.type.startsWith('image/')) continue;
+    const data = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); });
+    try {
+      const out = await api('/api/images', { data });
+      ed.images = [...(ed.images || []), out.path];
+    } catch (e) { commentError(e); }
+  }
+  if (S.ed === ed) renderComments();
+}
+
+document.addEventListener('paste', (e) => {
+  if (!S.ed || !e.target.closest || !e.target.closest('#ced')) return;
+  const files = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith('image/'));
+  if (files.length) { e.preventDefault(); addImages(files); }
+});
+document.addEventListener('dragover', (e) => { if (S.ed && e.target.closest && e.target.closest('#ced')) e.preventDefault(); });
+document.addEventListener('drop', (e) => {
+  if (!S.ed || !e.target.closest || !e.target.closest('#ced')) return;
+  e.preventDefault();
+  addImages([...(e.dataTransfer?.files || [])]);
+});
+
+// ── своё выделение ──
+// Родного выделения в тексте файла нет: нажатие мыши гасится, duet сам следит за мышью и рисует
+// выделение одной фигурой. Поэтому плашки браузера («Перевести» и т. п.) не появляются.
+
+let drag = null;
+
+function caretAt(x, y) {
+  if (document.caretPositionFromPoint) {
+    const p = document.caretPositionFromPoint(x, y);
+    return p ? [p.offsetNode, p.offset] : null;
+  }
+  const r = document.caretRangeFromPoint && document.caretRangeFromPoint(x, y);
+  return r ? [r.startContainer, r.startOffset] : null;
+}
+
+const inText = (n) => {
+  const el = n && (n.nodeType === 3 ? n.parentElement : n);
+  return !!(el && el.closest('#sc') && el.closest('[data-p]') && !el.closest('.cc, .ced, .smenu'));
+};
+
+function rangeOf(a, b) {
+  const r = document.createRange();
+  r.setStart(a[0], a[1]);
+  r.collapse(true);
+  const p = document.createRange();
+  p.setStart(b[0], b[1]);
+  if (r.compareBoundaryPoints(Range.START_TO_START, p) <= 0) r.setEnd(b[0], b[1]);
+  else { r.setStart(b[0], b[1]); r.setEnd(a[0], a[1]); }
+  return r;
+}
+
+function setSelection(range) {
+  const a = pointPos(range.startContainer, range.startOffset);
+  const b = pointPos(range.endContainer, range.endOffset);
+  if (!a || !b || !range.toString().trim()) return false;
+  S.sel = { range, a, b, lines: [] };
+  S.menuSel = canComment();
+  S.act = null;
+  S.ask = null;
+  renderComments();
+  return true;
+}
+
+function clearSelection() {
+  if (!S.sel) return;
+  S.sel = null;
+  S.menuSel = false;
+  renderComments();
+}
+
+$('#sc').addEventListener('mousedown', (e) => {
+  if (e.button !== 0 || e.target.closest('.cc, .ced, .smenu, .fold, a, button, .notice')) return;
+  if (!e.target.closest('.doc, .two, .code, .code2')) return;
+  e.preventDefault();
+  if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+  window.getSelection().removeAllRanges();
+  const c = caretAt(e.clientX, e.clientY);
+  drag = { a: c && inText(c[0]) ? c : null, b: null, x: e.clientX, y: e.clientY };
+});
+
+document.addEventListener('mousemove', (e) => {
+  if (!drag || !drag.a) return;
+  if (!drag.b && Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) < 3) return;
+  const c = caretAt(e.clientX, e.clientY);
+  if (!c || !inText(c[0])) return;
+  drag.b = c;
+  const sc = $('#sc');
+  sc.querySelectorAll(':scope > .smenu').forEach((m) => m.remove());
+  drawSelection(sc, rangeOf(drag.a, c));
+});
+
+document.addEventListener('mouseup', (e) => {
+  if (!drag) return;
+  const d = drag;
+  drag = null;
+  if (d.a && d.b) {
+    const r = rangeOf(d.a, d.b);
+    if (!r.collapsed && setSelection(r)) return;
+  }
+  // Просто клик: по тексту с комментарием — выбрать комментарий.
+  if (d.a) {
+    for (const [id, r] of S.ranges) {
+      try { if (r.isPointInRange(d.a[0], d.a[1])) { S.sel = null; S.menuSel = false; selectComment(id); return; } } catch { /* другой документ */ }
+    }
+  }
+  if (S.sel && !S.ed) clearSelection();
+  else if (S.sel && S.ed && S.ed.kind !== 'new') clearSelection();
+  else drawSelection($('#sc'), S.sel ? S.sel.range : null);
+  if (S.act && !S.ed) { S.act = null; S.ask = null; renderComments(); }
+});
+
+$('#sc').addEventListener('dblclick', (e) => {
+  const c = caretAt(e.clientX, e.clientY);
+  if (!c || c[0].nodeType !== 3 || !inText(c[0])) return;
+  const s = c[0].nodeValue;
+  const W = /[\p{L}\p{N}_-]/u;
+  let a = c[1], b = c[1];
+  while (a > 0 && W.test(s[a - 1])) a--;
+  while (b < s.length && W.test(s[b])) b++;
+  if (b <= a) return;
+  const r = document.createRange();
+  r.setStart(c[0], a);
+  r.setEnd(c[0], b);
+  setSelection(r);
+});
+
+// Копирование: ⌘C и «Копировать» в меню правой кнопки (на это время выделение отдаём браузеру).
+document.addEventListener('contextmenu', () => {
+  if (!S.sel || !S.sel.range) return;
+  const s = window.getSelection();
+  s.removeAllRanges();
+  s.addRange(S.sel.range);
+});
+document.addEventListener('copy', (e) => {
+  if (!S.sel || !S.sel.range) return;
+  const s = window.getSelection();
+  if (!s.isCollapsed && !(s.anchorNode && s.anchorNode.parentElement && s.anchorNode.parentElement.closest('[data-p]'))) return;
+  e.clipboardData.setData('text/plain', S.sel.range.toString());
+  e.preventDefault();
+});
+
 // ── клавиши ──
 
 document.addEventListener('keydown', (e) => {
+  const k = e.key;
+  // Окно комментария: Esc — закрыть (с вопросом, если что-то написано), ⌘Enter — сохранить.
+  if (S.ed && S.overlay !== 'help') {
+    if (k === 'Escape') { e.preventDefault(); escEditor(); return; }
+    if (S.ed.ask && k === 'Enter') { e.preventDefault(); if (S.ed.kind === 'new') S.sel = null; closeEditor(); return; }
+    if (k === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); saveEditor(); return; }
+  }
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.target.closest && e.target.closest('input, textarea, [contenteditable]')) return;
-  const k = e.key;
   const isList = !routeId();
   if (S.overlay === 'menu') {
     e.preventDefault();
@@ -716,13 +1203,44 @@ document.addEventListener('keydown', (e) => {
     if (k === 'a') accept();
     else if (k === 'v') toggleCols();
     else if (k === 'm') toggleDoc();
+    else if (k === 'c') openNew();
+    else if (k === 's') send();
+    else if (k === 'u') askInterrupt();
+    return;
+  }
+  if (S.overlay === 'interrupt') {
+    e.preventDefault();
+    if (k === 'Enter') interrupt();
+    else if (k === 'Escape') closeOverlay();
     return;
   }
   if (S.overlay === 'help') {
     if (k === 'Escape' || k === '?' || k === 'q') { e.preventDefault(); closeOverlay(); }
     return;
   }
-  if (k === 'Escape') { S.pending = ''; if (S.toast) toast(null); return; }
+  if (k === 'Escape') {
+    S.pending = '';
+    if (S.ask) { S.ask = null; renderComments(); }
+    else if (S.toast) toast(null);
+    else if (S.sel) clearSelection();
+    else if (S.act) { S.act = null; renderComments(); }
+    return;
+  }
+  if (k === 'Enter' && S.toast && S.toast.enter === 'copylink') { e.preventDefault(); copyLink(); return; }
+  if (!S.pending && S.act && !isList) {
+    const c = commentById(S.act);
+    if (c) {
+      if (S.ask) { if (k === 'Enter') { e.preventDefault(); cardAction('delete-go', c); } return; }
+      if (k === 'Enter') { e.preventDefault(); cardPrimary(c); return; }
+      if (k === 'x') {
+        e.preventDefault();
+        const st = threadState(c);
+        cardAction(st.fresh || st.draft ? 'delete' : c.status === 'question' ? 'dismiss' : '', c);
+        return;
+      }
+      if (/^[1-9]$/.test(k) && c.status === 'question') { e.preventDefault(); cardAction('opt', c, +k - 1); return; }
+    }
+  }
   if (S.pending) {
     const seq = S.pending + k;
     S.pending = '';
@@ -735,6 +1253,9 @@ document.addEventListener('keydown', (e) => {
     else if (seq === '[f') jumpFile(-1);
     else if (seq === ']b') jumpBlock(1);
     else if (seq === '[b') jumpBlock(-1);
+    else if (seq === ']n') jumpComment(1);
+    else if (seq === '[n') jumpComment(-1);
+    else if (seq === 'gc' && S.sel) openNew();
     return;
   }
   if (k === '?') { e.preventDefault(); S.overlay = 'help'; renderOverlays(); renderStatus(); return; }
@@ -776,13 +1297,45 @@ document.addEventListener('click', (e) => {
       case 'menu': S.overlay = S.overlay === 'menu' ? '' : 'menu'; renderOverlays(); renderStatus(); break;
       case 'help': S.overlay = 'help'; renderOverlays(); renderStatus(); break;
       case 'close': closeOverlay(); break;
+      case 'comment': openNew(); break;
+      case 'send': send(); break;
+      case 'interrupt': askInterrupt(); break;
+      case 'interrupt-go': interrupt(); break;
+      case 'restore': act('restore-anyway').catch(commentError); break;
+      case 'copylink': copyLink(); break;
     }
     return;
   }
   const key = t.closest('.wk [data-key]');
   if (key) {
     closeOverlay();
-    if (key.dataset.key === 'a') accept();
+    const k = key.dataset.key;
+    if (k === 'a') accept();
+    else if (k === 'c') openNew();
+    else if (k === 's') send();
+    else if (k === 'u') askInterrupt();
+    return;
+  }
+  const eact = t.closest('[data-eact]');
+  if (eact && S.ed) {
+    switch (eact.dataset.eact) {
+      case 'save': saveEditor(); break;
+      case 'cancel': escEditor(); break;
+      case 'back': S.ed.ask = null; S.ed.focus = true; renderComments(); break;
+      case 'discard': if (S.ed.kind === 'new') S.sel = null; closeEditor(); break;
+      case 'unimg': keepEditor(); S.ed.images.splice(+eact.dataset.i, 1); renderComments(); break;
+    }
+    return;
+  }
+  const cact = t.closest('[data-cact]');
+  if (cact) {
+    const c = commentById(cact.closest('.cc')?.dataset.cid);
+    if (c) { S.act = c.id; cardAction(cact.dataset.cact, c, +(cact.dataset.i || 0)); }
+    return;
+  }
+  const card = t.closest('.cc');
+  if (card && !t.closest('.ced, a')) {
+    if (S.act !== card.dataset.cid) selectComment(card.dataset.cid);
     return;
   }
   const dir = t.closest('[data-dir]');
@@ -827,7 +1380,13 @@ $('#sc').addEventListener('scroll', () => {
     savePos();
   });
 });
-window.addEventListener('resize', () => renderMap());
+let resizeTimer = 0;
+window.addEventListener('resize', () => {
+  renderMap();
+  // Строки переносятся иначе: фигуры правок и выделения считаются заново.
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { shapeMarks($('#sc')); renderComments(); }, 120);
+});
 
 applyTheme();
 connect();

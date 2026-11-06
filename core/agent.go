@@ -401,7 +401,7 @@ func (c *Core) unanswered(r *Review, answers []Answer) []AgentComment {
 }
 
 func (c *Core) agentComment(f *File, cm *Comment) AgentComment {
-	return AgentComment{ID: cm.ID, Path: cm.Path, Whole: cm.Whole || c.fileDeleted(f), Quote: cm.Quote, Thread: append([]Message(nil), cm.Thread...)}
+	return AgentComment{ID: cm.ID, Path: cm.Path, Whole: cm.Whole || c.fileDeleted(f), Quote: cm.Quote, Removed: cm.Removed, Thread: append([]Message(nil), cm.Thread...)}
 }
 
 // UnansweredError — агент хочет закончить, не ответив на взятые комментарии.

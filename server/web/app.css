@@ -339,3 +339,124 @@ body.dark .wk { box-shadow: 0 -14px 34px rgba(0, 0, 0, .4) }
 /* значки в шапке файла не обрезаются */
 .winbar .st { overflow: visible }
 .winbar .st .rip, .winbar .st .dots { margin: 0 3px }
+
+/* ══ шаг 6b: комментарии ══ */
+body.light { --cm-u: #d9930f; --cm-u-soft: #fcf1dc; --cm-q: #3d7bf0; --cm-q-soft: #e4edfd; --sel-a: #bcd3f6; --sel-b: #d3c8fb; --sel-op: 1 }
+body.dark { --cm-u: #e5ad45; --cm-u-soft: #3a2f1a; --cm-q: #6a9cf7; --cm-q-soft: #1f2d48; --sel-a: #5f84a8; --sel-b: #6a5a9c; --sel-op: .85 }
+
+/* своё выделение: родного выделения в тексте файла нет, его рисует duet одной фигурой */
+#sc .doc, #sc .two, #sc .code, #sc .code2 { cursor: text }
+#sc .doc ::selection, #sc .two ::selection, #sc .code ::selection, #sc .code2 ::selection { background: transparent; color: inherit }
+#sc .cc ::selection, #sc .ced ::selection { background: color-mix(in srgb, var(--acc) 30%, transparent) }
+svg.selsvg { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 3; overflow: visible }
+svg.selsvg path { fill: url(#selg); fill-opacity: var(--sel-op) }
+svg.selsvg stop.a { stop-color: var(--sel-a) }
+svg.selsvg stop.b { stop-color: var(--sel-b) }
+body.light svg.selsvg { mix-blend-mode: multiply }
+body.dark svg.selsvg { mix-blend-mode: screen }
+
+/* правка в несколько строк — одной фигурой под текстом */
+.mhost { position: relative; z-index: 0 }
+svg.mshape { position: absolute; left: 0; top: 0; z-index: -1; pointer-events: none; overflow: visible }
+svg.mshape path.wa { fill: var(--add-w) }
+svg.mshape path.wd { fill: var(--del-w) }
+mark.shaped { background: transparent !important }
+
+/* меню при выделении */
+.smenu { position: absolute; z-index: 6; display: flex; align-items: center; gap: 8px; padding: 5px 6px 5px 10px; background: var(--bg-pop); border: 1px solid var(--line2); border-radius: 8px; box-shadow: var(--shadow); font: 500 13px/1 var(--sans); color: var(--fg); cursor: pointer; white-space: nowrap }
+.smenu:hover { background: var(--acc-soft); color: var(--acc-fg) }
+.smenu .ic { color: var(--acc-fg); font-size: 14px }
+
+/* окно комментария */
+.ced { position: absolute; z-index: 6; width: 440px; background: var(--bg-pop); border: 1px solid var(--line2); border-radius: 10px; box-shadow: var(--shadow); font: 14px/1.5 var(--sans); overflow: hidden; cursor: auto }
+.ced.whole { position: relative; width: auto; max-width: 620px; margin: 0 0 18px }
+.ced.incard { position: relative; width: auto; box-shadow: none; margin: 8px -4px 0; border-radius: 8px }
+.ced textarea { display: block; width: 100%; min-height: 76px; resize: none; border: 0; outline: 0; background: transparent; color: var(--fg); font: 14.5px/1.5 var(--sans); padding: 12px 14px 6px; field-sizing: content; max-height: 360px }
+.ced.incard textarea { min-height: 56px; font-size: 14px }
+.ced textarea::placeholder { color: var(--fg3) }
+.ced .wh { padding: 10px 14px 0; font: 11px/1 var(--mono); color: var(--fg3) }
+.ced .imgs { display: flex; flex-wrap: wrap; gap: 8px; padding: 2px 14px 10px }
+.thumb { position: relative; display: inline-block; border-radius: 6px; border: 1px solid var(--line2); overflow: hidden; background: var(--bg-side) }
+.thumb img { display: block; height: 64px; max-width: 160px; object-fit: cover }
+.thumb button { position: absolute; right: 2px; top: 2px; width: 18px; height: 18px; border-radius: 50%; background: var(--bg-pop); color: var(--fg2); font: 13px/16px var(--sans); text-align: center }
+.ced .ft { display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 14px; border-top: 1px solid var(--line); background: var(--bg-side); font: 11.5px/1 var(--mono); color: var(--fg3) }
+.ced .ft .sp { flex: 1 }
+.ced .ft .hint { color: var(--fg4) }
+.ced .ft.ask { background: var(--warn-soft); color: var(--fg) }
+.ced .ft.ask .q { font: 600 13px/1 var(--sans) }
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 6px 8px 6px 11px; border-radius: 6px; background: var(--acc); color: #fff; font: 500 13px/1 var(--sans) }
+.btn kbd { background: rgba(255, 255, 255, .2); color: #fff; box-shadow: none }
+.btn.err { background: var(--err) }
+.btn2 { display: inline-flex; align-items: center; gap: 7px; padding: 5px 7px 5px 10px; border-radius: 6px; font: 500 12.5px/1 var(--sans); color: var(--fg2) }
+.btn2:hover { background: var(--bg-seg); color: var(--fg) }
+
+/* отметка текста с комментарием */
+::highlight(cm-unsent) { text-decoration: underline 2px var(--cm-u); text-underline-offset: 4px }
+::highlight(cm-waiting), ::highlight(cm-working) { text-decoration: underline 2px var(--fg3); text-underline-offset: 4px }
+::highlight(cm-answered) { text-decoration: underline 2px var(--acc); text-underline-offset: 4px }
+::highlight(cm-question) { text-decoration: underline 2px var(--cm-q); text-underline-offset: 4px }
+::highlight(cm-on) { background-color: color-mix(in srgb, var(--acc) 22%, transparent) }
+
+/* карточки */
+.cc-slot { cursor: auto }
+.cc-doc { max-width: 620px; margin: 6px 0 20px }
+.cc-code, .cc-code.cc-whole { margin: 6px 24px 10px 110px; max-width: 600px }
+.code.plain + .cc-slot, .cc-whole.cc-doc { margin-top: 0 }
+.cc2 { display: grid; grid-template-columns: 1fr 1fr; padding: 6px 16px 10px 44px; column-gap: 60px }
+.r.cc-slot > .c { padding-top: 6px; padding-bottom: 12px }
+.cc-hatch { padding: 4px 0 }
+.b.hatch.cc-in-hatch { background-color: color-mix(in srgb, var(--cm-u) 8%, transparent); outline: 2px dashed color-mix(in srgb, var(--cm-u) 60%, transparent); outline-offset: -2px }
+.cc + .cc { margin-top: 8px }
+.cc { position: relative; background: var(--bg-pop); border: 1px solid var(--line2); border-radius: 9px; padding: 9px 12px 10px; font: 13.5px/1.45 var(--sans); color: var(--fg); cursor: pointer; transition: box-shadow .12s, border-color .12s; text-align: left }
+.cc.on { border-color: color-mix(in srgb, var(--acc) 70%, var(--line2)); box-shadow: var(--shadow); cursor: auto }
+.cc .ch { display: flex; gap: 8px; align-items: center; font: 11px/1 var(--mono); color: var(--fg3); margin-bottom: 6px; white-space: nowrap }
+.cc .ch .no { font-weight: 700; color: var(--fg2); min-width: 12px }
+.cc .ch .sp { flex: 1 }
+.stt { display: inline-flex; align-items: center; gap: 6px }
+.stt.unsent { color: var(--cm-u) }
+.stt.unsent::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--cm-u) }
+.stt.waiting::before { content: ""; width: 6px; height: 6px; border-radius: 50%; border: 1.2px solid var(--fg3) }
+.stt.working { color: var(--dot) }
+.stt.answered { color: var(--acc-fg) }
+.stt.question { color: #fff; background: var(--cm-q); padding: 3px 6px; border-radius: 4px; font-weight: 600 }
+.cc .m { white-space: pre-wrap; overflow-wrap: anywhere }
+.cc .m + .m, .cc .m + .ced, .cc .ced + .m { margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--line) }
+.cc .au { display: flex; gap: 6px; font: 10.5px/1 var(--mono); color: var(--fg3); margin-bottom: 4px; white-space: normal }
+.cc .ag .au { color: var(--acc-fg) }
+.cc .m.draft { background: var(--cm-u-soft); margin-left: -6px; margin-right: -6px; padding: 7px 6px 6px; border-radius: 6px; border-top: 0 }
+.cc .m.draft .au { color: var(--cm-u) }
+.cc .was { margin: 2px 0 7px; padding: 5px 8px; border-radius: 5px; background: var(--code-bg); font: 13px/1.4 var(--serif); color: var(--fg2); white-space: pre-wrap; max-height: 9em; overflow: hidden }
+.cc .was b { font: 600 10.5px/1 var(--mono); color: var(--fg3); margin-right: 6px }
+.cc .was i { font: normal 10.5px/1 var(--mono); color: var(--fg3); margin-left: 6px }
+.cc .mimg { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px }
+.cc .mimg img { display: block; max-height: 120px; max-width: 260px; border-radius: 6px; border: 1px solid var(--line2) }
+.cc .acts { display: flex; gap: 4px; margin: 8px -6px -4px; font: 11.5px/1 var(--mono); color: var(--fg3) }
+.cc .acts button { padding: 4px 6px; border-radius: 5px; display: inline-flex; gap: 6px; align-items: center; color: var(--fg3) }
+.cc .acts button:hover { background: var(--acc-soft); color: var(--acc-fg) }
+.cc .acts kbd, .cc .opt kbd { font-size: 10px; padding: 2px 4px }
+.cc .opts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; white-space: normal }
+.cc .opt { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line2); border-radius: 6px; padding: 4px 9px 4px 5px; font: 13px/1.2 var(--sans); color: var(--fg) }
+.cc .opt:hover { border-color: var(--acc) }
+.cc .opt.on { border-color: var(--acc); background: var(--acc-soft); color: var(--acc-fg) }
+
+/* дерево: сколько открытых комментариев; синим — есть вопрос агента */
+.cmk { flex: none; margin-left: 6px; font: 600 10px/1 var(--mono); color: var(--fg3); padding: 2px 4px; border-radius: 3px; background: var(--bg-seg) }
+.cmk.q { color: #fff; background: var(--cm-q) }
+
+/* строка состояния */
+.status .seg.uns { color: var(--cm-u); cursor: pointer }
+.status .seg.uns b { color: var(--cm-u) }
+.status .seg.uns:hover { background: var(--cm-u-soft) }
+.status .kb.int { margin-left: 6px; padding: 2px 5px; vertical-align: middle }
+
+/* полоса над файлом: агент пропал */
+.banner { display: flex; align-items: center; gap: 12px; padding: 9px 22px; border-bottom: 1px solid var(--line); font: 13.5px/1.4 var(--sans); background: var(--err-soft); color: var(--fg) }
+.banner:empty { display: none }
+.banner .sp { flex: 1 }
+.banner .pt { width: 8px; height: 8px; border-radius: 50%; background: var(--err); flex: none }
+.toast .x.i { background: var(--acc-soft); color: var(--acc-fg) }
+.toast .x.w { background: var(--warn-soft); color: var(--warn) }
+.toast code { font: 12px var(--mono); background: var(--bg-seg); padding: 2px 5px; border-radius: 4px; color: var(--fg); user-select: all }
+.toast .t3 .src { margin-left: auto }
+.toast .t3 button.btn2 { border: 1px solid var(--line2) }
+.off-card .bt { display: flex; gap: 10px; align-items: center }

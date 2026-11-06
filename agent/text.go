@@ -43,6 +43,9 @@ func comments(cwd string, cms []core.AgentComment) string {
 		where := "whole file"
 		if !cm.Whole && cm.Quote != "" {
 			where = "on " + quote(cm.Quote, 400)
+			if cm.Removed {
+				where = "on text that is no longer in the file: " + quote(cm.Quote, 400)
+			}
 		}
 		fmt.Fprintf(&b, "\n[%s] %s — %s\n", cm.ID, rel(cwd, cm.Path), where)
 		for _, m := range cm.Thread {

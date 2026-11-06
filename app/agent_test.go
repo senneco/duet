@@ -29,7 +29,7 @@ func (e *env) agentRun(dir, session, stdin string, args ...string) res {
 	cmd := exec.Command(bin, args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "DUET_HOME="+e.home, fmt.Sprintf("DUET_PORT=%d", e.port),
-		"DUET_SESSION="+session, "DUET_AGENT=claude", fmt.Sprintf("DUET_PID=%d", os.Getpid()))
+		"DUET_SESSION="+session, "DUET_AGENT=claude", fmt.Sprintf("DUET_PID=%d", os.Getpid()), "DUET_BROWSER="+e.browser())
 	cmd.Stdin = strings.NewReader(stdin)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb

@@ -38,9 +38,11 @@ export function renderCode(chunks, opts) {
   const side = (l, toks, rs, cls) => paint(l.text, toks && toks[l.n - 1], rs, cls) || '​';
   let h = '';
   let inChange = false;
+  // data-p — место текста строки в исходнике (сторона, строка с 0, символ): по нему выделение
+  // переводится в место в файле.
   const row1 = (cls, o, n, sg, html, first) =>
-    `<div class="ln ${cls}${first ? ' cg' : ''}"${n ? ` data-n="${n}"` : ''}${o ? ` data-o="${o}"` : ''}><span class="no">${o || ''}</span><span class="no">${n || ''}</span><span class="sg">${sg}</span><span class="tx">${html}</span></div>`;
-  const cell = (no, html, cls, r2) => `<span class="no${r2 ? ' r2' : ''}">${no || ''}</span><span class="tx ${cls}">${html}</span>`;
+    `<div class="ln ${cls}${first ? ' cg' : ''}"${n ? ` data-n="${n}"` : ''}${o ? ` data-o="${o}"` : ''}><span class="no">${o || ''}</span><span class="no">${n || ''}</span><span class="sg">${sg}</span><span class="tx" data-p="${n ? 'n' + (n - 1) : 'o' + (o - 1)}.0">${html}</span></div>`;
+  const cell = (no, html, cls, r2) => `<span class="no${r2 ? ' r2' : ''}">${no || ''}</span><span class="tx ${cls}" data-p="${r2 ? 'n' : 'o'}${no - 1}.0">${html}</span>`;
   const hatch = (r2) => `<span class="no${r2 ? ' r2' : ''} hatch"></span><span class="tx hatch"></span>`;
   const row2 = (left, right, n, o, cls) => `<div class="rr${cls ? ' ' + cls : ''}"${n ? ` data-n="${n}"` : ''}${o ? ` data-o="${o}"` : ''}>${left}${right}</div>`;
 
@@ -92,12 +94,12 @@ export function renderCode(chunks, opts) {
 }
 
 // renderLines — файл целиком без отличий: новый файл, удалённый, текст без правок.
-export function renderLines(text, lang) {
+export function renderLines(text, lang, side = 'n') {
   const ls = splitLines(text);
   const toks = tokenize(text, lang);
   let h = '';
   ls.forEach((l, k) => {
-    h += `<div class="ln" data-n="${k + 1}"><span class="no"></span><span class="no">${k + 1}</span><span class="sg"></span><span class="tx">${paint(l, toks && toks[k], [], '') || '​'}</span></div>`;
+    h += `<div class="ln" data-n="${k + 1}"><span class="no"></span><span class="no">${k + 1}</span><span class="sg"></span><span class="tx"${side ? ` data-p="${side}${k}.0"` : ''}>${paint(l, toks && toks[k], [], '') || '​'}</span></div>`;
   });
   return `<div class="code plain">${h}</div>`;
 }
@@ -200,14 +202,14 @@ export function renderDoc(chunks, oldText, newText, opts = {}) {
   const oR = (i) => maps.o.get(i + 1)?.rs || [];
   const nR = (i) => maps.n.get(i + 1)?.rs || [];
   const blocks = (bs, lines, rangesOf, cls, side) =>
-    bs.map((b) => `<div class="u" ${side === 'n' ? 'data-n' : 'data-o'}="${b.start + 1}">${renderBlock(b, lines, rangesOf, cls)}</div>`).join('');
+    bs.map((b) => `<div class="u" ${side === 'n' ? 'data-n' : 'data-o'}="${b.start + 1}">${renderBlock(b, lines, rangesOf, cls, side)}</div>`).join('');
   const oldMarked = (u) => u.old.some((b) => { for (let i = b.start; i < b.end; i++) if (oR(i).length || maps.o.get(i + 1)?.kind === 'deleted') return true; return false; });
   // Блок кода, в котором поменялись отдельные строки: показываем его один раз, построчно,
   // удалённые строки — над теми, что их заменили.
   const codeDiff = (u) => {
     const ob = u.old[0], nb = u.new[0];
-    const oh = codeLineList(ob, ol, oR, 'wd');
-    const nh = codeLineList(nb, nl, nR, 'wa');
+    const oh = codeLineList(ob, ol, oR, 'wd', 'o');
+    const nh = codeLineList(nb, nl, nR, 'wa', 'n');
     const inO = (n) => n - 1 >= ob.inner[0] && n - 1 < ob.inner[1];
     const inN = (n) => n - 1 >= nb.inner[0] && n - 1 < nb.inner[1];
     let h = '';
@@ -267,7 +269,7 @@ export function renderDoc(chunks, oldText, newText, opts = {}) {
 }
 
 // renderDocPlain — документ целиком без отличий.
-export function renderDocPlain(text) {
+export function renderDocPlain(text, side = 'n') {
   const ls = splitLines(text);
-  return `<article class="doc">${parseBlocks(ls).map((b) => `<div class="u" data-n="${b.start + 1}">${renderBlock(b, ls)}</div>`).join('')}</article>`;
+  return `<article class="doc">${parseBlocks(ls).map((b) => `<div class="u" data-n="${b.start + 1}">${renderBlock(b, ls, () => [], '', side)}</div>`).join('')}</article>`;
 }

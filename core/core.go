@@ -201,6 +201,9 @@ func Open(dir string) (*Core, error) {
 	return c, nil
 }
 
+// Dir — папка данных duet.
+func (c *Core) Dir() string { return filepath.Dir(c.path) }
+
 func (c *Core) save() error {
 	data, err := json.Marshal(&c.s)
 	if err != nil {
@@ -734,6 +737,9 @@ type FileView struct {
 	ResponseDeleted bool          `json:"responseDeleted"`
 	Comments        []CommentView `json:"comments"`     // открытые комментарии: без решённых и удалённых
 	AgentWorking    bool          `json:"agentWorking"` // есть «ожидает» или «в работе» — в дереве бегают точки
+	// Open и Questions — сколько открытых комментариев и вопросов агента (для отметки в дереве).
+	Open      int `json:"open"`
+	Questions int `json:"questions"`
 	// DiskChanged — «изменён на диске»: на диске не то, что ожидается. Disk — что там лежит.
 	DiskChanged bool    `json:"diskChanged"`
 	Disk        string  `json:"disk"`
@@ -779,6 +785,14 @@ func (c *Core) view(r *Review, path string) FileView {
 		v.DiskChanged, v.Disk, v.DiskDeleted = true, d.Content, d.Deleted
 	}
 	v.Comments = c.commentViews(r, f)
+	for _, cv := range v.Comments {
+		if !cv.InResponse {
+			v.Open++
+			if cv.Status == CommentQuestion {
+				v.Questions++
+			}
+		}
+	}
 	for _, cm := range f.Comments {
 		if cm.Status == CommentWaiting || cm.Status == CommentWorking {
 			v.AgentWorking = true

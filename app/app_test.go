@@ -65,13 +65,18 @@ func setup(t *testing.T) *env {
 	return e
 }
 
+// browser — подставной браузер: записывает ссылку в opened.txt, а не открывает вкладку у владельца.
+func (e *env) browser() string {
+	b := filepath.Join(e.home, "browser.sh")
+	os.WriteFile(b, []byte(fmt.Sprintf("#!/bin/sh\necho \"$1\" >> %q\n", e.opened)), 0o755)
+	return b
+}
+
 // run запускает команду и ждёт её. Если ядро держит вывод команды, run зависнет — значит, терминал занят.
 func (e *env) run(prog string, args ...string) (string, error) {
 	e.t.Helper()
-	browser := filepath.Join(e.home, "browser.sh")
-	os.WriteFile(browser, []byte(fmt.Sprintf("#!/bin/sh\necho \"$1\" >> %q\n", e.opened)), 0o755)
 	cmd := exec.Command(prog, args...)
-	cmd.Env = append(os.Environ(), "DUET_HOME="+e.home, fmt.Sprintf("DUET_PORT=%d", e.port), "DUET_BROWSER="+browser)
+	cmd.Env = append(os.Environ(), "DUET_HOME="+e.home, fmt.Sprintf("DUET_PORT=%d", e.port), "DUET_BROWSER="+e.browser())
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	done := make(chan error, 1)

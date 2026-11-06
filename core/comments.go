@@ -75,11 +75,13 @@ type Answer struct {
 
 // AgentComment — комментарий, как его получает агент.
 type AgentComment struct {
-	ID     string    `json:"id"`
-	Path   string    `json:"path"`
-	Whole  bool      `json:"whole"`
-	Quote  string    `json:"quote"`
-	Thread []Message `json:"thread"`
+	ID    string `json:"id"`
+	Path  string `json:"path"`
+	Whole bool   `json:"whole"`
+	Quote string `json:"quote"`
+	// Removed — цитаты в файле уже нет: её убрали правкой или комментарий оставлен к удалённому тексту.
+	Removed bool      `json:"removed,omitempty"`
+	Thread  []Message `json:"thread"`
 }
 
 // CommentView — комментарий для клиента.
@@ -141,6 +143,19 @@ func (c *Core) stamp() string { return c.now().Format("2006-01-02T15:04:05.000Z0
 // AddComment — владелец оставляет комментарий. sel == nil — ко всему файлу.
 // inResponse — в окне ответа, к версии из непросмотренного ответа.
 func (c *Core) AddComment(reviewID, path string, sel *Range, text string, images []string, inResponse bool) (string, error) {
+	return c.addComment(reviewID, path, sel, "", text, images, inResponse)
+}
+
+// AddRemovedComment — комментарий к тексту, которого в текущей версии уже нет (владелец выделил
+// удалённое). Комментарий висит точкой at — там, где был этот текст, — с цитатой «было: …».
+func (c *Core) AddRemovedComment(reviewID, path string, at int, was, text string, images []string) (string, error) {
+	if was == "" {
+		return "", ErrBadRange
+	}
+	return c.addComment(reviewID, path, &Range{at, at}, was, text, images, false)
+}
+
+func (c *Core) addComment(reviewID, path string, sel *Range, was, text string, images []string, inResponse bool) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	r, err := c.review(reviewID)
@@ -174,6 +189,9 @@ func (c *Core) AddComment(reviewID, path string, sel *Range, text string, images
 		}
 		cm.Range = *sel
 		cm.Quote = v.Content[sel.Start:sel.End]
+		if was != "" {
+			cm.Quote, cm.Removed = was, true
+		}
 	}
 	c.s.Seq++
 	cm.ID = fmt.Sprintf("c%d", c.s.Seq)

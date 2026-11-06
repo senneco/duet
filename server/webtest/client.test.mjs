@@ -13,6 +13,8 @@ const bytes = (s, sub) => {
   const i = s.indexOf(sub);
   return { from: Buffer.byteLength(s.slice(0, i)), to: Buffer.byteLength(s.slice(0, i + sub.length)) };
 };
+// Без пометок мест в исходнике (data-p): так проще сверять текст.
+const plain = (html) => html.replace(/<span data-p="[^"]*">(.*?)<\/span>/gs, '$1');
 const marks = (html, cls) => [...html.matchAll(new RegExp(`<mark class="${cls}">(.*?)</mark>`, 'g'))].map((m) => m[1].replace(/<[^>]+>/g, ''));
 
 test('места подсветки из байтов UTF-8 в символы строки', () => {
@@ -125,7 +127,7 @@ test('документ: изменение внутри абзаца из нес
   assert.equal(units.length, 1);
   assert.ok(units[0].dirty);
   const h = renderDoc(chunks, oldText, newText, {});
-  assert.match(h, /<p>один два\nтри <mark class="wa">пять<\/mark><\/p>/);
+  assert.match(plain(h), /<p>один два\nтри <mark class="wa">пять<\/mark><\/p>/);
 });
 
 test('дерево: общий путь убран, папки сначала и по алфавиту, цепочка папок одной строкой', () => {
@@ -149,4 +151,55 @@ test('документ: правка абзаца и новая таблица �
   ];
   const h = renderDoc(chunks, o, n, { words: { was: 'было', now: 'стало', added: 'новое' } });
   assert.match(h, /data-s="было"[\s\S]*data-s="стало"[\s\S]*data-s="новое"[^>]*><div class="u" data-n="3"><table>/);
+});
+
+// ── шаг 6b: места комментариев ──
+
+import { target, parseP, oldToNew, byteToChar, utf8, commentOrder } from '../web/js/anchors.js';
+
+// Пометки мест в отрисованном HTML: [текст, место].
+const spans = (html) => [...html.matchAll(/data-p="([^"]+)">(?:<mark[^>]*>)?([^<]*)/g)].map((m) => [m[2], m[1]]);
+
+test('документ: каждый кусок текста помечен местом в исходнике, разметка не мешает', () => {
+  const lines = ['Это **важно** и `код` тут', 'вторая строка'];
+  const h = renderBlock({ type: 'para', start: 0, end: 2 }, lines, () => [], '', 'n');
+  const sp = spans(h);
+  const at = (t) => parseP(sp.find(([s]) => s.includes(t))[1]);
+  assert.deepEqual(at('важно'), { side: 'n', line: 0, col: 6 });
+  assert.deepEqual(at('код'), { side: 'n', line: 0, col: 17 });
+  assert.deepEqual(at('вторая'), { side: 'n', line: 1, col: 0 });
+});
+
+test('выделение → место в текущей версии в байтах', () => {
+  const cur = 'один\nдва три\n';
+  const r = target({ side: 'n', line: 1, col: 4 }, { side: 'n', line: 1, col: 7 }, cur, cur, [{ kind: 'same', old: [L(1, 'один'), L(2, 'два три')], new: [L(1, 'один'), L(2, 'два три')] }]);
+  const b = Buffer.from(cur);
+  assert.equal(b.subarray(r.range.start, r.range.end).toString(), 'три');
+});
+
+test('выделение удалённого текста → точка, где он был, и цитата «было»', () => {
+  const base = 'один\nстарое\nтри\n';
+  const cur = 'один\nтри\n';
+  const chunks = [
+    { kind: 'same', old: [L(1, 'один')], new: [L(1, 'один')] },
+    { kind: 'deleted', old: [L(2, 'старое')] },
+    { kind: 'same', old: [L(3, 'три')], new: [L(2, 'три')] },
+  ];
+  const r = target({ side: 'o', line: 1, col: 0 }, { side: 'o', line: 1, col: 6 }, base, cur, chunks);
+  assert.equal(r.was, 'старое');
+  assert.equal(r.at, utf8('один\n'));
+  // Неизменённый текст слева в двух колонках — обычный комментарий к тому же тексту справа.
+  const s = target({ side: 'o', line: 2, col: 0 }, { side: 'o', line: 2, col: 3 }, base, cur, chunks);
+  assert.equal(Buffer.from(cur).subarray(s.range.start, s.range.end).toString(), 'три');
+  // Удалено в конце файла — точка в конце текста.
+  assert.equal(oldToNew([{ kind: 'same', old: [L(1, 'а')], new: [L(1, 'а')] }, { kind: 'deleted', old: [L(2, 'б')] }], 1, 'а\n').at, 2);
+  // Пустое выделение — нечего комментировать.
+  assert.equal(target({ side: 'n', line: 0, col: 2 }, { side: 'n', line: 0, col: 2 }, cur, cur, chunks), null);
+});
+
+test('байты ↔ символы, порядок комментариев', () => {
+  assert.equal(byteToChar('ёжик', 4), 2);
+  assert.equal(utf8('ё😀'), 6);
+  const o = commentOrder([{ id: 'b', range: { start: 9, end: 10 } }, { id: 'w', whole: true, range: {} }, { id: 'a', range: { start: 1, end: 5 } }]);
+  assert.deepEqual(o.map((x) => x.id), ['w', 'a', 'b']);
 });

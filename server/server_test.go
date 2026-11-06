@@ -3,6 +3,7 @@ package server
 import (
 	"bufio"
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -398,5 +399,38 @@ func TestClientFiles(t *testing.T) {
 		if resp.StatusCode != 200 || !strings.Contains(resp.Header.Get("Content-Type"), typ) {
 			t.Fatalf("%s: %d %s", p, resp.StatusCode, resp.Header.Get("Content-Type"))
 		}
+	}
+}
+
+// Шаг 6b: комментарий к удалённому тексту и картинки в комментариях.
+func TestRemovedCommentAndImages(t *testing.T) {
+	e := setup(t)
+	id := e.review(map[string]string{"a.md": "один\nдва\n"})
+	a := e.path("a.md")
+	code, out := e.post("/api/reviews/"+id+"/comment", map[string]any{"path": a, "text": "зачем?", "range": map[string]int{"start": 5, "end": 5}, "was": "полтора"})
+	if code != 200 {
+		t.Fatalf("%d %v", code, out)
+	}
+	fv, _ := e.c.File(id, a)
+	if len(fv.Comments) != 1 || fv.Comments[0].Was != "полтора" || !fv.Comments[0].Removed {
+		t.Fatalf("%+v", fv.Comments)
+	}
+
+	png := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+	code, out = e.post("/api/images", map[string]any{"data": "data:image/png;base64," + png})
+	if code != 200 || !strings.HasSuffix(out["path"].(string), ".png") || !strings.HasPrefix(out["url"].(string), "/api/images/") {
+		t.Fatalf("%d %v", code, out)
+	}
+	if _, err := os.Stat(out["path"].(string)); err != nil {
+		t.Fatal(err)
+	}
+	if code, data := e.do("GET", out["url"].(string), nil, nil); code != 200 || len(data) == 0 {
+		t.Fatalf("get image: %d", code)
+	}
+	if code, _ := e.post("/api/images", map[string]any{"data": base64.StdEncoding.EncodeToString([]byte("<script>"))}); code != 400 {
+		t.Fatalf("not an image: %d", code)
+	}
+	if code, _ := e.do("GET", "/api/images/..%2fstate.json", nil, nil); code != 404 {
+		t.Fatalf("bad name: %d", code)
 	}
 }

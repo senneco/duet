@@ -143,6 +143,7 @@ func (s *Server) routes() {
 	})
 	m.HandleFunc("POST /api/reviews/{id}/{action}", s.action)
 	s.agentRoutes()
+	s.imageRoutes()
 	m.HandleFunc("POST /api/shutdown", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]bool{"ok": true})
 		if f, ok := w.(http.Flusher); ok {
@@ -191,6 +192,8 @@ type body struct {
 	Images     []string    `json:"images"`
 	Range      *core.Range `json:"range"`
 	InResponse bool        `json:"inResponse"`
+	// Was — комментарий к удалённому тексту: что было; Range — точка, где это было.
+	Was string `json:"was"`
 }
 
 func (s *Server) action(w http.ResponseWriter, r *http.Request) {
@@ -232,7 +235,11 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 		err = c.Send(id)
 	case "comment":
 		var cid string
-		cid, err = c.AddComment(id, b.Path, b.Range, b.Text, b.Images, b.InResponse)
+		if b.Was != "" && b.Range != nil {
+			cid, err = c.AddRemovedComment(id, b.Path, b.Range.Start, b.Was, b.Text, b.Images)
+		} else {
+			cid, err = c.AddComment(id, b.Path, b.Range, b.Text, b.Images, b.InResponse)
+		}
 		out = map[string]string{"id": cid}
 	case "comment-edit":
 		err = c.EditComment(id, b.ID, b.Text, b.Images)
