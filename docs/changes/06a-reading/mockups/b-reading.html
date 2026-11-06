@@ -1,0 +1,978 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>duet — макет B «Чтение»</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+/* ---------- Темы ---------- */
+:root, [data-theme="light"] {
+  --bg: #f8f5ee;        /* бумага */
+  --side: #f2eee5;      /* поле дерева */
+  --raise: #fffdf8;     /* карточки поверх */
+  --ink: #2a251f;
+  --ink2: #574f45;
+  --mute: #958b7d;
+  --faint: #bdb4a6;
+  --line: #e3ddd1;
+  --plate: #eee8dc;
+  --acc: #6656d4;
+  --acc-soft: rgba(102, 86, 212, .09);
+  --dot: #3d74d6;
+  --ok: #4b8458;
+  --warn: #a8691f;
+  --del: #f6ded8;
+  --delw: #ecbbb0;
+  --delink: #a9483b;
+  --add: #dde8f6;
+  --addw: #b6ccee;
+  --addink: #3a62a6;
+  --hatch: rgba(120, 96, 64, .17);
+  --shade: rgba(60, 45, 25, .10);
+  --shadow: 0 1px 2px rgba(60, 45, 25, .08), 0 8px 28px rgba(60, 45, 25, .12);
+  /* синтаксис */
+  --s-kw: #8b4597; --s-str: #557428; --s-com: #9a8e7d; --s-fn: #2b5e9f;
+  --s-ty: #985a1d; --s-num: #b0502a; --s-op: #7f7567;
+}
+[data-theme="dark"] {
+  --bg: #1c1a17;
+  --side: #181613;
+  --raise: #25221e;
+  --ink: #e8e1d4;
+  --ink2: #bdb4a6;
+  --mute: #877e71;
+  --faint: #5b544b;
+  --line: #2f2b26;
+  --plate: #28241f;
+  --acc: #a597f7;
+  --acc-soft: rgba(165, 151, 247, .10);
+  --dot: #6c9ff0;
+  --ok: #86bd8f;
+  --warn: #dfa45c;
+  --del: #4a2228;
+  --delw: #7a3540;
+  --delink: #e59a8e;
+  --add: #263a50;
+  --addw: #3d4f8a;
+  --addink: #93b4ee;
+  --hatch: rgba(240, 222, 192, .085);
+  --shade: rgba(0, 0, 0, .38);
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 10px 34px rgba(0, 0, 0, .45);
+  --s-kw: #d2a8e2; --s-str: #b8cb8a; --s-com: #847b6e; --s-fn: #96bdee;
+  --s-ty: #e6b884; --s-num: #eda07c; --s-op: #a1978a;
+}
+
+/* ---------- База ---------- */
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+a { color: inherit; text-decoration: none; }
+.serif { font-family: Charter, "PT Serif", Georgia, serif; }
+.mono, code, pre, kbd { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+kbd {
+  display: inline-block; min-width: 1.5em; padding: 0 .38em; text-align: center;
+  font-size: 11px; line-height: 17px; border-radius: 4px;
+  background: var(--plate); color: var(--ink2); font-weight: 500;
+}
+
+/* ---------- Каркас ревью ---------- */
+.shell { display: grid; grid-template-columns: 284px 1fr; grid-template-rows: 1fr 26px; height: 100vh; }
+.side { grid-row: 1; background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+.main { grid-row: 1; position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.hints {
+  grid-column: 1 / 3; border-top: 1px solid var(--line); background: var(--side);
+  display: flex; align-items: center; gap: 18px; padding: 0 14px; color: var(--mute); font-size: 11.5px;
+}
+.hints kbd { font-size: 10.5px; line-height: 16px; margin-right: 4px; background: transparent; color: var(--ink2); padding: 0 1px; min-width: 0; }
+.hints .r { margin-left: auto; }
+
+/* ---------- Дерево ---------- */
+.side-head { padding: 16px 18px 14px; border-bottom: 1px solid var(--line); }
+.back { color: var(--mute); font-size: 12px; display: inline-flex; gap: 6px; align-items: baseline; }
+.back b { font: italic 600 14px Charter, Georgia, serif; color: var(--ink2); letter-spacing: .01em; }
+.back:hover { color: var(--acc); }
+.rtitle { font: 600 16.5px/1.32 Charter, "PT Serif", Georgia, serif; margin: 10px 0 12px; color: var(--ink); }
+.prog { display: flex; align-items: center; gap: 10px; color: var(--ink2); font-size: 12px; }
+.bar { flex: 1; height: 2px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--acc); border-radius: 2px; }
+.agent { margin-top: 8px; color: var(--ink2); font-size: 12px; display: flex; align-items: center; gap: 7px; }
+.agent .st { color: var(--acc); }
+.agent.off .st { color: var(--warn); }
+
+.tree { flex: 1; overflow: auto; padding: 10px 8px 24px; font-size: 13px; }
+.tr {
+  position: relative; display: flex; align-items: center; height: 26px; padding-right: 8px;
+  border-radius: 5px; color: var(--ink2); cursor: pointer; white-space: nowrap;
+}
+.tr:hover { background: var(--shade); background: color-mix(in srgb, var(--ink) 5%, transparent); }
+.tr .ic { width: 22px; flex: none; display: flex; justify-content: center; align-items: center; }
+.tr .nm { overflow: hidden; text-overflow: ellipsis; }
+.tr .tag { margin-left: auto; padding-left: 10px; font-size: 11px; color: var(--mute); flex: none; }
+.tr.dir { color: var(--mute); }
+.tr.dir .ic { color: var(--faint); font-size: 9px; }
+.tr.open { background: var(--acc-soft); color: var(--ink); }
+.tr.open::before { content: ""; position: absolute; left: -8px; top: 3px; bottom: 3px; width: 2px; border-radius: 2px; background: var(--acc); }
+.tr.gone .nm { color: var(--faint); }
+.tr.note .nm { font: italic 14px Charter, Georgia, serif; color: var(--ink); }
+.tr.note .ic { color: var(--acc); font: 14px Charter, Georgia, serif; }
+.tr.blk { height: 24px; font-size: 12.5px; color: var(--mute); }
+.tr.blk .ar { width: 18px; flex: none; text-align: center; color: var(--faint); font: 13px "STIX Two Math", "Apple Symbols", serif; }
+.tr.blk.hi .ar { color: var(--acc); }
+.tr.blk.hi { color: var(--ink2); }
+.tr.blk.lo { color: var(--faint); }
+.tr.blk:hover { color: var(--ink); }
+.tree .gap { height: 6px; }
+
+/* значки */
+.i-new { width: 8px; height: 8px; border-radius: 50%; background: var(--dot); animation: blink 1.6s ease-in-out infinite; position: relative; }
+.i-seen { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--dot); position: relative; }
+.i-seen.rip::before, .i-seen.rip::after { inset: -2.5px; }
+.i-ok { width: 12px; height: 12px; color: var(--ok); }
+.i-gone { width: 8px; height: 1.5px; background: var(--faint); border-radius: 1px; }
+.i-new.rip { animation: none; }
+.rip::before, .rip::after {
+  content: ""; position: absolute; inset: -1px; border-radius: 50%; border: 1.5px solid var(--dot);
+  animation: ripple 2s ease-out infinite;
+}
+.rip::after { animation-delay: 1s; }
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: .22; } }
+@keyframes ripple { 0% { transform: scale(1); opacity: .75; } 100% { transform: scale(2.7); opacity: 0; } }
+.dots { display: inline-flex; gap: 2.5px; align-items: center; }
+.dots i { width: 3.5px; height: 3.5px; border-radius: 50%; background: currentColor; animation: hop 1.2s ease-in-out infinite; opacity: .25; }
+.dots i:nth-child(2) { animation-delay: .18s; }
+.dots i:nth-child(3) { animation-delay: .36s; }
+@keyframes hop { 0%, 70%, 100% { opacity: .25; transform: translateY(0); } 35% { opacity: 1; transform: translateY(-2px); } }
+.tr .dots { color: var(--acc); }
+.disk { color: var(--warn); }
+
+/* ---------- Верхняя панель ---------- */
+.top { height: 48px; flex: none; display: flex; align-items: center; gap: 14px; padding: 0 16px 0 22px; border-bottom: 1px solid var(--line); position: relative; }
+.path { font-size: 13px; color: var(--mute); white-space: nowrap; }
+.path b { color: var(--ink); font-weight: 500; }
+.mode { color: var(--mute); font-size: 12px; }
+.mode:hover { color: var(--acc); }
+.top .sp { flex: 1; }
+.btn {
+  display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px 0 11px;
+  border: 1px solid var(--line); border-radius: 6px; color: var(--ink); font-size: 12.5px; background: var(--raise);
+}
+.btn:hover { border-color: var(--acc); }
+.btn .ck { color: var(--acc); }
+.btn kbd { background: var(--plate); }
+.tsw { display: inline-flex; align-items: center; gap: 2px; color: var(--mute); font-size: 12px; }
+.tsw button { padding: 4px 7px; border-radius: 5px; }
+.tsw button:hover { color: var(--ink); background: var(--plate); }
+.tsw .vs { width: 1px; height: 14px; background: var(--line); }
+.syncline { position: absolute; left: 0; bottom: -1px; height: 2px; background: var(--acc); width: 30%; }
+.synctext { color: var(--mute); font-size: 12px; display: inline-flex; gap: 8px; align-items: center; }
+
+/* ---------- Прокрутка, карта ---------- */
+.scroll { flex: 1; overflow: auto; position: relative; scroll-behavior: smooth; }
+.scroll::-webkit-scrollbar { width: 0; }
+.map { position: absolute; right: 3px; top: 56px; bottom: 8px; width: 8px; pointer-events: none; }
+.map i { position: absolute; left: 0; right: 0; border-radius: 1px; min-height: 3px; }
+.map i.del { background: var(--delw); right: 50%; }
+.map i.add { background: var(--addw); left: 50%; }
+.map .vp { position: absolute; left: -2px; right: -2px; border-radius: 3px; background: color-mix(in srgb, var(--ink) 7%, transparent); }
+
+/* ---------- Документ ---------- */
+.doc { font-family: Charter, "PT Serif", Georgia, serif; font-size: 17.5px; line-height: 1.7; color: var(--ink); }
+.doc.one { max-width: 660px; margin: 0 auto; padding: 60px 0 160px; }
+.doc h1, .doc h2, .doc p, .doc ul, .doc table, .doc pre { margin: 0; }
+.doc h1 { font-size: 35px; line-height: 1.2; font-weight: 700; letter-spacing: -.012em; }
+.doc h2 { font-size: 22.5px; line-height: 1.3; font-weight: 700; letter-spacing: -.005em; }
+.doc ul { padding-left: 1.25em; }
+.doc li::marker { color: var(--mute); }
+.one .x-h1 { margin-bottom: 22px; }
+.one .x-h2 { margin: 42px 0 10px; }
+.one .x-p, .one .x-table, .one .x-code { margin-bottom: 18px; }
+.one .x-li { margin-bottom: 4px; }
+.one .x-ul { margin-bottom: 18px; }
+.doc table { border-collapse: collapse; width: 100%; font-size: 16px; line-height: 1.5; }
+.doc th { text-align: left; font-weight: 600; font-size: 13px; letter-spacing: .02em; color: var(--ink2); font-family: -apple-system, sans-serif; padding: 6px 14px 6px 0; border-bottom: 1px solid color-mix(in srgb, var(--ink) 18%, transparent); }
+.doc td { padding: 7px 14px 7px 0; border-bottom: 1px solid color-mix(in srgb, var(--ink) 9%, transparent); vertical-align: top; }
+.doc tr:last-child td { border-bottom: 0; }
+.doc pre.cb { font-size: 14px; line-height: 1.6; padding: 13px 16px; border-radius: 6px; background: var(--plate); white-space: pre-wrap; }
+.doc .blk.code pre.cb { background: transparent; padding: 8px 0; }
+.doc code.il { font-size: .82em; padding: .1em .35em; border-radius: 4px; background: var(--plate); }
+
+.basis { font: 12px -apple-system, sans-serif; color: var(--mute); margin: -26px 0 30px; }
+.basis .src { color: var(--warn); }
+.code .basis { grid-column: 1 / -1; margin: -18px 0 18px 98px; }
+/* правки в тексте */
+.blk { position: relative; margin: 0 -14px; padding: 4px 14px; border-radius: 4px; }
+.blk.del { background: var(--del); }
+.blk.add { background: var(--add); }
+.pair > .blk.del { margin-bottom: 3px; }
+.wd, .wa { border-radius: 2px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.wd { background: var(--delw); }
+.wa { background: var(--addw); }
+.ml {
+  position: absolute; right: calc(100% + 14px); top: 4px; white-space: nowrap;
+  font: italic 14px/29.75px Charter, Georgia, serif; letter-spacing: .01em;
+}
+.ml.del { color: var(--delink); }
+.ml.add { color: var(--addink); }
+
+/* две колонки (документ) */
+.split { display: grid; grid-template-columns: 1fr 1fr; max-width: 1110px; margin: 0 auto; padding: 0 34px 160px; font-size: 16.5px; line-height: 1.68; }
+.split .c { display: flex; flex-direction: column; padding: 0 26px 16px; min-width: 0; }
+.split .c.R { border-left: 1px solid var(--line); }
+.split .c.x-h1 { padding-top: 30px; padding-bottom: 18px; }
+.split .c.x-h2 { padding-top: 28px; padding-bottom: 8px; }
+.split .c.x-li { padding-bottom: 3px; }
+.split h1 { font-size: 31px; }
+.split .blk { margin: 0 -12px; padding: 3px 12px; }
+.split .ml { display: none; }
+.fill { flex: 1; margin: 0 -12px; border-radius: 4px; }
+.fill.h, .hatch {
+  background:
+    linear-gradient(var(--bg), var(--bg)) top / 100% 3px no-repeat,
+    repeating-linear-gradient(135deg, var(--hatch) 0 1px, transparent 1px 7px);
+}
+.hatch { flex: 1; margin: 0 -12px; border-radius: 4px; background: repeating-linear-gradient(135deg, var(--hatch) 0 1px, transparent 1px 7px); }
+.colhead {
+  position: sticky; top: 0; z-index: 2; background: var(--bg);
+  font: 12px/1.4 -apple-system, sans-serif; color: var(--mute); padding: 18px 26px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.colhead.R { border-left: 1px solid var(--line); }
+.colhead b { color: var(--ink2); font-weight: 600; }
+.colhead .src { color: var(--warn); }
+
+/* ---------- Код ---------- */
+.code { font: 12.5px/22px ui-monospace, "SF Mono", Menlo, monospace; color: var(--ink); }
+.code.two { display: grid; grid-template-columns: 46px minmax(0, 1fr) 46px minmax(0, 1fr); padding: 0 22px 160px; }
+.code.one { display: grid; grid-template-columns: 40px 40px 18px minmax(0, 1fr); max-width: 860px; margin: 0 auto; padding: 44px 30px 160px 0; }
+.code .ln { color: var(--faint); text-align: right; padding-right: 14px; user-select: none; font-size: 12px; }
+.code .sg { color: var(--faint); user-select: none; text-align: center; }
+.code .cx { white-space: pre-wrap; overflow-wrap: anywhere; padding: 0 12px 0 calc(8px + 4ch); text-indent: -4ch; min-width: 0; }
+.code.one .ln { padding-right: 8px; }
+.code.one .ln.o { opacity: .75; }
+.code .cx.del { background: var(--del); }
+.code .cx.add { background: var(--add); }
+.code .cx.hz { background: repeating-linear-gradient(135deg, var(--hatch) 0 1px, transparent 1px 7px); }
+.code .ln.R { border-left: 1px solid var(--line); }
+.code .sg.del { color: var(--delink); opacity: .7; }
+.code .sg.add { color: var(--addink); opacity: .7; }
+.code .colhead { grid-column: span 2; margin-bottom: 14px; padding-left: 54px; }
+.code .colhead.R { padding-left: 54px; }
+.fold {
+  grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; height: 30px; margin: 6px 0;
+  color: var(--mute); font: 12px -apple-system, sans-serif; cursor: pointer;
+}
+.fold::before, .fold::after { content: ""; flex: 1; height: 0; border-top: 1px dashed var(--line); }
+.fold::before { flex: 0 0 40px; }
+.fold span.fn { font: 12px ui-monospace, "SF Mono", Menlo, monospace; color: var(--faint); }
+.fold:hover { color: var(--acc); }
+.code.one .fold::before { flex-basis: 84px; }
+.s-kw { color: var(--s-kw); }
+.s-str { color: var(--s-str); }
+.s-com { color: var(--s-com); font-style: italic; }
+.s-fn { color: var(--s-fn); }
+.s-ty { color: var(--s-ty); }
+.s-num { color: var(--s-num); }
+.s-op { color: var(--s-op); }
+
+/* ---------- Записка ---------- */
+.letter { max-width: 610px; margin: 0 auto; padding: 96px 0 140px; font-family: Charter, "PT Serif", Georgia, serif; }
+.kicker { font: 12px -apple-system, sans-serif; letter-spacing: .14em; text-transform: uppercase; color: var(--mute); margin-bottom: 26px; }
+.letter p { font-size: 21px; line-height: 1.66; margin: 0 0 18px; }
+.letter .pl { font: .74em ui-monospace, "SF Mono", Menlo, monospace; padding: .12em .4em; border-radius: 4px; background: var(--plate); color: var(--acc); cursor: pointer; }
+.letter .pl:hover { background: var(--acc-soft); }
+.letter .sig { font-style: italic; color: var(--mute); font-size: 16px; margin-top: 30px; }
+.letter .next { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--line); font: 13px -apple-system, sans-serif; color: var(--mute); display: flex; align-items: center; gap: 10px; }
+.letter .next a { color: var(--ink); }
+.letter .next a:hover { color: var(--acc); }
+
+/* ---------- Список ревью ---------- */
+.lp { height: 100vh; display: grid; grid-template-rows: 48px 1fr 26px; }
+.lp .top { padding: 0 16px 0 26px; }
+.lp .hints { grid-column: auto; }
+.word { font: italic 600 18px Charter, Georgia, serif; color: var(--ink); }
+.lp .scroll { padding: 0 20px; }
+.list { max-width: 760px; margin: 0 auto; padding: 72px 0 120px; }
+.list h1 { font: 700 36px/1.2 Charter, "PT Serif", Georgia, serif; margin: 0 0 6px; letter-spacing: -.01em; }
+.list .sub { color: var(--mute); font-size: 13px; margin-bottom: 40px; }
+.rv { display: block; padding: 18px 18px 17px; margin: 0 -18px; border-radius: 8px; cursor: pointer;
+  background: linear-gradient(var(--line), var(--line)) 18px 0 / calc(100% - 36px) 1px no-repeat; }
+.rv:first-of-type, .rv:hover + .rv, .rv.sel + .rv { background: none; }
+.rv:hover, .rv.sel { background: var(--acc-soft); }
+.rv-top { display: flex; align-items: baseline; }
+.rv-title { font: 500 20px/1.35 Charter, "PT Serif", Georgia, serif; color: var(--ink); }
+.lead { flex: 1; margin: 0 12px; border-bottom: 1.5px dotted var(--faint); transform: translateY(-5px); min-width: 30px; }
+.rv-cnt { font: 16px Charter, Georgia, serif; color: var(--ink2); font-variant-numeric: tabular-nums; }
+.rv-meta { display: flex; align-items: center; gap: 8px; margin-top: 5px; color: var(--mute); font-size: 12.5px; }
+.rv-meta .ag { display: inline-flex; gap: 7px; align-items: center; }
+.rv-meta .ag.work { color: var(--acc); }
+.rv-meta .mk { display: inline-flex; gap: 7px; align-items: center; }
+.rv-meta .mk.ans { color: var(--acc); }
+.rv-meta .mk.done { color: var(--ok); }
+.rv-meta .rb { margin-left: auto; width: 76px; height: 2px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.rv-meta .rb i { display: block; height: 100%; background: var(--acc); }
+.rv-meta .rb.full i { background: var(--ok); }
+.rv-meta .sep { color: var(--faint); }
+.mini-rip { width: 7px; height: 7px; border-radius: 50%; background: var(--dot); position: relative; }
+.mini-rip::before, .mini-rip::after { border-color: var(--dot); }
+
+/* ---------- Поверх ---------- */
+.veil { position: absolute; inset: 0; background: var(--shade); z-index: 20; }
+.card { background: var(--raise); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); z-index: 21; }
+.menu { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); width: 440px; padding: 10px 8px 8px; }
+.menu h4, .keys h4 { margin: 0; font: 600 11px -apple-system, sans-serif; letter-spacing: .12em; text-transform: uppercase; color: var(--mute); }
+.menu h4 { padding: 4px 12px 8px; display: flex; justify-content: space-between; }
+.mi { display: flex; align-items: center; gap: 14px; padding: 7px 12px; border-radius: 6px; font-size: 14px; color: var(--ink); cursor: pointer; }
+.mi:hover, .mi.cur { background: var(--acc-soft); }
+.mi kbd { font-size: 12px; min-width: 22px; line-height: 20px; }
+.mi .now { margin-left: auto; color: var(--mute); font-size: 12px; }
+.mi.later { color: var(--faint); cursor: default; }
+.mi.later:hover { background: none; }
+.mi.later kbd { color: var(--faint); background: transparent; border: 1px solid var(--line); }
+.menu .div { height: 1px; background: var(--line); margin: 6px 12px; }
+.menu .foot { padding: 6px 12px 2px; color: var(--mute); font-size: 11.5px; display: flex; gap: 6px; align-items: center; }
+
+.refuse { position: absolute; top: 54px; right: 120px; width: 330px; padding: 14px 16px 14px; z-index: 21; }
+.refuse .t { font: 600 15px/1.35 Charter, Georgia, serif; color: var(--ink); display: flex; gap: 10px; }
+.refuse .t .mini-rip { margin-top: 6px; flex: none; }
+.refuse .d { color: var(--ink2); font-size: 12.5px; margin: 6px 0 12px 17px; }
+.refuse .acts { display: flex; gap: 8px; align-items: center; margin-left: 17px; }
+.refuse .acts .btn { height: 26px; }
+.refuse .acts .esc { color: var(--mute); font-size: 11.5px; margin-left: auto; }
+.refuse::before { content: ""; position: absolute; top: -6px; right: 52px; width: 10px; height: 10px; background: var(--raise); border-left: 1px solid var(--line); border-top: 1px solid var(--line); transform: rotate(45deg); }
+
+.dim { opacity: .38; filter: grayscale(.5); pointer-events: none; }
+.offline { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); width: 420px; padding: 26px 30px 22px; z-index: 21; }
+.offline h3 { margin: 0 0 8px; font: 700 23px/1.25 Charter, Georgia, serif; }
+.offline p { margin: 0 0 14px; font: 16px/1.6 Charter, Georgia, serif; color: var(--ink2); }
+.offline .row { display: flex; align-items: center; gap: 10px; color: var(--mute); font-size: 12.5px; padding-top: 12px; border-top: 1px solid var(--line); }
+.offline .row .dots { color: var(--acc); }
+.offline code { font-size: 13px; padding: 1px 6px; border-radius: 4px; background: var(--plate); color: var(--ink); }
+.offband { height: 30px; flex: none; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 12px; color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--bg)); border-bottom: 1px solid var(--line); }
+
+.keys { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -52%); width: 860px; padding: 26px 30px 22px; }
+.keys .hd { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 20px; }
+.keys .hd b { font: 700 24px Charter, Georgia, serif; }
+.keys .hd span { color: var(--mute); font-size: 12px; }
+.keys .cols { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 26px; }
+.keys h4 { margin-bottom: 10px; }
+.kr { display: flex; gap: 10px; align-items: baseline; padding: 6px 0; font: 15px/1.4 Charter, Georgia, serif; color: var(--ink); border-bottom: 1px solid var(--line); }
+.kr:last-child { border-bottom: 0; }
+.kr .k { flex: 0 0 66px; display: flex; gap: 3px; }
+.kr kbd { font-size: 12px; line-height: 19px; }
+.kr.later { color: var(--faint); }
+.kr.later kbd { color: var(--faint); }
+
+/* ---------- Служебная панель макета ---------- */
+#svc {
+  position: fixed; right: 18px; bottom: 36px; z-index: 100; width: 212px;
+  background: #2b2b2e; color: #e9e9ec; border-radius: 10px; padding: 10px 12px 10px;
+  font: 11.5px/1.45 -apple-system, sans-serif; box-shadow: 0 6px 24px rgba(0,0,0,.28);
+}
+#svc .about { color: #b9b9c0; margin-bottom: 8px; }
+#svc .about b { color: #fff; }
+#svc .nav { display: flex; gap: 3px; align-items: center; flex-wrap: wrap; }
+#svc .nav button { min-width: 21px; height: 21px; border-radius: 5px; color: #d6d6dc; background: #3a3a3f; font-size: 11.5px; }
+#svc .nav button.on { background: #e9e9ec; color: #1d1d20; font-weight: 600; }
+#svc .nav .gap { flex-basis: 100%; height: 2px; }
+#svc .cur { margin-top: 6px; color: #9a9aa3; }
+#svc.min .about, #svc.min .cur { display: none; }
+#svc .x { position: absolute; right: 8px; top: 6px; color: #8a8a92; font-size: 13px; }
+</style>
+</head>
+<body data-theme="light">
+<div id="app"></div>
+
+<div id="svc">
+  <button class="x" title="Свернуть" onclick="this.parentNode.classList.toggle('min')">–</button>
+  <div class="about"><b>B · Чтение.</b> Ревью как хорошая книга: засечки, узкая колонка, широкие поля, тёплая бумага. Дерево тихое; правки — ровные плашки, «было / стало» — на полях, как пометки карандашом.</div>
+  <div class="nav" id="svcnav"></div>
+  <div class="cur" id="svccur"></div>
+</div>
+
+<script>
+/* ================= Данные ================= */
+const SCREENS = [
+  '', 'Список ревью', 'Документ, одна колонка', 'Документ, две колонки', 'Код, две колонки',
+  'Код, одна колонка', 'Меню ␣', 'Записка агента', 'Принять нельзя', 'duet не запущен', 'Список клавиш'
+];
+
+const DOC = [
+  { k: 'same', el: 'h1', t: 'Веб-клиент' },
+  { k: 'mod', el: 'p', whole: true,
+    l: 'Временная страница показывает список ревью и их состояние. Она обновляется сама.',
+    r: 'Клиент показывает ревью, отличия и комментарии. Он обновляется сам, без перезагрузки страницы.' },
+  { k: 'same', el: 'h2', t: 'Список ревью', id: 'b1' },
+  { k: 'mod', el: 'p',
+    l: 'Ревью показаны списком, новые сверху. У каждого видно название⟦ и количество файлов⟧.',
+    r: 'Ревью показаны списком, новые сверху. У каждого видно название⟦, когда создано, сколько файлов принято и что делает агент⟧.' },
+  { k: 'add', el: 'table' },
+  { k: 'same', el: 'h2', t: 'Дерево файлов', id: 'b2' },
+  { k: 'mod', el: 'p',
+    l: 'Файлы показаны ⟦плоским списком в том порядке, в каком их прислал агент⟧.',
+    r: 'Файлы показаны ⟦по папкам и алфавиту, папки сворачиваются⟧.' },
+  { k: 'same', el: 'li', t: 'Принятый файл отмечен галочкой.' },
+  { k: 'mod', el: 'ul', whole: true,
+    l: ['Остальные файлы без пометок.'],
+    r: ['Файл, который ещё не открывали, мигает.', 'Под открытым файлом видны блоки агента.'] },
+  { k: 'mod', el: 'h2', id: 'b3', l: 'Тема', r: 'Тема⟦ и язык⟧' },
+  { k: 'mod', el: 'p', whole: true,
+    l: 'Тема всегда светлая.',
+    r: 'Тема как в macOS, тёмная или светлая. Язык — как в системе.' },
+  { k: 'add', el: 'code', t: 'const theme = localStorage.getItem("theme") ?? "system";' },
+];
+const TABLE = '<table><thead><tr><th>Пометка</th><th>Когда</th></tr></thead><tbody>' +
+  '<tr><td>работает</td><td>у агента есть комментарии «в работе»</td></tr>' +
+  '<tr><td>ответ</td><td>есть непросмотренный ответ</td></tr></tbody></table>';
+
+// строки tree.ts: [вид, база, текущая]; ⟦…⟧ — изменённые слова
+const S_ = (t) => ['same', t, t];
+const CODE = [
+  ['mod', 'import { FileView } from "./api";', 'import { FileView⟦, Block⟧ } from "./api";'],
+  ['add', null, 'import { icon } from "./icons";'],
+  S_(''),
+  ['mod', '// ⟦Плоский список⟧ файлов ревью⟦.⟧', '// ⟦Дерево⟧ файлов ревью⟦: папки по алфавиту, сворачиваются.⟧'],
+  ['mod', 'export function renderTree(files: FileView[], root: HTMLElement) {', 'export function renderTree(files: FileView[], root: HTMLElement⟦, open: string⟧) {'],
+  S_('  root.innerHTML = "";'),
+  ['mod', '  for (const ⟦f of files⟧) {', '  for (const ⟦node of buildTree(sortFiles(files))⟧) {'],
+  S_('    const row = document.createElement("div");'),
+  ['mod', '    row.className = ⟦"row"⟧;', '    row.className = ⟦node.folder ? "folder" : "row"⟧;'],
+  ['mod', '    row.textContent = ⟦f.path⟧;', '    row.textContent = ⟦node.name⟧;'],
+  ['add', null, '    row.prepend(icon(node.file));'],
+  ['mod', '    if (⟦f.state === "accepted"⟧) {', '    if (⟦node.file?.path === open⟧) {'],
+  ['mod', '      ⟦row.classList.add("accepted")⟧;', '      ⟦renderBlocks(node.file.blocks, row)⟧;'],
+  S_('    }'),
+  S_('    root.appendChild(row);'),
+  S_('  }'),
+  S_('}'),
+  S_(''),
+  S_('export function pathLabel(path: string): string {'),
+  S_('  return path.split("/").pop() ?? path;'),
+  S_('}'),
+  S_(''),
+  S_('export function sortFiles(files: FileView[]): FileView[] {'),
+  ['mod', '  return files.slice();', '  return files.slice()⟦.sort((a, b) => a.path.localeCompare(b.path))⟧;'],
+  S_('}'),
+  S_(''),
+  S_('export function isAccepted(f: FileView): boolean {'),
+  S_('  return f.state === "accepted";'),
+  S_('}'),
+  S_(''),
+  S_('export function countAccepted(files: FileView[]): number {'),
+  S_('  return files.filter(isAccepted).length;'),
+  S_('}'),
+  S_(''),
+  S_('export function hasRipple(f: FileView): boolean {'),
+  S_('  return f.ripple;'),
+  S_('}'),
+  ['add', null, ''],
+  ['add', null, 'function renderBlocks(blocks: Block[], row: HTMLElement) {'],
+  ['add', null, '  for (const b of blocks) {'],
+  ['add', null, '    row.after(blockRow(b));'],
+  ['add', null, '  }'],
+  ['add', null, '}'],
+];
+
+const REVIEWS = [
+  { t: 'Шаг 6a: веб-клиент — чтение и принятие', when: 'сегодня, 14:02', a: 2, n: 7, ag: 'Claude Code', st: 'работает' },
+  { t: 'Перевод протокола на английский', when: 'вчера, 18:40', a: 3, n: 4, ag: 'Codex', st: 'ждёт', ans: true },
+  { t: 'Описание тикета: тёмная тема', when: '3 ноября', a: 1, n: 1, ag: null, done: true },
+  { t: 'Черновик статьи для Вики про duet', when: '28 октября', a: 0, n: 2, ag: null },
+];
+
+/* ================= Состояние ================= */
+const S = { s: 2, t: 'light' };
+const expanded = {};
+const closedDirs = {};
+let blocksClosed = false;
+
+function readHash() {
+  const p = new URLSearchParams(location.hash.slice(1));
+  const s = parseInt(p.get('s'), 10);
+  S.s = s >= 1 && s <= 10 ? s : 2;
+  S.t = p.get('t') === 'dark' ? 'dark' : 'light';
+}
+function go(s, t) {
+  if (s) S.s = s;
+  if (t) S.t = t;
+  history.replaceState(null, '', '#s=' + S.s + '&t=' + S.t);
+  render();
+}
+window.addEventListener('hashchange', () => { readHash(); render(); });
+
+/* ================= Утилиты ================= */
+const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const hasMarks = (s) => typeof s === 'string' && s.includes('⟦');
+const strip = (s) => s.replace(/[⟦⟧]/g, '');
+// ⟦…⟧ → цельная подсветка (с пробелами внутри, без «дыр»)
+function marks(s, cls) {
+  return esc(s).replace(/⟦([^⟧]*)⟧/g, (_, x) => `<span class="${cls}">${x}</span>`);
+}
+function parseMarks(s) {
+  let out = '', ranges = [], start = -1;
+  for (const ch of s) {
+    if (ch === '⟦') start = out.length;
+    else if (ch === '⟧') { ranges.push([start, out.length]); start = -1; }
+    else out += ch;
+  }
+  return { text: out, ranges };
+}
+
+/* подсветка синтаксиса TS */
+const KW = new Set('import from export function const let var for of in if else return new typeof null undefined true false while break continue class extends await async'.split(' '));
+const BT = new Set(['string', 'number', 'boolean', 'void', 'any']);
+function tokens(line) {
+  const re = /(\/\/.*$)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|(\b\d+\b)|([A-Za-z_$][\w$]*)|(\?\?|===|=>|\?\.|[?:=|&!<>+\-*/])|(\s+)|(.)/g;
+  const out = []; let m;
+  while ((m = re.exec(line))) {
+    const [all, com, str, num, word, op] = m;
+    let c = '';
+    if (com) c = 's-com';
+    else if (str) c = 's-str';
+    else if (num) c = 's-num';
+    else if (word) {
+      const rest = line.slice(m.index + all.length);
+      const prev = line.slice(0, m.index);
+      if (KW.has(word)) c = 's-kw';
+      else if (BT.has(word) || /^[A-Z]/.test(word)) c = 's-ty';
+      else if (/^\s*\(/.test(rest) && !/\.\s*$/.test(prev)) c = 's-fn';
+      else if (/^\s*\(/.test(rest)) c = 's-fn';
+    } else if (op) c = 's-op';
+    out.push({ s: m.index, e: m.index + all.length, c });
+    if (all.length === 0) re.lastIndex++;
+  }
+  return out;
+}
+function hlRange(text, toks, a, b) {
+  let h = '';
+  for (const t of toks) {
+    const s = Math.max(a, t.s), e = Math.min(b, t.e);
+    if (s >= e) continue;
+    const piece = esc(text.slice(s, e));
+    h += t.c ? `<span class="${t.c}">${piece}</span>` : piece;
+  }
+  return h;
+}
+// строка кода: синтаксис + цельная подсветка правок поверх
+function codeLine(src, wcls) {
+  const { text, ranges } = parseMarks(src || '');
+  const toks = tokens(text);
+  let h = '', pos = 0;
+  for (const [a, b] of ranges) {
+    h += hlRange(text, toks, pos, a);
+    h += `<span class="${wcls}">${hlRange(text, toks, a, b)}</span>`;
+    pos = b;
+  }
+  h += hlRange(text, toks, pos, text.length);
+  return h || '&#8203;';
+}
+const hl = (s) => codeLine(s, '');
+
+const ICON_OK = '<svg class="i-ok" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2.2 6.4l2.4 2.4 5.2-5.6"/></svg>';
+const DOTS = '<span class="dots"><i></i><i></i><i></i></span>';
+
+/* ================= Дерево ================= */
+function tree(open) {
+  const F = (name, st, extra = {}) => ({ name, st, ...extra });
+  const T = [
+    { dir: 'docs/', id: 'docs', kids: [
+      { dir: 'specs/', id: 'specs', kids: [F('core.md', 'ok'), F('web.md', 'seen', { blocks: true, go: 'web', rip: S.s === 8 })] },
+      F('roadmap.md', 'new'),
+    ] },
+    { dir: 'server/web/', id: 'sw', kids: [
+      F('app.ts', 'new', { rip: true }),
+      F('index.html', 'gone'),
+      F('theme.css', 'seen', { disk: true }),
+      F('tree.ts', 'seen', { work: true, go: 'tree' }),
+    ] },
+    F('README.md', 'ok'),
+  ];
+  const ic = (f) => {
+    if (f.st === 'ok') return ICON_OK;
+    if (f.st === 'gone') return '<span class="i-gone"></span>';
+    if (f.st === 'new') return `<span class="i-new${f.rip ? ' rip' : ''}"></span>`;
+    return `<span class="i-seen${f.rip ? ' rip' : ''}"></span>`;
+  };
+  let h = `<div class="tr note${open === 'note' ? ' open' : ''}" data-go="note"><span class="ic">¶</span><span class="nm">Записка агента</span></div><div class="gap"></div>`;
+  const walk = (nodes, d) => {
+    for (const n of nodes) {
+      const pad = `style="padding-left:${d * 14}px"`;
+      if (n.dir) {
+        const c = closedDirs[n.id];
+        h += `<div class="tr dir" data-dir="${n.id}" ${pad}><span class="ic">${c ? '▸' : '▾'}</span><span class="nm">${n.dir}</span></div>`;
+        if (!c) walk(n.kids, d + 1);
+        continue;
+      }
+      const isOpen = n.go && n.go === open;
+      let tag = '';
+      if (n.st === 'gone') tag = 'удалён';
+      if (n.disk) tag = '<span class="disk">изменён на диске</span>';
+      if (n.work) tag = DOTS;
+      if (n.rip) tag = 'ответ';
+      h += `<div class="tr${isOpen ? ' open' : ''}${n.st === 'gone' ? ' gone' : ''}" ${n.go ? `data-go="${n.go}"` : ''} ${isOpen ? 'data-toggle-blocks="1"' : ''} ${pad}>` +
+        `<span class="ic">${ic(n)}</span><span class="nm">${n.name}</span>${tag ? `<span class="tag">${tag}</span>` : ''}</div>`;
+      if (isOpen && n.blocks && !blocksClosed) {
+        const bp = `style="padding-left:${(d + 1) * 14 + 4}px"`;
+        h += `<div class="tr blk hi" data-scroll="b1" ${bp}><span class="ar">⇈</span>Список ревью</div>`;
+        h += `<div class="tr blk" data-scroll="b2" ${bp}><span class="ar">↑</span>Дерево файлов</div>`;
+        h += `<div class="tr blk lo" data-scroll="b3" ${bp}><span class="ar">↓</span>Тема и язык</div>`;
+      }
+    }
+  };
+  walk(T, 0);
+  return h;
+}
+
+function side(open, offline) {
+  const agent = offline
+    ? `<div class="agent off"><span class="st">нет связи с duet</span></div>`
+    : `<div class="agent">Claude Code <span style="color:var(--faint)">·</span> <span class="st">работает</span> <span class="st">${DOTS}</span></div>`;
+  return `<aside class="side">
+    <div class="side-head">
+      <a class="back" data-s="1"><b>duet</b> ← все ревью</a>
+      <div class="rtitle">Шаг 6a: веб-клиент — чтение и принятие</div>
+      <div class="prog"><span>принято 2 из 7</span><span class="bar"><i style="width:28.6%"></i></span></div>
+      ${agent}
+    </div>
+    <nav class="tree">${tree(open)}</nav>
+  </aside>`;
+}
+
+function themeSw() {
+  return `<span class="tsw"><button data-theme-toggle title="Тема: как macOS / тёмная / светлая">${S.t === 'dark' ? '☾ тёмная' : '☀︎ светлая'}</button><span class="vs"></span><button title="Язык">RU</button></span>`;
+}
+
+function hints(list, sync) {
+  if (list) return `<div class="hints"><span><kbd>j</kbd><kbd>k</kbd>выбрать</span><span><kbd>⏎</kbd>открыть</span><span><kbd>?</kbd>все клавиши</span><span class="r">обновляется само</span></div>`;
+  return `<div class="hints">
+    <span><kbd>␣</kbd>действия</span>
+    <span><kbd>]c</kbd><kbd>[c</kbd>изменения</span>
+    <span><kbd>]f</kbd><kbd>[f</kbd>непринятые файлы</span>
+    <span><kbd>?</kbd>все клавиши</span>
+    <span class="r">${sync ? '' : 'сверено с диском'}</span>
+  </div>`;
+}
+
+/* ================= Документ ================= */
+function elHtml(el, x) {
+  if (el === 'p') return `<p>${x}</p>`;
+  if (el === 'h1') return `<h1>${x}</h1>`;
+  if (el === 'h2') return `<h2>${x}</h2>`;
+  if (el === 'li') return `<ul><li>${x}</li></ul>`;
+  if (el === 'ul') return `<ul>${x.map((i) => `<li>${i}</li>`).join('')}</ul>`;
+  return x;
+}
+function sideHtml(r, which, wcls) {
+  const v = r[which];
+  if (r.el === 'ul') return elHtml('ul', v.map((i) => marks(i, wcls)));
+  return elHtml(r.el, marks(v, wcls));
+}
+function addedHtml(r) {
+  if (r.el === 'table') return TABLE;
+  if (r.el === 'code') return `<pre class="cb"><code>${hl(r.t)}</code></pre>`;
+  return '';
+}
+
+function docOne() {
+  let h = '<article class="doc one"><div class="basis">сравнение с версией <span class="src">до задачи · из git, HEAD</span></div>';
+  for (const r of DOC) {
+    const id = r.id ? ` id="${r.id}"` : '';
+    const x = `x-${r.el}`;
+    if (r.k === 'same') { h += `<div class="${x}"${id}>${elHtml(r.el, esc(r.t))}</div>`; continue; }
+    if (r.k === 'add') { h += `<div class="${x}"><div class="blk add ${r.el}" data-chg="add"><span class="ml add">добавлено</span>${addedHtml(r)}</div></div>`; continue; }
+    // изменено: если ничего не удалено — одна строка с добавленными словами
+    if (!r.whole && !hasMarks(r.l)) { h += `<div class="${x}"${id} data-chg="add">${sideHtml(r, 'r', 'wa')}</div>`; continue; }
+    h += `<div class="${x} pair"${id}>` +
+      `<div class="blk del" data-chg="del"><span class="ml del">было</span>${sideHtml(r, 'l', 'wd')}</div>` +
+      `<div class="blk add" data-chg="add"><span class="ml add">стало</span>${sideHtml(r, 'r', 'wa')}</div></div>`;
+  }
+  return h + '</article>';
+}
+
+function docTwo() {
+  let h = '<article class="doc split">' +
+    '<div class="colhead"><b>база</b> · <span class="src">до задачи · из git, HEAD</span></div>' +
+    '<div class="colhead R"><b>текущая</b> · на диске</div>';
+  for (const r of DOC) {
+    const x = `x-${r.el}`;
+    const id = r.id ? ` id="${r.id}"` : '';
+    if (r.k === 'same') {
+      const c = elHtml(r.el, esc(r.t));
+      h += `<div class="c L ${x}"${id}>${c}</div><div class="c R ${x}">${c}</div>`;
+    } else if (r.k === 'add') {
+      h += `<div class="c L ${x}"><div class="hatch"></div></div><div class="c R ${x}"><div class="blk add ${r.el}" data-chg="add">${addedHtml(r)}</div></div>`;
+    } else {
+      h += `<div class="c L ${x}"${id}><div class="blk del" data-chg="del">${sideHtml(r, 'l', 'wd')}</div><div class="fill h"></div></div>` +
+        `<div class="c R ${x}"><div class="blk add" data-chg="add">${sideHtml(r, 'r', 'wa')}</div><div class="fill h"></div></div>`;
+    }
+  }
+  return h + '</article>';
+}
+
+/* ================= Код ================= */
+// разбивка на строки с номерами и свёрнутыми кусками
+function codeRows() {
+  const CTX = 2;
+  let ln = 0, rn = 0;
+  const rows = CODE.map(([k, l, r]) => {
+    const o = { k, l, r };
+    if (k !== 'add') o.ln = ++ln;
+    if (k !== 'del') o.rn = ++rn;
+    return o;
+  });
+  const out = [];
+  let i = 0;
+  while (i < rows.length) {
+    if (rows[i].k !== 'same') { out.push(rows[i]); i++; continue; }
+    let j = i; while (j < rows.length && rows[j].k === 'same') j++;
+    const run = rows.slice(i, j);
+    const head = i === 0 ? 0 : CTX, tail = j === rows.length ? 0 : CTX;
+    const hidden = run.length - head - tail;
+    const id = 'f' + i;
+    if (hidden >= 3 && !expanded[id]) {
+      out.push(...run.slice(0, head));
+      const hid = run.slice(head, run.length - tail);
+      const names = hid.map((x) => (x.r.match(/function (\w+)/) || [])[1]).filter(Boolean);
+      out.push({ k: 'fold', n: hidden, id, names });
+      out.push(...run.slice(run.length - tail));
+    } else out.push(...run);
+    i = j;
+  }
+  return out;
+}
+const foldRow = (f) => `<div class="fold" data-expand="${f.id}" data-chg="fold"><span>ещё ${f.n} строк${f.n % 10 >= 2 && f.n % 10 <= 4 && (f.n < 10 || f.n > 20) ? 'и' : ''}</span>${f.names.length ? `<span class="fn">${f.names.join(', ')}</span>` : ''}</div>`;
+
+function codeTwo() {
+  let h = '<div class="code two">' +
+    '<div class="colhead"><b>база</b> · <span class="src">до задачи · из git, HEAD</span></div>' +
+    '<div class="colhead R"><b>текущая</b> · на диске</div>';
+  for (const r of codeRows()) {
+    if (r.k === 'fold') { h += foldRow(r); continue; }
+    if (r.k === 'same') {
+      h += `<div class="ln">${r.ln}</div><div class="cx">${hl(r.l)}</div><div class="ln R">${r.rn}</div><div class="cx">${hl(r.r)}</div>`;
+    } else if (r.k === 'add') {
+      h += `<div class="ln"></div><div class="cx hz"></div><div class="ln R">${r.rn}</div><div class="cx add" data-chg="add">${codeLine(r.r, 'wa')}</div>`;
+    } else if (r.k === 'mod') {
+      h += `<div class="ln">${r.ln}</div><div class="cx del" data-chg="del">${codeLine(r.l, 'wd')}</div><div class="ln R">${r.rn}</div><div class="cx add" data-chg="add">${codeLine(r.r, 'wa')}</div>`;
+    }
+  }
+  return h + '</div>';
+}
+
+function codeOne() {
+  const rows = codeRows();
+  let h = '<div class="code one"><div class="basis">сравнение с версией <span class="src">до задачи · из git, HEAD</span></div>';
+  const line = (o, n, sg, cls, html, chg) =>
+    `<div class="ln o">${o}</div><div class="ln">${n}</div><div class="sg ${cls}">${sg}</div><div class="cx ${cls}"${chg ? ` data-chg="${chg}"` : ''}>${html}</div>`;
+  let i = 0;
+  while (i < rows.length) {
+    const r = rows[i];
+    if (r.k === 'fold') { h += foldRow(r); i++; continue; }
+    if (r.k === 'same') { h += line(r.ln, r.rn, '', '', hl(r.r)); i++; continue; }
+    // кусок правок: сначала удалённое, потом добавленное
+    let j = i; while (j < rows.length && (rows[j].k === 'mod' || rows[j].k === 'add')) j++;
+    const hunk = rows.slice(i, j);
+    for (const x of hunk) if (x.k === 'mod' && hasMarks(x.l)) h += line(x.ln, '', '−', 'del', codeLine(x.l, 'wd'), 'del');
+    for (const x of hunk) h += line(x.k === 'mod' && !hasMarks(x.l) ? x.ln : '', x.rn, '+', 'add', codeLine(x.r, 'wa'), 'add');
+    i = j;
+  }
+  return h + '</div>';
+}
+
+/* ================= Записка ================= */
+function noteHtml() {
+  const pl = (p, go) => `<span class="pl" ${go ? `data-go="${go}"` : ''}>${p}</span>`;
+  return `<article class="letter">
+    <div class="kicker">Начните отсюда</div>
+    <p>Начните со ${pl('docs/specs/web.md', 'web')} — там поведение.</p>
+    <p>${pl('tree.ts', 'tree')} и ${pl('app.ts')} — реализация дерева и раскладки, их можно смотреть потом.</p>
+    <p>${pl('index.html')} удалён: его заменил клиент.</p>
+    <div class="sig">— Claude Code, сегодня в 14:02</div>
+    <div class="next">Следующий непринятый файл: <a data-go="web" class="mono">docs/specs/web.md</a> <kbd>]f</kbd></div>
+  </article>`;
+}
+
+/* ================= Экраны ================= */
+function listScreen() {
+  const rows = REVIEWS.map((r, i) => {
+    const ag = r.ag
+      ? `<span class="ag ${r.st === 'работает' ? 'work' : ''}">${r.ag} — ${r.st}${r.st === 'работает' ? ' ' + DOTS : ''}</span>`
+      : '<span class="ag">агент не подключён</span>';
+    let mk = '';
+    if (r.ans) mk = '<span class="sep">·</span><span class="mk ans"><span class="mini-rip rip"></span>непросмотренный ответ</span>';
+    if (r.done) mk = '<span class="sep">·</span><span class="mk done">' + ICON_OK + 'принято целиком</span>';
+    return `<a class="rv${i === 0 ? ' sel' : ''}" data-s="${i === 0 ? 2 : ''}">
+      <div class="rv-top"><span class="rv-title">${r.t}</span><span class="lead"></span><span class="rv-cnt">${r.a} из ${r.n}</span></div>
+      <div class="rv-meta"><span>${r.when}</span><span class="sep">·</span>${ag}${mk}<span class="rb${r.a === r.n ? ' full' : ''}"><i style="width:${(r.a / r.n) * 100}%"></i></span></div>
+    </a>`;
+  }).join('');
+  return `<div class="lp">
+    <header class="top"><span class="word">duet</span><span class="path">duet.localhost:4848</span><span class="sp"></span>${themeSw()}</header>
+    <div class="scroll"><section class="list">
+      <h1>Ревью</h1><div class="sub">4 ревью · новые сверху</div>
+      ${rows}
+    </section></div>
+    ${hints(true)}
+  </div>`;
+}
+
+function topFile(path, mode) {
+  const i = path.lastIndexOf('/');
+  return `<span class="path mono">${esc(path.slice(0, i + 1))}<b>${esc(path.slice(i + 1))}</b></span>
+    <button class="mode" data-s="6" title="␣ — меню">${mode}</button>
+    <span class="sp"></span>
+    <button class="btn"><span class="ck">✓</span>Принять<kbd>␣a</kbd></button>
+    ${themeSw()}`;
+}
+
+function reviewScreen() {
+  const s = S.s;
+  let open = 'web', top = '', body = '', over = '', offband = '';
+  if (s === 4 || s === 5) {
+    open = 'tree';
+    top = topFile('server/web/tree.ts', s === 4 ? 'TypeScript · две колонки' : 'TypeScript · одна колонка');
+    body = s === 4 ? codeTwo() : codeOne();
+  } else if (s === 7) {
+    open = 'note';
+    top = `<span class="path serif" style="font-style:italic;font-size:15px;color:var(--ink)">Записка агента</span>
+      <span class="mode">Claude Code · сегодня, 14:02</span><span class="sp"></span>
+      <span class="synctext">сверяю с диском · 12 / 40</span>${themeSw()}<span class="syncline"></span>`;
+    body = noteHtml();
+  } else {
+    const two = s === 3;
+    top = topFile('docs/specs/web.md', two ? 'документ · две колонки' : 'документ · одна колонка');
+    body = two ? docTwo() : docOne();
+  }
+  if (s === 6) over = `<div class="veil" data-s="2"></div>
+    <div class="card menu">
+      <h4><span>Действия</span><kbd>␣</kbd></h4>
+      <div class="mi cur" data-s="2"><kbd>a</kbd>Принять файл<span class="now">и открыть следующий</span></div>
+      <div class="mi" data-s="3"><kbd>v</kbd>Две колонки<span class="now">сейчас одна</span></div>
+      <div class="mi"><kbd>m</kbd>Исходник<span class="now">сейчас документ</span></div>
+      <div class="div"></div>
+      <div class="mi later"><kbd>c</kbd>Комментарий<span class="now">позже</span></div>
+      <div class="mi later"><kbd>s</kbd>Отправить комментарии<span class="now">позже</span></div>
+      <div class="mi later"><kbd>r</kbd>Ответ агента<span class="now">позже</span></div>
+      <div class="mi later"><kbd>e</kbd>Править файл<span class="now">позже</span></div>
+      <div class="foot"><kbd>Esc</kbd>закрыть</div>
+    </div>`;
+  if (s === 8) over = `<div class="card refuse">
+      <div class="t"><span class="mini-rip rip"></span>Есть непросмотренный ответ агента</div>
+      <div class="d">Файл не принят. Сначала посмотрите ответ — он касается этого файла.</div>
+      <div class="acts"><button class="btn">Открыть</button><span class="esc"><kbd>Esc</kbd> закрыть</span></div>
+    </div>`;
+  if (s === 9) {
+    over = `<div class="card offline">
+      <h3>duet не запущен</h3>
+      <p>Ядро остановлено. Вкладка подключится сама и откроется на том же месте, ничего нажимать не нужно.</p>
+      <p style="font-size:14px">Запустить вручную: <code>duet web</code></p>
+      <div class="row"><span class="dots"><i></i><i></i><i></i></span>подключаюсь</div>
+    </div>`;
+  }
+  if (s === 10) over = `<div class="veil" data-s="2"></div>
+    <div class="card keys">
+      <div class="hd"><b>Клавиши</b><span><kbd>Esc</kbd> закрыть</span></div>
+      <div class="cols">
+        <div><h4>Чтение</h4>
+          <div class="kr"><span class="k"><kbd>j</kbd><kbd>k</kbd></span>прокрутка</div>
+          <div class="kr"><span class="k"><kbd>↓</kbd><kbd>↑</kbd></span>то же стрелками</div>
+          <div class="kr"><span class="k"><kbd>gg</kbd><kbd>G</kbd></span>начало и конец</div>
+          <div class="kr"><span class="k"><kbd>]c</kbd><kbd>[c</kbd></span>изменение вперёд и назад</div>
+          <div class="kr"><span class="k"><kbd>]b</kbd><kbd>[b</kbd></span>блок агента</div>
+        </div>
+        <div><h4>Файлы</h4>
+          <div class="kr"><span class="k"><kbd>]f</kbd><kbd>[f</kbd></span>непринятый файл</div>
+          <div class="kr"><span class="k"><kbd>␣a</kbd></span>принять файл</div>
+          <div class="kr"><span class="k"><kbd>␣v</kbd></span>одна или две колонки</div>
+          <div class="kr"><span class="k"><kbd>␣m</kbd></span>документ или исходник</div>
+        </div>
+        <div><h4>Меню</h4>
+          <div class="kr"><span class="k"><kbd>␣</kbd></span>меню действий</div>
+          <div class="kr"><span class="k"><kbd>?</kbd></span>этот список</div>
+          <div class="kr"><span class="k"><kbd>Esc</kbd></span>закрыть</div>
+          <div class="kr later"><span class="k"><kbd>␣c</kbd></span>комментарий — позже</div>
+          <div class="kr later"><span class="k"><kbd>␣r</kbd></span>ответ агента — позже</div>
+        </div>
+      </div>
+    </div>`;
+  const dim = s === 9 ? ' dim' : '';
+  return `<div class="shell">
+    <div class="${dim ? 'dim' : ''}" style="display:contents">${side(open, s === 9).replace('<aside class="side">', `<aside class="side${dim}">`)}</div>
+    <main class="main">
+      <header class="top${dim}">${top}</header>
+      ${offband}
+      <div class="scroll${dim}" id="scroll">${body}</div>
+      ${s !== 7 && s !== 9 ? '<div class="map" id="map"></div>' : ''}
+      ${over}
+    </main>
+    ${hints(false, s === 7 || s === 9)}
+  </div>`;
+}
+
+/* ================= Карта правок ================= */
+function drawMap() {
+  const map = document.getElementById('map'), sc = document.getElementById('scroll');
+  if (!map || !sc) return;
+  const H = sc.scrollHeight, base = sc.getBoundingClientRect().top - sc.scrollTop;
+  let h = '';
+  sc.querySelectorAll('[data-chg="del"],[data-chg="add"]').forEach((el) => {
+    const r = el.getBoundingClientRect();
+    const top = ((r.top - base) / H) * 100, hh = (r.height / H) * 100;
+    h += `<i class="${el.dataset.chg}" style="top:${top}%;height:${hh}%"></i>`;
+  });
+  const vp = () => `<span class="vp" style="top:${(sc.scrollTop / H) * 100}%;height:${(sc.clientHeight / H) * 100}%"></span>`;
+  map.innerHTML = vp() + h;
+  sc.onscroll = () => { const v = map.querySelector('.vp'); if (v) v.outerHTML = vp(); };
+}
+
+/* ================= Рендер ================= */
+function render() {
+  document.body.dataset.theme = S.t;
+  document.getElementById('app').innerHTML = S.s === 1 ? listScreen() : reviewScreen();
+  drawMap();
+  // служебная панель
+  let n = '';
+  for (let i = 1; i <= 10; i++) n += `<button class="${i === S.s ? 'on' : ''}" onclick="go(${i})" title="${SCREENS[i]}">${i}</button>`;
+  n += `<span class="gap"></span><button class="${S.t === 'light' ? 'on' : ''}" onclick="go(0,'light')" style="padding:0 6px">светлая</button><button class="${S.t === 'dark' ? 'on' : ''}" onclick="go(0,'dark')" style="padding:0 6px">тёмная</button>`;
+  document.getElementById('svcnav').innerHTML = n;
+  document.getElementById('svccur').textContent = S.s + ' · ' + SCREENS[S.s];
+}
+
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('[data-s],[data-go],[data-dir],[data-expand],[data-scroll],[data-theme-toggle]');
+  if (!t) return;
+  if (t.dataset.themeToggle !== undefined) return go(0, S.t === 'dark' ? 'light' : 'dark');
+  if (t.dataset.expand) { expanded[t.dataset.expand] = true; return render(); }
+  if (t.dataset.dir) { closedDirs[t.dataset.dir] = !closedDirs[t.dataset.dir]; return render(); }
+  if (t.dataset.scroll) { const el = document.getElementById(t.dataset.scroll); if (el) el.scrollIntoView({ block: 'start' }); return; }
+  if (t.dataset.toggleBlocks) { blocksClosed = !blocksClosed; return render(); }
+  if (t.dataset.go) {
+    const g = t.dataset.go;
+    if (g === 'note') return go(7);
+    if (g === 'web') return go(S.s === 4 || S.s === 3 ? 3 : 2);
+    if (g === 'tree') return go(S.s === 3 || S.s === 4 ? 4 : 5);
+  }
+  if (t.dataset.s) go(+t.dataset.s);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') go(S.s === 1 ? 1 : 2);
+  else if (e.key === ' ' && S.s !== 1) { e.preventDefault(); go(6); }
+  else if (e.key === '?') go(10);
+  else if (e.key === 'v' && [2, 3, 4, 5].includes(S.s)) go({ 2: 3, 3: 2, 4: 5, 5: 4 }[S.s]);
+  else if (e.key === 'a' && S.s === 6) go(2);
+  else if (e.key === 'j') document.getElementById('scroll')?.scrollBy(0, 80);
+  else if (e.key === 'k') document.getElementById('scroll')?.scrollBy(0, -80);
+});
+window.addEventListener('resize', drawMap);
+
+readHash();
+if (!location.hash) history.replaceState(null, '', '#s=' + S.s + '&t=' + S.t);
+render();
+</script>
+</body>
+</html>

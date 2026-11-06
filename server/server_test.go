@@ -379,3 +379,24 @@ func TestShutdown(t *testing.T) {
 		t.Fatal("поток событий не закрылся")
 	}
 }
+
+// Клиент: страница по адресам списка и ревью, модули и стили — с правильным типом, чтобы браузер их взял.
+func TestClientFiles(t *testing.T) {
+	e := setup(t)
+	for _, p := range []string{"/", "/r/r1"} {
+		code, body := e.do("GET", p, nil, nil)
+		if code != 200 || !strings.Contains(string(body), `src="/web/js/main.js"`) {
+			t.Fatalf("%s: %d", p, code)
+		}
+	}
+	for p, typ := range map[string]string{"/web/js/main.js": "javascript", "/web/js/view.js": "javascript", "/web/app.css": "text/css"} {
+		resp, err := http.Get(e.http.URL + p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != 200 || !strings.Contains(resp.Header.Get("Content-Type"), typ) {
+			t.Fatalf("%s: %d %s", p, resp.StatusCode, resp.Header.Get("Content-Type"))
+		}
+	}
+}

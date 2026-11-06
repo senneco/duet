@@ -1,0 +1,341 @@
+/* duet — вид по макету D «Клавиатура» (docs/changes/06a-reading/mockups/d-keyboard.html). */
+:root {
+  --mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+  --serif: Charter, "Iowan Old Style", Georgia, serif;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+}
+body.light {
+  --bg: #faf9f7; --bg-side: #f3f1ed; --bg-bar: #eeebe6; --bg-seg: #e5e1db; --bg-pop: #fffefc;
+  --line: #e3dfd8; --line2: #d6d1c9;
+  --fg: #25222d; --fg2: #5e5968; --fg3: #9b95a4; --fg4: #bdb7c4;
+  --acc: #7b6cf6; --acc-fg: #5b4ce0; --acc-soft: #ebe8fd; --acc-ink: #fff;
+  --sel: #e8e5f6;
+  --del-bg: #fcebec; --del-w: #f5c3c9; --del-fg: #c4364a;
+  --add-bg: #e7effd; --add-w: #c3d6f8; --add-fg: #2d62c9;
+  --dot: #3d7bf0; --warn: #b97c0a; --warn-soft: #fbf0d9; --err: #d0384c; --err-soft: #fbe7ea; --ok: #2f8a5b; --ok-soft: #e1f3e8;
+  --hatch: rgba(110, 100, 130, .17);
+  --code-bg: #f1eee9; --pre-in: rgba(255, 255, 255, .55);
+  --t-k: #7a3fc4; --t-s: #287a5c; --t-c: #9b95a4; --t-f: #a5521c; --t-t: #0e7a88; --t-n: #a5521c; --t-p: #8a4a8e;
+  --shadow: 0 10px 30px rgba(40, 30, 60, .13), 0 2px 6px rgba(40, 30, 60, .06);
+  --dim: rgba(250, 249, 247, .74);
+  color-scheme: light;
+}
+body.dark {
+  --bg: #17151f; --bg-side: #1b1925; --bg-bar: #1f1c2b; --bg-seg: #2a2639; --bg-pop: #211e2e;
+  --line: #2b2839; --line2: #383447;
+  --fg: #dcd8e6; --fg2: #a5a0b3; --fg3: #6f6a82; --fg4: #4d4960;
+  --acc: #8b7cf8; --acc-fg: #a99dfb; --acc-soft: #2a2547; --acc-ink: #fff;
+  --sel: #262238;
+  --del-bg: #43212a; --del-w: #7a3540; --del-fg: #f08a98;
+  --add-bg: #22344a; --add-w: #3d4f8a; --add-fg: #86aef5;
+  --dot: #6a9cf7; --warn: #e5ad45; --warn-soft: #3a2f1a; --err: #f07487; --err-soft: #3e1f28; --ok: #6fd19b; --ok-soft: #1d3428;
+  --hatch: rgba(170, 160, 200, .13);
+  --code-bg: #1f1c2a; --pre-in: rgba(0, 0, 0, .18);
+  --t-k: #c4a3ff; --t-s: #9fd6a7; --t-c: #6f6a82; --t-f: #f0b37a; --t-t: #7fd1d8; --t-n: #f0b37a; --t-p: #e3a3d6;
+  --shadow: 0 14px 40px rgba(0, 0, 0, .45), 0 2px 8px rgba(0, 0, 0, .3);
+  --dim: rgba(23, 21, 31, .74);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; margin: 0; padding: 0 }
+html, body { height: 100% }
+body { font-family: var(--sans); background: var(--bg); color: var(--fg); overflow: hidden; -webkit-font-smoothing: antialiased }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer }
+a { color: var(--acc-fg); text-decoration: none }
+a:hover { text-decoration: underline }
+kbd { font: 600 11px/1 var(--mono); padding: 3px 5px; border-radius: 4px; background: var(--bg-seg); color: var(--fg); box-shadow: inset 0 -1px 0 var(--line2); white-space: nowrap }
+.dim { color: var(--fg3) }
+.err { color: var(--err) }
+.ok { color: var(--ok) }
+.warn { color: var(--warn) }
+
+/* ── каркас ── */
+#app { height: 100%; display: flex; flex-direction: column; position: relative }
+.tabline { flex: none; height: 30px; display: flex; align-items: center; gap: 10px; padding: 0 10px 0 14px; background: var(--bg-bar); border-bottom: 1px solid var(--line); font: 12px/1 var(--mono); color: var(--fg2); white-space: nowrap }
+.tabline .logo { font-weight: 700; color: var(--acc-fg); letter-spacing: .02em }
+.tabline .sep { color: var(--fg4) }
+.tabline .ttl { color: var(--fg); font-family: var(--sans); font-size: 12.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis }
+.tabline .ttl.dim { color: var(--fg3); font-family: var(--mono); font-size: 12px; font-weight: 400 }
+.tabline .sp { flex: 1 }
+.tabline .tb { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 5px; color: var(--fg2); white-space: nowrap }
+.tabline .tb:hover { background: var(--bg-seg); color: var(--fg) }
+.tabline .tb b { color: var(--fg); font-weight: 600 }
+.tabline .tb s { text-decoration: none; color: var(--fg3) }
+.tabline .tsep { width: 1px; height: 14px; background: var(--line2); margin: 0 6px }
+.body { flex: 1; display: flex; min-height: 0; position: relative }
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; background: var(--bg) }
+.scroll { flex: 1; overflow: auto; position: relative; scrollbar-width: none }
+.scroll::-webkit-scrollbar { display: none }
+body.is-list .tree, body.is-list .winbar, body.is-list .map { display: none }
+
+/* ── дерево ── */
+.tree { width: 260px; flex: none; background: var(--bg-side); border-right: 1px solid var(--line); overflow: auto; padding: 8px 0 12px; font: 12.5px/1 var(--mono); color: var(--fg); scrollbar-width: thin }
+.tree .empty { padding: 12px 18px; color: var(--fg3); font-family: var(--sans) }
+.tr { position: relative; min-height: 25px; display: flex; align-items: center; padding-right: 10px; cursor: pointer; white-space: nowrap }
+.tr:hover { background: color-mix(in srgb, var(--sel) 55%, transparent) }
+.tr .ind { flex: none; align-self: stretch; width: 14px; position: relative }
+.tr .ind::before { content: ""; position: absolute; left: 6px; top: 0; bottom: 0; border-left: 1px solid var(--line2) }
+.tr .pad { flex: none; width: 10px }
+.tr .ic { flex: none; width: 20px; display: flex; align-items: center; justify-content: center; position: relative }
+.tr .nm { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis }
+.tr .fill { flex: 1 }
+.tr.dir { color: var(--fg2) }
+.tr.dir .ic { color: var(--fg3); font-size: 9px }
+.tr.open { background: var(--sel) }
+.tr.open::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--acc) }
+.tr.open .nm { font-weight: 600 }
+.tr.gone .nm { color: var(--fg3) }
+.tr.blk { min-height: 23px; color: var(--fg2); font-size: 12px }
+.tr.blk .imp { flex: none; width: 20px; text-align: center; font: 700 14px/1 var(--sans) }
+.tr.blk .imp.i3 { color: var(--acc-fg) }
+.tr.blk .imp.i2 { color: var(--fg2) }
+.tr.blk .imp.i1 { color: var(--fg3); font-weight: 400 }
+.tr.blk .nm { font-family: var(--sans); font-size: 12.5px }
+.tr.blk.cur { color: var(--fg) }
+.tr.blk.cur .nm { font-weight: 600 }
+.tag { flex: none; margin-left: 8px; font: 10.5px/1 var(--mono); padding: 3px 5px; border-radius: 4px; color: var(--fg3) }
+.tag.warn { color: var(--warn); background: var(--warn-soft) }
+.tag.rpl { color: var(--dot) }
+
+/* значки */
+.d-new { width: 8px; height: 8px; border-radius: 50%; background: var(--dot); animation: blink 1.6s ease-in-out infinite; display: inline-block }
+@keyframes blink { 0%, 100% { opacity: 1; transform: scale(1) } 50% { opacity: .25; transform: scale(.78) } }
+.d-seen { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--dot); display: inline-block; vertical-align: middle }
+.d-ok { color: var(--acc-fg); font-size: 12px; font-weight: 700; font-family: var(--sans) }
+.d-ok.gone { color: var(--fg3) }
+.d-gone { width: 8px; height: 2px; border-radius: 1px; background: var(--fg3); display: inline-block }
+.d-moved { color: var(--fg3); font-size: 11px }
+.rip { position: relative; width: 8px; height: 8px; display: inline-block; vertical-align: middle }
+.rip > i { position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid var(--dot); animation: ripple 2s ease-out infinite; opacity: 0 }
+.rip > i:nth-child(2) { animation-delay: .66s }
+.rip > i:nth-child(3) { animation-delay: 1.33s }
+@keyframes ripple { 0% { transform: scale(.7); opacity: .9 } 100% { transform: scale(2.6); opacity: 0 } }
+.rip > b { position: absolute; inset: 0; border-radius: 50%; background: var(--dot) }
+.rip.seen > b { background: none; border: 1.5px solid var(--dot) }
+/* змейка: шесть точек 2×3, огонёк бежит по часовой стрелке */
+.dots { display: inline-grid; grid-template-columns: repeat(2, 3px); grid-template-rows: repeat(3, 3px); gap: 2px; vertical-align: middle }
+.dots i { width: 3px; height: 3px; border-radius: 50%; background: var(--dot); opacity: .22; animation: snake 1.2s linear infinite }
+.dots i:nth-child(1) { animation-delay: 0s }
+.dots i:nth-child(2) { animation-delay: .2s }
+.dots i:nth-child(4) { animation-delay: .4s }
+.dots i:nth-child(6) { animation-delay: .6s }
+.dots i:nth-child(5) { animation-delay: .8s }
+.dots i:nth-child(3) { animation-delay: 1s }
+@keyframes snake { 0% { opacity: 1 } 30% { opacity: .6 } 50%, 100% { opacity: .22 } }
+.spin { display: inline-block; width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid var(--line2); border-top-color: var(--acc); animation: spin .9s linear infinite; vertical-align: middle }
+@keyframes spin { to { transform: rotate(360deg) } }
+
+/* ── верх файла ── */
+.winbar { flex: none; height: 36px; display: flex; align-items: center; gap: 10px; padding: 0 18px 0 22px; border-bottom: 1px solid var(--line); font: 12.5px/1 var(--mono); color: var(--fg2); background: var(--bg); white-space: nowrap }
+.winbar:empty { display: none }
+.winbar .dir { color: var(--fg3) }
+.winbar .fn { color: var(--fg); font-weight: 600 }
+.winbar .st { font-size: 11px; color: var(--fg3); display: inline-flex; align-items: center; gap: 6px; overflow: hidden }
+.winbar .sp { flex: 1 }
+.kb { display: inline-flex; align-items: center; gap: 7px; padding: 4px 6px 4px 9px; border-radius: 6px; font: 12px/1 var(--mono); color: var(--fg2) }
+button.kb:hover { background: var(--acc-soft); color: var(--acc-fg) }
+.kb.done { color: var(--acc-fg); padding-right: 9px }
+
+/* ── строка состояния ── */
+.status { flex: none; height: 28px; display: flex; align-items: stretch; background: var(--bg-bar); border-top: 1px solid var(--line); font: 11.5px/1 var(--mono); color: var(--fg2); position: relative; white-space: nowrap; overflow: hidden }
+.status .seg { display: block; line-height: 27px; padding: 0 11px; overflow: hidden; text-overflow: ellipsis }
+.status .seg .pbar, .status .seg .dots, .status .seg .spin, .status .seg .d-seen { vertical-align: middle; position: relative; top: -1px }
+.status .seg .pbar { margin-left: 8px }
+.status .seg + .seg { border-left: 1px solid var(--line) }
+.status .sp { flex: 1 }
+.status .sp + .seg { border-left: 1px solid var(--line) }
+.status .seg.mode { background: var(--acc); color: var(--acc-ink); font-weight: 700; letter-spacing: .06em; padding: 0 13px; border: 0; flex: none }
+.status .seg.mode.lead { background: var(--warn); color: #fff }
+.status .seg.mode.off { background: var(--err); color: #fff }
+.status .seg.mode.help { background: var(--fg2); color: var(--bg) }
+.status .seg.mode + .seg { border-left: 0 }
+.status .seg.file { color: var(--fg); background: var(--bg-seg); flex: 0 1 auto }
+.status .seg.file .dir { color: var(--fg3) }
+.status .seg.click { cursor: pointer; flex: none }
+.status .seg.click:hover { color: var(--fg); background: var(--bg-seg) }
+.status b { color: var(--fg); font-weight: 600 }
+.status .k { color: var(--acc-fg); font-weight: 700 }
+.status .sync { position: absolute; left: 0; top: -1px; height: 2px; background: var(--acc); transition: width .2s }
+.pbar { width: 54px; height: 4px; border-radius: 2px; background: var(--line2); overflow: hidden; display: inline-block }
+.pbar i { display: block; height: 100%; background: var(--acc); border-radius: 2px }
+
+/* ── карта правок ── */
+.map { position: absolute; right: 3px; top: 44px; bottom: 8px; width: 7px; cursor: pointer }
+.map i { position: absolute; left: 0; right: 0; border-radius: 1.5px; min-height: 3px; pointer-events: none }
+.map i.d { background: var(--del-fg); opacity: .7 }
+.map i.a { background: var(--add-fg); opacity: .75 }
+.map .vp { position: absolute; left: -2px; right: -2px; border-radius: 3px; border: 1px solid var(--fg4); background: color-mix(in srgb, var(--fg3) 8%, transparent); pointer-events: none }
+.map:empty { display: none }
+
+/* ── пометки над файлом ── */
+.notice { margin: 28px 0 8px 100px; max-width: 660px; font: 15px/1.5 var(--sans); color: var(--fg2) }
+.notice.del { color: var(--del-fg) }
+.notice.add { color: var(--add-fg) }
+.gone-body { opacity: .65 }
+.basebar { display: flex; gap: 8px; align-items: center; padding: 14px 0 0 100px; font: 11.5px/1 var(--mono); color: var(--fg3) }
+.basebar b, .hd b { color: var(--fg2); font-weight: 600 }
+.pill { color: var(--fg2); background: var(--bg-seg); padding: 3px 7px; border-radius: 4px }
+
+/* ── документ ── */
+.doc { font-family: var(--serif); font-size: 18px; line-height: 1.7; color: var(--fg); padding: 30px 40px 140px 100px }
+.doc > * { max-width: 660px }
+.doc h1 { font-size: 34px; line-height: 1.2; font-weight: 700; margin: 6px 0 22px; letter-spacing: -.01em }
+.doc h2 { font-size: 23px; line-height: 1.3; font-weight: 700; margin: 34px 0 12px }
+.doc h3 { font-size: 19.5px; line-height: 1.35; font-weight: 700; margin: 26px 0 10px }
+.doc h4, .doc h5, .doc h6 { font-size: 18px; font-weight: 700; margin: 20px 0 8px }
+.doc .u > :first-child, .doc .chg .u:first-child > :first-child { margin-top: 0 }
+.doc p { margin: 0 0 16px }
+.doc blockquote { border-left: 3px solid var(--line2); padding-left: 16px; color: var(--fg2); margin: 0 0 16px }
+.doc blockquote p { margin: 0 }
+.doc hr { border: 0; border-top: 1px solid var(--line2); margin: 26px 0 }
+.doc code, .two code { font: .8em/1 var(--mono); background: var(--code-bg); padding: 3px 6px; border-radius: 4px; color: var(--fg) }
+.doc .li, .two .li { position: relative; padding-left: calc(24px + var(--lvl, 0) * 24px); margin: 0 0 4px }
+.doc .li:has(+ .u:not(:has(.li))), .doc .u:last-child .li { margin-bottom: 16px }
+.li .lm { position: absolute; left: calc(var(--lvl, 0) * 24px); width: 22px }
+.li .lm:not(.n)::before { content: ""; position: absolute; left: 7px; top: .72em; width: 5px; height: 5px; border-radius: 50%; background: var(--fg3) }
+.li .lm.n { color: var(--fg3); font-variant-numeric: tabular-nums; text-align: left }
+.li .box { margin-right: 6px; color: var(--fg2) }
+.doc pre, .two pre { font: 13.5px/1.6 var(--mono); background: var(--code-bg); border-radius: 7px; padding: 12px 16px; margin: 0 0 16px; white-space: pre-wrap; word-break: break-word }
+.cl { display: block; min-height: 1.6em }
+.doc .chg pre, .two .b pre { background: var(--pre-in) }
+pre.diff .cdel > .cl { background: var(--del-bg); margin: 0 -16px; padding: 0 16px }
+pre.diff .cadd > .cl { background: var(--add-bg); margin: 0 -16px; padding: 0 16px }
+.doc table, .two table { border-collapse: collapse; font-size: 16px; line-height: 1.45; margin: 2px 0 16px; width: 100% }
+.doc th, .two th { text-align: left; font-weight: 700; padding: 6px 14px 6px 0; border-bottom: 1.5px solid var(--line2) }
+.doc td, .two td { padding: 6px 14px 6px 0; border-bottom: 1px solid var(--line2) }
+.doc tr:last-child td, .two tr:last-child td { border-bottom: 0 }
+.img { font-style: italic; color: var(--fg2) }
+.img::before { content: "▣ "; font-style: normal; color: var(--fg3) }
+
+/* блоки правок: светлый фон собирает правку, тёмным — текст, которого не было (или который убрали) */
+.chg { position: relative; margin: 0 -14px 16px; padding: 6px 14px; border-radius: 6px; max-width: 688px }
+.chg > .u:last-child > :last-child, .chg > .u:last-child .li { margin-bottom: 0 }
+.chg.del { background: var(--del-bg) }
+.chg.add { background: var(--add-bg) }
+.chg.mix { background: none; padding: 0 14px }
+.chg.del:has(+ .chg.add) { margin-bottom: 4px }
+.chg.ws { font: 12px/1.4 var(--mono); padding: 4px 14px }
+.chg.ws.del { color: var(--del-fg) }
+.chg.ws.add { color: var(--add-fg) }
+[data-s]::after { content: attr(data-s); position: absolute; right: calc(100% + 12px); top: 12px; font: 500 10.5px/1 var(--mono); white-space: nowrap; letter-spacing: .02em }
+.chg.del[data-s]::after { color: var(--del-fg) }
+.chg.add[data-s]::after { color: var(--add-fg) }
+.chg.mix[data-s]::after { color: var(--acc-fg) }
+mark { color: inherit; border-radius: 3px; padding: .06em 1px; -webkit-box-decoration-break: clone; box-decoration-break: clone }
+mark.wd { background: var(--del-w) }
+mark.wa { background: var(--add-w) }
+
+/* ── две колонки: документ ── */
+.two { font-family: var(--serif); font-size: 16.5px; line-height: 1.68; padding: 0 0 140px }
+.hd { position: sticky; top: 0; z-index: 2; display: grid; grid-template-columns: 1fr 1fr; background: var(--bg); border-bottom: 1px solid var(--line); font: 11.5px/1 var(--mono); color: var(--fg3) }
+.hd > div { padding: 11px 34px 10px; display: flex; gap: 8px; align-items: center }
+.hd > div + div { border-left: 1px solid var(--line) }
+.r { display: grid; grid-template-columns: 1fr 1fr }
+.r > .c { display: flex; flex-direction: column; padding: 0 34px 14px; min-width: 0 }
+.r > .c + .c { border-left: 1px solid var(--line) }
+.r:nth-child(2) > .c { padding-top: 24px }
+.r > .c > .b { flex: 1; margin: 0 -12px; padding: 4px 12px; border-radius: 6px }
+.r > .c > .b.del { background: var(--del-bg) }
+.r > .c > .b.add { background: var(--add-bg) }
+.r > .c > .b.ws { font: 12px/1.4 var(--mono); min-height: 24px }
+.hatch { background-image: repeating-linear-gradient(135deg, var(--hatch) 0 1.2px, transparent 1.2px 7px) }
+.two h1 { font-size: 29px; line-height: 1.25; font-weight: 700 }
+.two h2 { font-size: 20.5px; line-height: 1.3; font-weight: 700; padding-top: 10px }
+.two h3, .two h4, .two h5, .two h6 { font-size: 17.5px; font-weight: 700; padding-top: 6px }
+.two p { margin: 0 }
+.two .u + .u { margin-top: 10px }
+.two .u:has(.li) + .u:has(.li) { margin-top: 4px }
+.two blockquote { border-left: 3px solid var(--line2); padding-left: 14px; color: var(--fg2) }
+.two hr { border: 0; border-top: 1px solid var(--line2); margin: 12px 0 }
+.two pre { font-size: 12.5px; margin: 4px 0; padding: 10px 12px }
+.two table { font-size: 15px; margin: 2px 0 }
+
+/* ── код ── */
+.code { font: 13px/21px var(--mono); padding: 8px 0 140px; color: var(--fg) }
+.code .ln { display: grid; grid-template-columns: 44px 44px 22px minmax(0, 1fr) }
+.code.plain .ln { grid-template-columns: 0 52px 14px minmax(0, 1fr) }
+.code .no { color: var(--fg4); text-align: right; padding-right: 6px; user-select: none; font-size: 12px; overflow: hidden }
+.code .sg { text-align: center; user-select: none; color: var(--fg3) }
+.code .tx { white-space: pre-wrap; word-break: break-word; padding-right: 24px }
+.code .ln.del .sg, .code .ln.del .tx { background: var(--del-bg) }
+.code .ln.add .sg, .code .ln.add .tx { background: var(--add-bg) }
+.code .ln.del .sg { color: var(--del-fg) }
+.code .ln.add .sg { color: var(--add-fg) }
+.fold { display: flex; align-items: center; gap: 10px; height: 28px; margin: 4px 0; padding-left: 30px; color: var(--fg3); font: 11.5px/1 var(--mono); cursor: pointer; background: var(--code-bg); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line) }
+.fold:hover { color: var(--acc-fg) }
+.fold .ar { font-size: 10px }
+.fold .rg { color: var(--fg4) }
+.code2 { font: 12.5px/20px var(--mono); padding: 0 0 140px }
+.code2 .hd > div { padding: 11px 16px 10px 44px }
+.code2 .rr { display: grid; grid-template-columns: 40px minmax(0, 1fr) 40px minmax(0, 1fr) }
+.code2 .no { color: var(--fg4); text-align: right; padding-right: 10px; font-size: 11.5px; user-select: none }
+.code2 .no.r2 { border-left: 1px solid var(--line) }
+.code2 .tx { white-space: pre-wrap; word-break: break-word; padding: 0 16px 0 4px; min-width: 0 }
+.code2 .tx.del { background: var(--del-bg) }
+.code2 .tx.add { background: var(--add-bg) }
+.code2 .hd + .rr > * { padding-top: 10px }
+.code2 .hd + .rr > .tx { padding-top: 0; margin-top: 10px }
+.code2 .hatch { background-image: repeating-linear-gradient(135deg, var(--hatch) 0 1.2px, transparent 1.2px 7.0711px) }
+.code2 .fold { padding-left: 16px }
+.t-k { color: var(--t-k) } .t-s { color: var(--t-s) } .t-c { color: var(--t-c); font-style: italic } .t-f { color: var(--t-f) } .t-t { color: var(--t-t) } .t-n { color: var(--t-n) } .t-p { color: var(--t-p) }
+.code mark, .code2 mark, pre mark { padding: 1px 0; margin: 0; border-radius: 2px }
+
+/* ── список ревью ── */
+.list { max-width: 1200px; margin: 0 auto; padding: 54px 40px }
+.list .lh { display: flex; align-items: baseline; gap: 12px; margin: 0 0 16px 30px; font: 12px/1 var(--mono); color: var(--fg3) }
+.list .lh b { font: 600 22px/1 var(--sans); color: var(--fg); letter-spacing: -.01em }
+.list .empty { margin-left: 30px; font: 15px/1.5 var(--sans); color: var(--fg2) }
+.list .cols, .lr { display: grid; grid-template-columns: 30px minmax(0, 1fr) 150px 120px 230px 200px }
+.list .cols { font: 11px/1 var(--mono); color: var(--fg3); padding: 0 0 9px; border-bottom: 1px solid var(--line) }
+.lr { align-items: center; min-height: 58px; border-bottom: 1px solid var(--line); cursor: pointer; font: 12px/1.3 var(--mono); color: var(--fg2) }
+.lr:hover { background: color-mix(in srgb, var(--sel) 50%, transparent) }
+.lr.on { background: var(--sel); border-radius: 8px; border-bottom-color: transparent }
+.lr .cur { color: var(--acc-fg); font-weight: 700; text-align: center; opacity: 0 }
+.lr.on .cur { opacity: 1 }
+.lr .nm { font: 500 15.5px/1.35 var(--sans); color: var(--fg); padding-right: 16px }
+.lr .pr, .lr .ag, .lr .mk { display: flex; align-items: center; gap: 8px }
+.lr .mk.okc { color: var(--acc-fg) }
+.lr .mk.rpl { color: var(--dot) }
+
+/* ── всплывающее ── */
+#over > * { z-index: 10 }
+.wk { position: absolute; left: 0; right: 0; bottom: 28px; background: var(--bg-pop); border-top: 1px solid var(--line2); box-shadow: 0 -12px 30px rgba(30, 20, 50, .10); padding: 14px 30px 16px; font: 12.5px/1 var(--mono) }
+body.dark .wk { box-shadow: 0 -14px 34px rgba(0, 0, 0, .4) }
+.wk .top { display: flex; align-items: center; gap: 10px; color: var(--fg3); font-size: 11.5px; margin-bottom: 14px }
+.wk .top .crumb { color: var(--warn); font-weight: 700; font-size: 13px }
+.wk .top .sp { flex: 1 }
+.wk .grid { display: grid; grid-template-columns: repeat(2, max-content); gap: 0 90px }
+.wk .grp { font-size: 11px; color: var(--fg3); margin-bottom: 10px }
+.wk .it { display: flex; align-items: center; gap: 10px; height: 27px; cursor: pointer; border-radius: 5px; padding: 0 6px; margin: 0 -6px }
+.wk .it:hover { background: var(--sel) }
+.wk .it .key { width: 14px; color: var(--warn); font-weight: 700; font-size: 14px }
+.wk .it .ar { color: var(--fg4) }
+.wk .it .ds { font-family: var(--sans); font-size: 14px; color: var(--fg) }
+.wk .it .now { color: var(--fg3); font-size: 11px }
+.wk .it.later { cursor: default }
+.wk .it.later:hover { background: none }
+.wk .it.later .key, .wk .it.later .ds, .wk .it.later .now { color: var(--fg4) }
+.toast { position: absolute; right: 22px; bottom: 44px; width: 430px; background: var(--bg-pop); border: 1px solid var(--line2); border-radius: 10px; box-shadow: var(--shadow); padding: 14px 16px; display: grid; grid-template-columns: 26px 1fr; gap: 2px 8px }
+.toast .x { width: 20px; height: 20px; border-radius: 50%; background: var(--err-soft); color: var(--err); display: flex; align-items: center; justify-content: center; font: 700 12px/1 var(--sans); margin-top: 1px }
+.toast.ok .x { background: var(--ok-soft); color: var(--ok) }
+.toast .t1 { font: 600 14.5px/1.4 var(--sans); color: var(--fg) }
+.toast .t2 { font: 14px/1.45 var(--sans); color: var(--fg2); grid-column: 2 }
+.toast .t3 { grid-column: 2; display: flex; align-items: center; gap: 10px; margin-top: 10px; font: 11.5px/1 var(--mono); color: var(--fg3) }
+.dimmer { position: absolute; inset: 0; background: var(--dim) }
+.off-card { position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); width: 470px; background: var(--bg-pop); border: 1px solid var(--line2); border-radius: 12px; box-shadow: var(--shadow); padding: 22px 24px 18px }
+.off-card .h { display: flex; align-items: center; gap: 10px; font: 600 17px/1.3 var(--sans) }
+.off-card .h .pt { width: 9px; height: 9px; border-radius: 50%; background: var(--err) }
+.off-card p { font: 14.5px/1.55 var(--sans); color: var(--fg2); margin: 10px 0 14px }
+.off-card .ft { display: flex; align-items: center; gap: 9px; font: 11.5px/1 var(--mono); color: var(--fg3); border-top: 1px solid var(--line); padding-top: 12px }
+.keys { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(980px, calc(100% - 40px)); background: var(--bg-pop); border: 1px solid var(--line2); border-radius: 12px; box-shadow: var(--shadow); padding: 20px 28px 22px }
+.keys .h { display: flex; align-items: baseline; gap: 12px; margin-bottom: 18px; font: 11.5px/1 var(--mono); color: var(--fg3) }
+.keys .h b { font: 600 17px/1 var(--sans); color: var(--fg) }
+.keys .h .sp { flex: 1 }
+.keys .g { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 34px }
+.keys .grp { font: 11px/1 var(--mono); color: var(--fg3); margin: 14px 0 8px }
+.keys .k { display: flex; align-items: center; gap: 10px; min-height: 26px }
+.keys .k .ks { width: 74px; flex: none; display: flex; gap: 4px }
+.keys .k .ds { font: 14px/1.3 var(--sans); color: var(--fg) }
+.basebar.code-bar { padding-left: 44px; padding-bottom: 4px }
+/* значки в шапке файла не обрезаются */
+.winbar .st { overflow: visible }
+.winbar .st .rip, .winbar .st .dots { margin: 0 3px }

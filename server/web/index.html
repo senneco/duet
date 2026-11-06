@@ -1,135 +1,26 @@
 <!doctype html>
-<html>
+<html lang="ru">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>duet</title>
-<!-- Временная страница шага 5e: проверить, что ядро работает и обновления приходят сами.
-     Настоящий интерфейс — шаги 6–7. -->
-<style>
-  :root { color-scheme: light dark; --muted: #8888; --accent: #3b82f6; --bad: #e5484d; }
-  body { font: 14px/1.5 -apple-system, system-ui, sans-serif; margin: 0; padding: 24px 32px; max-width: 900px; }
-  a { color: var(--accent); text-decoration: none; }
-  h1 { font-size: 18px; margin: 0 0 16px; }
-  .muted { color: var(--muted); }
-  .review { padding: 10px 0; border-bottom: 1px solid #8883; }
-  .tag { display: inline-block; font-size: 12px; padding: 0 6px; border-radius: 4px; border: 1px solid #8886; margin-left: 6px; }
-  .tag.bad { color: var(--bad); border-color: var(--bad); }
-  .file { padding: 2px 0; font-family: ui-monospace, monospace; font-size: 13px; }
-  #down { display: none; position: fixed; inset: 0 0 auto 0; padding: 8px 32px; background: var(--bad); color: white; }
-  body.down #down { display: block; }
-  body.down main { opacity: .5; }
-  progress { width: 240px; }
-</style>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Crect width=%2216%22 height=%2216%22 rx=%224%22 fill=%22%237b6cf6%22/%3E%3Ccircle cx=%226%22 cy=%228%22 r=%222.2%22 fill=%22white%22/%3E%3Ccircle cx=%2210.5%22 cy=%228%22 r=%222.2%22 fill=%22white%22 opacity=%22.6%22/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/web/app.css">
+<script type="module" src="/web/js/main.js"></script>
 </head>
-<body>
-<div id="down"></div>
-<main id="app"></main>
-<script>
-const ru = (navigator.language || '').toLowerCase().startsWith('ru');
-const T = ru ? {
-  reviews: 'Ревью', none: 'Ревью пока нет.', down: 'duet не запущен. Попросите агента «duet web» или запустите duet web в терминале.',
-  agent: 'агент подключён', noAgent: 'агент не подключён', working: 'работает', stopping: 'останавливается…',
-  response: 'есть ответ ␣r', accepted: 'принято целиком', lost: 'агент пропал посреди работы', all: '← все ревью',
-  sync: 'Сверка с диском', disk: 'изменён на диске', notFound: 'Такого ревью нет.',
-  states: { new: 'не открывали', opened: 'открывали', accepted: 'принят', deleted: 'удалён', 'deleted-accepted': 'удалён, принят', moved: 'перешёл в другое ревью' },
-} : {
-  reviews: 'Reviews', none: 'No reviews yet.', down: 'duet is not running. Ask the agent to run “duet web” or run duet web in a terminal.',
-  agent: 'agent connected', noAgent: 'no agent', working: 'working', stopping: 'stopping…',
-  response: 'response ␣r', accepted: 'fully accepted', lost: 'agent vanished mid-work', all: '← all reviews',
-  sync: 'Checking disk', disk: 'changed on disk', notFound: 'No such review.',
-  states: { new: 'not opened', opened: 'opened', accepted: 'accepted', deleted: 'deleted', 'deleted-accepted': 'deleted, accepted', moved: 'moved to another review' },
-};
-document.getElementById('down').textContent = T.down;
-
-let build = null, list = [], review = null, missing = false, progress = null;
-const route = () => { const m = location.pathname.match(/^\/r\/([^/]+)/); return m ? decodeURIComponent(m[1]) : null; };
-const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const api = async (path, opts) => {
-  const r = await fetch(path, opts);
-  if (!r.ok) throw Object.assign(new Error(r.statusText), { status: r.status });
-  return r.json();
-};
-const post = (path, body) => api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
-
-function tags(r) {
-  const t = [];
-  t.push(r.agent ? `<span class="tag">${T.agent}</span>` : `<span class="tag bad">${T.noAgent}</span>`);
-  if (r.working) t.push(`<span class="tag">${T.working}</span>`);
-  if (r.stopping) t.push(`<span class="tag">${T.stopping}</span>`);
-  if (r.hasResponse) t.push(`<span class="tag">${T.response}</span>`);
-  if (r.agentLost) t.push(`<span class="tag bad">${T.lost}</span>`);
-  if (r.accepted) t.push(`<span class="tag">${T.accepted}</span>`);
-  return t.join('');
-}
-
-function render() {
-  const app = document.getElementById('app');
-  const id = route();
-  if (!id) {
-    app.innerHTML = `<h1>${T.reviews}</h1>` + (list.length ? list.map(r =>
-      `<div class="review"><a href="/r/${encodeURIComponent(r.id)}">${esc(r.title || r.id)}</a>${tags(r)}
-       <div class="muted">${r.files.length} · ${new Date(r.created).toLocaleString()}</div></div>`).join('') : `<p class="muted">${T.none}</p>`);
-    document.title = 'duet';
-    return;
-  }
-  if (missing) { app.innerHTML = `<p><a href="/">${T.all}</a></p><p>${T.notFound}</p>`; return; }
-  if (!review) { app.innerHTML = ''; return; }
-  const p = progress && progress.done < progress.total ? `<p>${T.sync}: <progress max="${progress.total}" value="${progress.done}"></progress> ${progress.done}/${progress.total}</p>` : '';
-  app.innerHTML = `<p><a href="/">${T.all}</a></p><h1>${esc(review.title || review.id)}${tags(review)}</h1>${p}` +
-    review.files.map(f => `<div class="file">${esc(f.path)} <span class="muted">${T.states[f.state] || f.state}${f.ripple ? ' · ␣r' : ''}${f.agentWorking ? ' · …' : ''}</span>${f.diskChanged ? `<span class="tag bad">${T.disk}</span>` : ''}</div>`).join('');
-  document.title = (review.title || review.id) + ' — duet';
-}
-
-async function loadList() { list = await api('/api/reviews'); }
-async function loadReview(id) {
-  try { review = await api('/api/reviews/' + encodeURIComponent(id)); missing = false; }
-  catch (e) { if (e.status === 404) { review = null; missing = true; } else throw e; }
-}
-async function refresh(ids) {
-  const id = route();
-  try {
-    if (!id) await loadList();
-    else if (!ids || ids.includes(id)) await loadReview(id);
-  } catch (e) { return; }
-  render();
-}
-async function openReview(id) {
-  await refresh();
-  if (!missing) post('/api/reviews/' + encodeURIComponent(id) + '/sync').catch(() => {});
-}
-
-function connect() {
-  const es = new EventSource('/api/events');
-  es.addEventListener('hello', e => {
-    const b = JSON.parse(e.data).build;
-    if (build && b !== build) { location.reload(); return; }  // новая версия duet — новая страница
-    build = b;
-    document.body.classList.remove('down');
-    // Каждое подключение — заново открыть ревью: после перезапуска duet ничего не сверяет сам.
-    const id = route();
-    if (id) openReview(id); else refresh();
-  });
-  es.addEventListener('change', e => refresh(JSON.parse(e.data).reviews));
-  es.addEventListener('reset', () => refresh());
-  es.addEventListener('sync', e => {
-    const d = JSON.parse(e.data);
-    if (d.review === route()) { progress = d; render(); }
-  });
-  es.onerror = () => document.body.classList.add('down');  // браузер переподключится сам
-}
-
-document.addEventListener('click', e => {
-  const a = e.target.closest('a');
-  if (!a || a.origin !== location.origin || e.metaKey || e.ctrlKey) return;
-  e.preventDefault();
-  history.pushState(null, '', a.pathname);
-  review = null; missing = false; progress = null;
-  const id = route();
-  if (id) openReview(id); else refresh();
-});
-window.addEventListener('popstate', () => { review = null; progress = null; const id = route(); if (id) openReview(id); else refresh(); });
-connect();
-</script>
+<body class="light">
+<div id="app">
+  <header class="tabline" id="tabline"></header>
+  <div class="body">
+    <nav class="tree" id="tree"></nav>
+    <section class="main">
+      <div class="winbar" id="winbar"></div>
+      <div class="scroll" id="sc"></div>
+      <div class="map" id="map"></div>
+    </section>
+  </div>
+  <footer class="status" id="status"></footer>
+  <div id="over"></div>
+</div>
 </body>
 </html>

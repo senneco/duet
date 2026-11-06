@@ -52,7 +52,8 @@ type SubmitReq struct {
 	Who   Who          `json:"who"`
 	Title string       `json:"title"`
 	Note  string       `json:"note"`
-	New   bool         `json:"new"` // новая задача — новое ревью
+	Start string       `json:"start"` // файл, с которого владельцу начать
+	New   bool         `json:"new"`   // новая задача — новое ревью
 	Files []SubmitFile `json:"files"`
 }
 
@@ -88,6 +89,7 @@ func (s *Service) Submit(q SubmitReq) (string, error) {
 			return "", err
 		}
 		fmt.Fprintf(&b, "New review %s: %s\nWrite this link in the chat for the owner.\n", id, s.URL(id))
+		s.setStart(&b, cwd, id, q.Start)
 		writeNotAdded(&b, cwd, notAdded)
 		return b.String(), nil
 	}
@@ -121,6 +123,7 @@ func (s *Service) Submit(q SubmitReq) (string, error) {
 		s.core.SetNote(id, q.Note)
 	}
 	fmt.Fprintf(&b, "Review %s: %s\n", id, s.URL(id))
+	s.setStart(&b, cwd, id, q.Start)
 	if len(add) > len(notAdded) {
 		var ps []string
 		for _, a := range add {
@@ -194,7 +197,18 @@ type DoneReq struct {
 	Who     Who                     `json:"who"`
 	Answers []core.Answer           `json:"answers"`
 	Note    *string                 `json:"note"`
+	Start   string                  `json:"start"`  // файл, с которого владельцу начать
 	Blocks  map[string][]core.Block `json:"blocks"` // путь → блоки
+}
+
+// setStart отмечает файл, с которого владельцу начать. Файла нет в ревью — агент узнаёт об этом.
+func (s *Service) setStart(b *strings.Builder, cwd, id, path string) {
+	if path == "" {
+		return
+	}
+	if err := s.core.SetStart(id, path); err != nil {
+		fmt.Fprintf(b, "Start file %s is not in the review: send it first.\n", rel(cwd, path))
+	}
 }
 
 // Done — агент закончил заход: ответы на комментарии, правки duet берёт с диска.
@@ -219,6 +233,9 @@ func (s *Service) Done(q DoneReq) (string, error) {
 	}
 	for p, bl := range q.Blocks {
 		s.core.SetBlocks(se.Review, p, bl)
+	}
+	if q.Start != "" {
+		s.core.SetStart(se.Review, q.Start)
 	}
 	switch {
 	case len(res.New) > 0:

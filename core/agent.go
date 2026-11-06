@@ -301,7 +301,22 @@ func (c *Core) SetOriginal(reviewID, path string, o Original) error {
 	return c.commit(r)
 }
 
-// SetNote — записка агента «начните отсюда».
+// SetStart — файл, с которого владельцу начать. Файл должен быть в ревью.
+func (c *Core) SetStart(reviewID, path string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r, err := c.review(reviewID)
+	if err != nil {
+		return err
+	}
+	if _, err := c.file(r, path); err != nil {
+		return err
+	}
+	r.Start = path
+	return c.commit(r)
+}
+
+// SetNote — записка агента для следующего агента, который подхватит ревью.
 func (c *Core) SetNote(reviewID, note string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()

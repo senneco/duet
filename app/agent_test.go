@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/senneco/duet/agent"
+	"github.com/senneco/duet/core"
 )
 
 // Сквозные проверки протокола агента на настоящей программе: команды, хуки, пробуждение, живость.
@@ -111,9 +112,13 @@ func TestAgentRoundTrip(t *testing.T) {
 		t.Fatal("хук запустил ядро")
 	}
 
-	r := e.agentRun(dir, "s1", `{"title": "Тест", "files": [{"path": "a.md", "original": {"text": "old text\n", "source": "git, HEAD"}}]}`, "submit")
+	r := e.agentRun(dir, "s1", `{"title": "Тест", "start": "a.md", "files": [{"path": "a.md", "original": {"text": "old text\n", "source": "git, HEAD"}}]}`, "submit")
 	if r.code != 0 || !strings.Contains(r.out, "/r/r1") {
 		t.Fatal(r)
+	}
+	// 121: ревью откроется на файле, который агент отметил начальным.
+	if rv := e.reviewView("r1"); rv.Start != filepath.Join(dir, "a.md") {
+		t.Fatalf("начальный файл: %q", rv.Start)
 	}
 	if _, err := os.Stat(filepath.Join(e.home, "sessions", "s1")); err != nil {
 		t.Fatal("нет пометки сессии")
@@ -353,4 +358,18 @@ func filterEnv(env []string, drop string) []string {
 		}
 	}
 	return out
+}
+
+func (e *env) reviewView(id string) core.ReviewView {
+	e.t.Helper()
+	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/api/reviews/%s", e.port, id))
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var rv core.ReviewView
+	if err := json.NewDecoder(resp.Body).Decode(&rv); err != nil {
+		e.t.Fatal(err)
+	}
+	return rv
 }

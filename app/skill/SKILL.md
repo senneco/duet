@@ -17,7 +17,7 @@ Only when the owner asks you to. After that, in this session, send everything yo
 
 ```sh
 duet submit '{"title": "Short title of the task",
- "note": "Optional: where the owner should start reading",
+ "start": "docs/spec.md",
  "files": [
    {"path": "docs/spec.md", "original": {"command": "git show HEAD:docs/spec.md", "source": "git, HEAD"}},
    {"path": "docs/new-file.md"},
@@ -30,6 +30,7 @@ Pass the JSON as **one single-quoted argument** like this, not through a heredoc
 
 - **Original version.** For every file that existed before the task, send how it looked before your work and where that came from: `command` (prints it), `file` (a copy), or `text`. The owner sees only your changes against it. A new file goes without `original`. duet never takes copies itself.
 - Paths are relative to your current folder or absolute. Anything that is text can be reviewed: a wiki page or ticket description goes as a local file.
+- `start` (optional): the file the owner should read first, usually the main one (the spec, not its implementation). The review opens on it.
 - Optional for long files: `"blocks": [{"title": "API", "level": "top", "at": "## API"}]` — parts of the file for navigation. `level`: `top` (⇈ must read), `high` (↑), `low` (↓). `at` is the exact first line of the block.
 - The output has the review link: **write it in the chat**. `duet web` opens it in the browser if the owner asks.
 - **Same review or a new one.** The same task goes to the same review (just `duet submit` again with the new files). A clearly new task goes to a new review: add `"new": true`. If you are not sure, ask the owner one short question.

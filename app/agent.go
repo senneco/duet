@@ -262,18 +262,20 @@ func blocksAbs(cwd string, m map[string][]core.Block) map[string][]core.Block {
 	return out
 }
 
-// submit — `duet submit [--new] [--title T] [--note N] [file…]`, или JSON на входе.
+// submit — `duet submit [--new] [--title T] [--start F] [--note N] [file…]`, или JSON на входе.
 func (cfg Config) submit(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("submit", flag.ContinueOnError)
 	isNew := fs.Bool("new", false, "start a new review (new task)")
 	title := fs.String("title", "", "review title")
-	note := fs.String("note", "", "note for the owner: where to start")
+	note := fs.String("note", "", "note for an agent that picks up the review")
+	start := fs.String("start", "", "file the owner should read first")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	var m struct {
 		Title string `json:"title"`
 		Note  string `json:"note"`
+		Start string `json:"start"`
 		New   bool   `json:"new"`
 		Files []struct {
 			Path     string       `json:"path"`
@@ -317,6 +319,12 @@ func (cfg Config) submit(args []string, stdout io.Writer) error {
 	if *note != "" {
 		q.Note = *note
 	}
+	if *start != "" {
+		m.Start = *start
+	}
+	if m.Start != "" {
+		q.Start = abs(w.Cwd, m.Start)
+	}
 	for _, f := range m.Files {
 		p := abs(w.Cwd, f.Path)
 		sf := agent.SubmitFile{Path: p, Deleted: f.Deleted, Blocks: f.Blocks}
@@ -351,6 +359,7 @@ func (cfg Config) done(args []string, stdout io.Writer) error {
 			Anchor   string   `json:"anchor"`
 		} `json:"answers"`
 		Note   *string                 `json:"note"`
+		Start  string                  `json:"start"`
 		Blocks map[string][]core.Block `json:"blocks"`
 	}
 	data := []byte(strings.Join(args, " ")) // JSON одним аргументом
@@ -367,6 +376,9 @@ func (cfg Config) done(args []string, stdout io.Writer) error {
 	}
 	w := who()
 	q := agent.DoneReq{Who: w, Note: m.Note, Blocks: blocksAbs(w.Cwd, m.Blocks)}
+	if m.Start != "" {
+		q.Start = abs(w.Cwd, m.Start)
+	}
 	for _, a := range m.Answers {
 		q.Answers = append(q.Answers, core.Answer{CommentID: a.ID, Text: a.Text, Question: a.Question, Options: a.Options, AnchorText: a.Anchor})
 	}

@@ -346,14 +346,18 @@ func TestAnswerAnchorText(t *testing.T) {
 	}
 }
 
-// 119: записка и блоки хранятся и видны клиенту.
-func TestNoteAndBlocks(t *testing.T) {
+// 119, 121: начальный файл и блоки хранятся и видны клиенту; файл не из ревью начальным не становится.
+func TestStartAndBlocks(t *testing.T) {
 	c, p := newProj(t)
 	path := p.write("a.md", "# A\ntext\n")
+	other := p.write("b.md", "b\n")
 	r, _, err := c.CreateReview("x", []Submission{{Path: path, Content: "# A\ntext\n", Blocks: []Block{{Title: "A", Level: "top", At: "# A"}}}})
 	must(t, err)
-	must(t, c.SetNote(r, "начните с A"))
-	if rv(t, c, r).Note != "начните с A" || len(fv(t, c, r, path).Blocks) != 1 {
+	must(t, c.SetStart(r, path))
+	if rv(t, c, r).Start != path || len(fv(t, c, r, path).Blocks) != 1 {
 		t.Fatal(rv(t, c, r))
+	}
+	if c.SetStart(r, other) == nil || rv(t, c, r).Start != path {
+		t.Fatal("start outside the review")
 	}
 }

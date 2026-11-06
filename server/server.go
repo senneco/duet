@@ -160,6 +160,12 @@ func (s *Server) routes() {
 	}
 	m.HandleFunc("GET /{$}", index)
 	m.HandleFunc("GET /r/{id}", index)
+	// Клиент: модули и стили. Каждый раз сверяются с ядром: новая сборка — новые файлы.
+	files := http.StripPrefix("/web/", http.FileServerFS(web))
+	m.HandleFunc("GET /web/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
+		files.ServeHTTP(w, r)
+	})
 }
 
 // summary — ревью без содержимого файлов: для списка и дерева. Содержимое — в /file.

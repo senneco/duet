@@ -128,7 +128,9 @@ type Review struct {
 	Busy bool `json:"busy,omitempty"`
 	// Turn — агент в заходе: взял комментарии или начал менять файлы ревью.
 	Turn bool   `json:"turn,omitempty"`
-	Note string `json:"note,omitempty"` // записка агента «начните отсюда»
+	Note string `json:"note,omitempty"` // записка агента следующему агенту (владельцу не показывается)
+	// Start — файл, с которого владельцу начать: ревью открывается на нём.
+	Start string `json:"start,omitempty"`
 	// Open — ревью было не принято целиком: когда оно станет принятым, агент получит сообщение.
 	Open    bool `json:"open,omitempty"`
 	Editing bool `json:"editing,omitempty"` // открыт редактор правки
@@ -825,7 +827,7 @@ type ReviewView struct {
 	Agent       bool       `json:"agent"`     // агент подключён
 	AgentBusy   bool       `json:"agentBusy"` // подключённый агент занят (в чате или работает)
 	AgentKind   string     `json:"agentKind"` // claude, codex
-	Note        string     `json:"note"`      // записка агента «начните отсюда»
+	Start       string     `json:"start"`     // файл, с которого начать, если агент его отметил
 	AgentLost   bool       `json:"agentLost"` // агент пропал посреди работы: есть «в работе», а агента нет
 	Unsent      int        `json:"unsent"`    // неотправленные комментарии (без написанных в окне ответа)
 	Questions   int        `json:"questions"` // неотвеченные вопросы агента
@@ -877,7 +879,7 @@ func (c *Core) reviewView(r *Review) ReviewView {
 	})
 	rv.Agent = r.Agent
 	rv.AgentBusy = r.Agent && r.Busy
-	rv.Note = r.Note
+	rv.Start = r.Start
 	if s, ok := c.s.Sessions[r.Session]; ok && r.Agent {
 		rv.AgentKind = s.Agent
 	}
