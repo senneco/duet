@@ -733,6 +733,7 @@ type FileView struct {
 	OriginSource    string        `json:"originSource"`
 	Current         string        `json:"current"`
 	CurrentDeleted  bool          `json:"currentDeleted"`
+	Absent          bool          `json:"absent"` // текущей версии нет: файл есть только в непросмотренном ответе
 	Response        *string       `json:"response"` // версия из непросмотренного ответа
 	ResponseDeleted bool          `json:"responseDeleted"`
 	Comments        []CommentView `json:"comments"`     // открытые комментарии: без решённых и удалённых
@@ -772,6 +773,8 @@ func (c *Core) view(r *Review, path string) FileView {
 	if f.Current >= 0 {
 		v.Current = f.Versions[f.Current].Content
 		v.CurrentDeleted = f.Versions[f.Current].Deleted
+	} else {
+		v.Absent = true
 	}
 	if p := r.pending(); p != nil {
 		v.Ripple = p.touches(c, path)
@@ -837,6 +840,7 @@ type ReviewView struct {
 	Created     time.Time  `json:"created"`
 	Working     bool       `json:"working"`
 	HasResponse bool       `json:"hasResponse"`
+	Response    *Pending   `json:"response"` // непросмотренный ответ
 	Accepted    bool       `json:"accepted"`  // ревью принято целиком
 	Agent       bool       `json:"agent"`     // агент подключён
 	AgentBusy   bool       `json:"agentBusy"` // подключённый агент занят (в чате или работает)
@@ -851,6 +855,24 @@ type ReviewView struct {
 	Restored    []string   `json:"restored"`    // файлы, которые duet перезаписал после последнего «прервать»
 	DiskChanged []string   `json:"diskChanged"` // файлы с пометкой «изменён на диске»
 	Synced      bool       `json:"synced"`      // ревью сверено с диском после запуска duet
+}
+
+// lastResp — к какому ответу агента относится последнее сообщение ветки.
+func lastResp(cm *Comment) int {
+	if n := len(cm.Thread); n > 0 {
+		return cm.Thread[n-1].Response
+	}
+	return 0
+}
+
+// Pending — непросмотренный ответ агента для окна ответа.
+type Pending struct {
+	ID        int       `json:"id"`
+	At        time.Time `json:"at"`
+	Files     []string  `json:"files"`     // файлы, которых касается ответ, в порядке ревью
+	Answers   int       `json:"answers"`   // на сколько комментариев ответил агент
+	Questions int       `json:"questions"` // из них вопросов
+	Mine      int       `json:"mine"`      // написано в окне ответа: комментарии к версии из ответа и ответы в ветках
 }
 
 // allDone — ревью принято целиком, если не считать расхождений с диском.
@@ -883,14 +905,45 @@ func (c *Core) reviewView(r *Review) ReviewView {
 		}
 		rv.Files = append(rv.Files, v)
 	}
+	pend := r.pending()
 	c.eachComment(r, func(_ *File, cm *Comment) {
 		switch {
-		case cm.Status == CommentUnsent && cm.InResponse == 0:
-			rv.Unsent++
+		case cm.Status == CommentUnsent && cm.InResponse == 0 && !(pend != nil && lastResp(cm) == pend.ID):
+			rv.Unsent++ // ответ в ветке из окна ответа считается, только когда ответ принят
 		case cm.Status == CommentQuestion:
 			rv.Questions++
 		}
 	})
+	if p := r.pending(); p != nil {
+		pv := &Pending{ID: p.ID, At: p.At, Files: []string{}}
+		for _, f := range rv.Files {
+			if f.Ripple {
+				pv.Files = append(pv.Files, f.Path)
+			}
+		}
+		for _, a := range p.Answers {
+			pv.Answers++
+			if a.Question {
+				pv.Questions++
+			}
+		}
+		c.eachComment(r, func(_ *File, cm *Comment) {
+			if cm.Status == CommentDeleted || cm.Status == CommentResolved {
+				return
+			}
+			if cm.InResponse == p.ID {
+				pv.Mine++
+				return
+			}
+			for _, m := range cm.Thread {
+				if m.Author == "owner" && m.Response == p.ID {
+					pv.Mine++
+					return
+				}
+			}
+		})
+		rv.Response = pv
+	}
 	rv.Agent = r.Agent
 	rv.AgentBusy = r.Agent && r.Busy
 	rv.Start = r.Start

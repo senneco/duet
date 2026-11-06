@@ -21,6 +21,15 @@ export function threadState(c) {
 
 const imgs = (m) => (m.images && m.images.length ? `<div class="mimg">${m.images.map((p) => `<a href="${esc(imageUrl(p))}" target="_blank"><img src="${esc(imageUrl(p))}" alt=""></a>`).join('')}</div>` : '');
 
+// shownComments — какие комментарии файла на экране и где. resp — открыто окно ответа: комментарии
+// на своих местах в версии из ответа (c.resp), включая написанные в окне. Иначе — без написанных
+// в окне, а ответ агента из непросмотренного ответа (pending — его номер) спрятан: «откройте ответ».
+export function shownComments(list, { resp, pending } = {}) {
+  if (resp) return list.filter((c) => c.resp).map((c) => ({ ...c, ...c.resp }));
+  return list.filter((c) => !c.inResponse).map((c) => (pending && (c.thread || []).some((m) => m.author === 'agent' && m.response === pending)
+    ? { ...c, pend: true, thread: c.thread.filter((m) => m.response !== pending) } : c));
+}
+
 // cardHTML — карточка комментария. o: t — тексты, n — номер, on — выбран, edit — окно вместо
 // своего неотправленного текста, reply — окно ответа под веткой.
 export function cardHTML(c, o) {
@@ -32,7 +41,8 @@ export function cardHTML(c, o) {
     : `<span class="stt ${c.status}">${c.status === 'question' ? '? ' : c.status === 'answered' ? '↩ ' : ''}${stName}</span>`;
   const point = !c.whole && c.range && c.range.start === c.range.end && c.was;
   const where = c.whole ? t.cWhole : point ? t.cRemoved : '';
-  let h = `<div class="cc${o.on ? ' on' : ''} st-${c.status}" data-cid="${esc(c.id)}"><div class="ch"><span class="no">${o.n || ''}</span>${stt}<span class="sp"></span>${where ? `<span class="wh">${where}</span>` : ''}</div>`;
+  const inr = c.inResponse && o.inResp ? `<span class="inr">· ${t.rInResp}</span>` : '';
+  let h = `<div class="cc${o.on ? ' on' : ''} st-${c.status}" data-cid="${esc(c.id)}"><div class="ch"><span class="no">${o.n || ''}</span>${stt}${inr}<span class="sp"></span>${where ? `<span class="wh">${where}</span>` : ''}</div>`;
   if (c.was) h += `<div class="was"><b>${t.cWas}</b>«${esc(c.was)}»${c.changed && !point ? `<i>${t.cChanged}</i>` : ''}</div>`;
   const th = c.thread || [];
   th.forEach((m, i) => {
@@ -54,8 +64,10 @@ export function cardHTML(c, o) {
     const pickedOpt = isDraft && ask >= 0 && (th[ask].options || []).includes(m.text);
     h += `<div class="m${isDraft ? ' draft' : ''}"><div class="au">${t.cYou}${isDraft ? ' · ' + t.cNotSent : ''}</div>${pickedOpt ? `<span class="dim">${t.cPicked}</span>` : ''}${esc(m.text)}${imgs(m)}</div>`;
   });
+  // Ответ агента ещё не просмотрен: его текст — только в окне ответа.
+  if (c.pend) h += `<div class="pend" data-act="response">${t.rPending} <kbd>␣r</kbd></div>`;
   if (o.reply) h += o.reply;
-  if (o.on && !o.edit && !o.reply) {
+  if (o.on && !o.edit && !o.reply && !c.pend) {
     const A = (act, label, key) => `<button data-cact="${act}">${label}${key ? ` <kbd>${key}</kbd>` : ''}</button>`;
     let acts = '';
     if (fresh) acts = A('edit', t.cEdit, '↵') + A('delete', t.cDelete, 'x');

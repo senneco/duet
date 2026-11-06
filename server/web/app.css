@@ -460,3 +460,49 @@ mark.shaped { background: transparent !important }
 .toast .t3 .src { margin-left: auto }
 .toast .t3 button.btn2 { border: 1px solid var(--line2) }
 .off-card .bt { display: flex; gap: 10px; align-items: center }
+
+/* ══ шаг 6c: окно ответа (вариант E макета docs/changes/06c-response/mockups/response.html) ══ */
+body.light { --rsp: #2f74e0; --rsp-soft: #e3edfc; --veil: #cfcbd3 }
+body.dark { --rsp: #5f97f5; --rsp-soft: #1d2b45; --veil: #0b0a10 }
+.rhead, .rfoot { display: none }
+/* Окно: основной экран справа от дерева поверх затемнения; дерево не затемнено и служит навигацией. */
+#app.rmode .body { background: var(--veil) }
+#app.rmode .main { margin: 16px 22px; border: 1px solid var(--line2); border-radius: 14px; overflow: hidden; box-shadow: 0 30px 80px rgba(20, 10, 40, .28), 0 4px 14px rgba(20, 10, 40, .12) }
+body.dark #app.rmode .main { box-shadow: 0 30px 90px rgba(0, 0, 0, .7), 0 4px 14px rgba(0, 0, 0, .4) }
+#app.rmode .rhead { flex: none; display: flex; align-items: center; gap: 12px; height: 48px; padding: 0 14px 0 22px; border-bottom: 1px solid var(--line); background: var(--bg-bar); white-space: nowrap }
+.rhead .ttl { font: 600 15px/1 var(--sans); color: var(--fg); display: flex; align-items: center; gap: 10px }
+.rhead .ttl .pt { width: 9px; height: 9px; border-radius: 50%; background: var(--rsp) }
+.rhead .meta { font: 11.5px/1 var(--mono); color: var(--fg3); overflow: hidden; text-overflow: ellipsis }
+.rhead .sp { flex: 1 }
+.ract { display: inline-flex; align-items: center; gap: 8px; padding: 7px 8px 7px 12px; border-radius: 7px; font: 500 13px/1 var(--sans); color: var(--fg2) }
+.ract:hover { background: var(--bg-seg); color: var(--fg) }
+.ract.ok { background: var(--acc); color: #fff }
+.ract.ok:hover { background: var(--acc); filter: brightness(1.07); color: #fff }
+.ract.ok kbd { background: rgba(255, 255, 255, .2); color: #fff; box-shadow: none }
+.ract.no:hover { background: var(--err-soft); color: var(--err) }
+#app.rmode .rfoot { flex: none; height: 28px; display: flex; align-items: center; gap: 16px; padding: 0 18px; border-top: 1px solid var(--line); background: var(--bg-bar); font: 11.5px/1 var(--mono); color: var(--fg3); white-space: nowrap; overflow: hidden }
+.rfoot .sp { flex: 1 }
+.rfoot b { color: var(--fg2); font-weight: 600 }
+#app.rmode .map { top: 96px; bottom: 36px }
+.winbar .vs { font-size: 11px; color: var(--fg3); display: inline-flex; gap: 6px; align-items: center }
+.pill { background: var(--bg-seg); color: var(--fg2); padding: 3px 6px; border-radius: 4px }
+.pill.rs { background: var(--rsp-soft); color: var(--rsp) }
+.rnew, .tag.rnew { color: var(--add-fg) }
+/* дерево в окне ответа: файлы, которых ответ не касается, приглушены */
+.tree.rmode .tr.untouched { opacity: .38; cursor: default }
+.tree.rmode .tr.untouched:hover { background: none }
+.tree.rmode .tr.blk { display: none }
+/* подсказка ␣r */
+.status .seg.rsp { color: var(--rsp); cursor: pointer; font-weight: 600; position: relative; overflow: hidden; flex: none }
+.status .seg.rsp:hover { background: var(--rsp-soft) }
+.status .seg.rsp .rip { margin-right: 8px }
+.status .seg.rsp::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--rsp) 22%, transparent), transparent); transform: translateX(-100%); animation: shim 2.4s ease-in-out infinite; pointer-events: none }
+@keyframes shim { 60%, 100% { transform: translateX(100%) } }
+.status .seg.mode.rspm { background: var(--rsp); color: #fff }
+.winbar .kb.rsp, .winbar .rsp-t { color: var(--rsp) }
+/* карточки */
+.cc .inr { font: 10.5px/1 var(--mono); color: var(--rsp) }
+.cc .pend { margin-top: 7px; font: 11px/1.4 var(--mono); color: var(--rsp); cursor: pointer }
+.cc .pend kbd { font-size: 10px; padding: 2px 4px }
+.off-card p.strong { color: var(--fg); font-weight: 600; margin-top: -4px }
+.off-card code { font: 12.5px var(--mono); background: var(--bg-seg); color: var(--fg); padding: 2px 6px; border-radius: 4px }

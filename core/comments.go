@@ -95,6 +95,18 @@ type CommentView struct {
 	InResponse bool          `json:"inResponse"`
 	Status     CommentStatus `json:"status"`
 	Thread     []Message     `json:"thread"`
+	// Resp — где комментарий окажется в версии из непросмотренного ответа (для окна ответа).
+	// Есть только у файлов, которых касается ответ.
+	Resp *Place `json:"resp,omitempty"`
+}
+
+// Place — место комментария в версии файла.
+type Place struct {
+	Whole   bool   `json:"whole"`
+	Range   Range  `json:"range"`
+	Was     string `json:"was"`
+	Changed bool   `json:"changed"`
+	Removed bool   `json:"removed"`
 }
 
 func (c *Core) comment(r *Review, id string) (*File, *Comment, error) {
@@ -148,11 +160,11 @@ func (c *Core) AddComment(reviewID, path string, sel *Range, text string, images
 
 // AddRemovedComment — комментарий к тексту, которого в текущей версии уже нет (владелец выделил
 // удалённое). Комментарий висит точкой at — там, где был этот текст, — с цитатой «было: …».
-func (c *Core) AddRemovedComment(reviewID, path string, at int, was, text string, images []string) (string, error) {
+func (c *Core) AddRemovedComment(reviewID, path string, at int, was, text string, images []string, inResponse bool) (string, error) {
 	if was == "" {
 		return "", ErrBadRange
 	}
-	return c.addComment(reviewID, path, &Range{at, at}, was, text, images, false)
+	return c.addComment(reviewID, path, &Range{at, at}, was, text, images, inResponse)
 }
 
 func (c *Core) addComment(reviewID, path string, sel *Range, was, text string, images []string, inResponse bool) (string, error) {
@@ -169,12 +181,12 @@ func (c *Core) addComment(reviewID, path string, sel *Range, was, text string, i
 	cm := &Comment{Path: path, Status: CommentUnsent, Whole: sel == nil, Version: f.Current}
 	if inResponse {
 		p := r.pending()
-		n, ok := -1, false
-		if p != nil {
-			n, ok = p.Files[path]
-		}
-		if !ok {
+		if p == nil || !p.touches(c, path) {
 			return "", ErrNotInResponse
+		}
+		n, ok := p.Files[path]
+		if !ok {
+			n = f.Current // агент только ответил на комментарии: версия из ответа — текущая
 		}
 		cm.Version = n
 		cm.InResponse = p.ID
@@ -260,10 +272,16 @@ func (c *Core) Reply(reviewID, id, text string, images []string) error {
 	if cm.Status != CommentAnswered && cm.Status != CommentQuestion {
 		return ErrCommentStatus
 	}
-	if r.pending() != nil {
-		return ErrUnviewedResponse
+	// Пока ответ не просмотрен, отвечать можно только в окне ответа — на то, что агент ответил в нём.
+	// Такой ответ помечен этим ответом агента и пропадает вместе с ним, если ответ отклонят.
+	resp := 0
+	if p := r.pending(); p != nil {
+		if _, ok := p.Answers[cm.ID]; !ok {
+			return ErrUnviewedResponse
+		}
+		resp = p.ID
 	}
-	cm.Thread = append(cm.Thread, Message{Author: "owner", Text: text, Images: images, At: c.stamp()})
+	cm.Thread = append(cm.Thread, Message{Author: "owner", Text: text, Images: images, Response: resp, At: c.stamp()})
 	cm.Prev, cm.Status = cm.Status, CommentUnsent
 	return c.commit(r)
 }
@@ -606,7 +624,42 @@ func (c *Core) commentViews(r *Review, f *File) []CommentView {
 		if v.Whole {
 			v.Range = Range{}
 		}
+		v.Resp = c.respPlace(r, f, cm, v)
 		out = append(out, v)
 	}
 	return out
+}
+
+// respPlace — место комментария в версии из непросмотренного ответа: так же, как его сдвинет
+// принятие ответа (reanchor), только без изменений.
+func (c *Core) respPlace(r *Review, f *File, cm *Comment, v CommentView) *Place {
+	p := r.pending()
+	if p == nil || !p.touches(c, cm.Path) {
+		return nil
+	}
+	cur := Place{Whole: v.Whole, Range: v.Range, Was: v.Was, Changed: v.Changed, Removed: v.Removed}
+	n, ok := p.Files[cm.Path]
+	if cm.InResponse != 0 || !ok || cm.Version != f.Current || n == f.Current {
+		return &cur
+	}
+	nv := f.Versions[n]
+	if cm.Whole {
+		return &cur
+	}
+	if nv.Deleted {
+		return &Place{Whole: true, Was: cm.Quote}
+	}
+	if a, ok := p.Answers[cm.ID]; ok && a.Anchor != nil && a.Anchor.Start >= 0 && a.Anchor.Start <= a.Anchor.End && a.Anchor.End <= len(nv.Content) {
+		return &Place{Range: *a.Anchor, Was: cm.Quote, Changed: true, Removed: cm.Removed}
+	}
+	old := ""
+	if f.Current >= 0 {
+		old = f.Versions[f.Current].Content
+	}
+	rg, changed, removed := remap(old, nv.Content, cm.Range)
+	pl := Place{Range: rg, Changed: cm.Changed || changed, Removed: cm.Removed || removed}
+	if pl.Changed || pl.Removed {
+		pl.Was = cm.Quote
+	}
+	return &pl
 }

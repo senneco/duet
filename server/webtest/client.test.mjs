@@ -203,3 +203,37 @@ test('байты ↔ символы, порядок комментариев', (
   const o = commentOrder([{ id: 'b', range: { start: 9, end: 10 } }, { id: 'w', whole: true, range: {} }, { id: 'a', range: { start: 1, end: 5 } }]);
   assert.deepEqual(o.map((x) => x.id), ['w', 'a', 'b']);
 });
+
+// ── шаг 6c: окно ответа ──
+import { shownComments, cardHTML } from '../web/js/comments.js';
+import { dict } from '../web/js/i18n.js';
+
+const thread = [{ author: 'owner', text: 'Сократи' }, { author: 'agent', text: 'Сократил', response: 3 }];
+const cm = (o) => ({ id: 'c1', status: 'answered', range: { start: 0, end: 4 }, thread, ...o });
+
+test('171: пока ответ не открыт, ответа агента в карточке нет — только «откройте ответ»', () => {
+  const [c] = shownComments([cm()], { pending: 3 });
+  assert.equal(c.pend, true);
+  assert.deepEqual(c.thread.map((m) => m.text), ['Сократи']);
+  const html = cardHTML(c, { t: dict('ru'), n: 1, on: true });
+  assert.match(html, /агент ответил — откройте ответ/);
+  assert.doesNotMatch(html, /Сократил|data-cact="reply"/);
+  // ответ принят — видно как обычно
+  const [d] = shownComments([cm()], { pending: 0 });
+  assert.equal(d.pend, undefined);
+  assert.equal(d.thread.length, 2);
+});
+
+test('176, 179: в окне ответа комментарии на местах в версии из ответа, написанные в окне — тоже', () => {
+  const list = [
+    cm({ resp: { whole: false, range: { start: 10, end: 14 }, was: 'было', changed: true, removed: false } }),
+    cm({ id: 'c2', inResponse: true, status: 'unsent', thread: [{ author: 'owner', text: 'в окне' }], resp: { whole: false, range: { start: 1, end: 2 }, was: '', changed: false, removed: false } }),
+    cm({ id: 'c3' }), // файла ответ не касается: места в ответе нет
+  ];
+  const got = shownComments(list, { resp: true, pending: 3 });
+  assert.deepEqual(got.map((c) => [c.id, c.range.start, c.was]), [['c1', 10, 'было'], ['c2', 1, '']]);
+  assert.equal(got[0].thread.length, 2, 'в окне ответ агента виден');
+  assert.match(cardHTML(got[1], { t: dict('ru'), n: 2, inResp: true }), /к версии из ответа/);
+  // вне окна написанное в окне не показывается
+  assert.deepEqual(shownComments(list, { pending: 3 }).map((c) => c.id), ['c1', 'c3']);
+});

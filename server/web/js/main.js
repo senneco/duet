@@ -7,7 +7,7 @@ import { dict, defaultLang, fmtDate } from './i18n.js';
 import { buildTree, flatten, fileOrder, isAccepted, counts } from './tree.js';
 import { renderCode, renderDoc, renderDocPlain, renderLines } from './view.js';
 import { target, commentOrder } from './anchors.js';
-import { cardHTML, editorHTML, threadState, placeCards, anchorRanges, paintAnchors, pointPos, shapeMarks, drawSelection } from './comments.js';
+import { cardHTML, editorHTML, threadState, shownComments, placeCards, anchorRanges, paintAnchors, pointPos, shapeMarks, drawSelection } from './comments.js';
 
 const $ = (s) => document.querySelector(s);
 
@@ -53,6 +53,8 @@ const S = {
   ask: null, // «удалить?» у выбранного комментария
   ranges: new Map(), // места комментариев на экране
   stopSince: 0, // когда увидели «останавливается…»
+  // окно ответа (шаг 6c): {back: {path, anchor}} — что было под окном
+  resp: null,
 };
 const T = () => dict(S.lang);
 
@@ -92,7 +94,7 @@ window.addEventListener('popstate', enter);
 async function enter() {
   S.review = null; S.missing = false; S.path = null; S.file = null; S.chunks = null; S.contentKey = '';
   S.overlay = ''; S.toast = null; S.sync = null; S.expanded = new Set();
-  S.sel = null; S.menuSel = false; S.ed = null; S.act = null; S.ask = null;
+  S.sel = null; S.menuSel = false; S.ed = null; S.act = null; S.ask = null; S.resp = null;
   const id = routeId();
   if (!id) {
     await loadList();
@@ -118,12 +120,29 @@ async function loadReview(id) {
     if (e.status === 404) { S.review = null; S.missing = true; }
     return;
   }
-  const { tree } = buildTree(S.review.files);
-  S.tree = tree;
-  S.order = fileOrder(tree);
+  rebuildTree();
   // «Вернуть файлы всё равно» — через 10 секунд после «останавливается…».
   if (S.review.stopping && !S.stopSince) { S.stopSince = Date.now(); setTimeout(renderOverlays, 10100); }
   if (!S.review.stopping) S.stopSince = 0;
+}
+
+// Файлы, которых нет в текущей версии (есть только в ответе), видны только в окне ответа.
+const shown = (files) => files.filter((f) => !f.absent);
+const visibleFiles = () => (S.review ? (S.resp ? S.review.files : shown(S.review.files)) : []);
+const pendingResp = () => (S.review && S.review.response) || null;
+
+function rebuildTree() {
+  const { tree } = buildTree(visibleFiles());
+  S.tree = tree;
+  S.order = fileOrder(tree);
+}
+
+// Файлы ответа в порядке дерева.
+function respFiles() {
+  const p = pendingResp();
+  if (!p) return [];
+  const set = new Set(p.files);
+  return S.order.filter((f) => set.has(f.path));
 }
 
 function copyLink() {
@@ -139,7 +158,7 @@ async function openReview(id) {
   await loadReview(id);
   if (!S.review) { renderAll(); return; }
   const saved = store.get('pos:' + id, null);
-  const has = (p) => S.review.files.some((f) => f.path === p);
+  const has = (p) => visibleFiles().some((f) => f.path === p);
   let path = null;
   let line = 0;
   let off;
@@ -170,7 +189,7 @@ async function openFile(path, { line = 0, off, keep = false } = {}) {
   try {
     [file, chunks] = await Promise.all([
       api(`/api/reviews/${rid()}/file?path=${encodeURIComponent(path)}`),
-      api(`/api/reviews/${rid()}/diff?path=${encodeURIComponent(path)}`).catch(() => []),
+      api(`/api/reviews/${rid()}/diff?path=${encodeURIComponent(path)}${S.resp ? '&mode=response' : ''}`).catch(() => []),
     ]);
   } catch {
     return;
@@ -179,7 +198,7 @@ async function openFile(path, { line = 0, off, keep = false } = {}) {
   S.file = file;
   S.chunks = chunks;
   if (file.state === 'moved' && !S.reviews) await loadList();
-  if (file.state === 'new') act('opened', { path }).catch(() => {});
+  if (file.state === 'new' && !S.resp) act('opened', { path }).catch(() => {});
   renderAll();
   if (anchor) restoreAnchor(anchor);
   else if (line && off !== undefined) restoreAnchor({ n: line, off });
@@ -232,7 +251,8 @@ function refresh(ids) {
     if (!d.has('*') && !d.has(id)) return;
     await loadReview(id);
     if (!S.review) { renderAll(); return; }
-    if (S.path && S.review.files.some((f) => f.path === S.path)) await openFile(S.path, { keep: true });
+    if (S.resp && !pendingResp()) { await closeResp(); return; } // ответ приняли или отклонили в другой вкладке
+    if (S.path && visibleFiles().some((f) => f.path === S.path)) await openFile(S.path, { keep: true });
     else renderAll();
   }, 60);
 }
@@ -258,9 +278,11 @@ function renderAll() {
     $('#banner').innerHTML = '';
     $('#map').innerHTML = '';
     $('#sc').innerHTML = listHTML();
+    renderFrame();
     S.contentKey = '';
     document.title = 'duet';
   } else {
+    renderFrame();
     renderTree();
     renderWinbar();
     renderBanner();
@@ -322,6 +344,8 @@ function renderTree() {
   if (!S.review) { el.innerHTML = ''; return; }
   const ind = (n) => '<span class="ind"></span>'.repeat(n);
   let h = '';
+  const rset = S.resp ? new Set((pendingResp() || {}).files || []) : null;
+  el.classList.toggle('rmode', !!S.resp);
   for (const r of flatten(S.tree, S.collapsed)) {
     if (r.dir) {
       h += `<div class="tr dir" data-dir="${esc(r.key)}"><span class="pad"></span>${ind(r.depth)}<span class="ic">${r.open ? '▾' : '▸'}</span><span class="nm">${esc(r.name)}</span></div>`;
@@ -330,8 +354,10 @@ function renderTree() {
     const f = r.file;
     const open = f.path === S.path;
     const gone = ['deleted', 'deleted-accepted', 'moved'].includes(f.state) ? ' gone' : '';
-    h += `<div class="tr${open ? ' open' : ''}${gone}" data-file="${esc(f.path)}" title="${esc(f.path)}"><span class="pad"></span>${ind(r.depth)}<span class="ic">${fileIcon(f)}</span><span class="nm">${esc(f.name)}</span>${f.open ? `<span class="cmk${f.questions ? ' q' : ''}">${f.open}</span>` : ''}<span class="fill"></span>${fileTag(f)}</div>`;
-    if (open && !S.blocksHidden && S.file && S.file.path === f.path) {
+    const off = rset && !rset.has(f.path) ? ' untouched' : '';
+    const tag = S.resp ? (f.absent ? `<span class="tag rnew">${T().rNew}</span>` : '') : fileTag(f);
+    h += `<div class="tr${open ? ' open' : ''}${gone}${off}" data-file="${esc(f.path)}" title="${esc(f.path)}"><span class="pad"></span>${ind(r.depth)}<span class="ic">${fileIcon(f)}</span><span class="nm">${esc(f.name)}</span>${f.open && !S.resp ? `<span class="cmk${f.questions ? ' q' : ''}">${f.open}</span>` : ''}<span class="fill"></span>${tag}</div>`;
+    if (open && !S.resp && !S.blocksHidden && S.file && S.file.path === f.path) {
       const cur = currentBlock();
       for (const [k, b] of (S.file.blocks || []).entries()) {
         const imp = { top: ['⇈', 'i3'], high: ['↑', 'i2'], low: ['↓', 'i1'] }[b.level] || ['·', 'i1'];
@@ -339,7 +365,7 @@ function renderTree() {
       }
     }
   }
-  if (!S.review.files.length) h = `<div class="empty">${T().noFiles}</div>`;
+  if (!visibleFiles().length) h = `<div class="empty">${T().noFiles}</div>`;
   el.innerHTML = h;
   const open = el.querySelector('.tr.open');
   if (open && (open.offsetTop < el.scrollTop || open.offsetTop > el.scrollTop + el.clientHeight - 30)) el.scrollTop = open.offsetTop - 80;
@@ -349,7 +375,7 @@ function stateText(f) {
   const t = T();
   const parts = [];
   if (f.agentWorking) parts.push(`${SNAKE} ${t.stWorking}`);
-  else if (f.ripple) parts.push(`${RIPPLE(true)} ${t.stRipple}`);
+  else if (f.ripple) parts.push(`${RIPPLE(true)} <span class="rsp-t">${t.rTouches}</span>`);
   else {
     const st = { new: t.stNew, opened: t.stOpened, accepted: t.stAccepted, deleted: t.stDeleted, 'deleted-accepted': `${t.stDeleted} · ${t.stAccepted}`, moved: t.stMoved }[f.state];
     parts.push(`${fileIcon(f)} ${st || ''}`);
@@ -369,7 +395,18 @@ function renderWinbar() {
     ? `<span class="kb done">✓ ${t.accepted}</span>`
     : f.state === 'moved' ? '' : `<button class="kb" data-act="accept">${t.accept} <kbd>␣a</kbd></button>`;
   const cm = canComment() ? `<button class="kb" data-act="comment">${t.menuComment} <kbd>␣c</kbd></button>` : '';
-  el.innerHTML = `<span><span class="dir">${esc(rel.slice(0, slash + 1))}</span><span class="fn">${esc(rel.slice(slash + 1))}</span></span><span class="st">${stateText(f)}</span><span class="sp"></span>${cm}${acc}`;
+  const name = `<span><span class="dir">${esc(rel.slice(0, slash + 1))}</span><span class="fn">${esc(rel.slice(slash + 1))}</span></span>`;
+  if (S.resp) {
+    const P = (x, cls = '') => `<span class="pill${cls}">${x}</span>`;
+    let vs;
+    if (f.response == null && !f.responseDeleted) vs = `${P(t.rCurrent)} = ${P(t.rResp, ' rs')}`;
+    else if (f.absent && !f.hasBase) vs = `${P(t.rResp, ' rs')} <span class="rnew">${t.rNew}</span>`;
+    else vs = `${P(f.absent ? t.beforeTask : t.rCurrent)} → ${P(t.rResp, ' rs')}`;
+    el.innerHTML = `${name}<span class="vs">${vs}</span><span class="sp"></span>${cm}`;
+    return;
+  }
+  const rb = f.ripple && pendingResp() ? `<button class="kb rsp" data-act="response">${t.rHint} <kbd>␣r</kbd></button>` : '';
+  el.innerHTML = `${name}<span class="st">${stateText(f)}</span><span class="sp"></span>${rb}${cm}${acc}`;
 }
 
 function relPath(p) {
@@ -384,6 +421,7 @@ function contentHTML() {
   const lang = kind === 'code' ? langOf(f.path) : kind === 'markdown' ? 'md' : '';
   const docMode = kind === 'markdown' && S.doc;
   const words = { was: t.was, now: t.now, added: t.added, removed: t.removed, more: t.more, changed: t.changed, blankAdded: t.blankAdded, blankRemoved: t.blankRemoved };
+  if (S.resp) return respContentHTML(words);
   if (f.state === 'moved') {
     const r = (S.reviews || []).find((x) => x.id === f.movedTo);
     return `<div class="notice"><a href="/r/${encodeURIComponent(f.movedTo)}" data-go="/r/${encodeURIComponent(f.movedTo)}">${esc(t.movedTo(r ? r.title : f.movedTo))}</a></div>`;
@@ -401,12 +439,33 @@ function contentHTML() {
   return bar.replace('basebar', 'basebar code-bar') + renderCode(S.chunks, { cols: S.cols, lang, oldText: f.base, newText: f.current, fold: kind === 'code', expanded: S.expanded, labels, foldText: t.fold });
 }
 
+// Текст «до» и «после» в окне ответа: текущая (у файла, которого владелец ещё не видел, — база) и ответ.
+const respOld = (f) => (f.absent ? (f.hasBase ? f.base : '') : f.current || '');
+const respNew = (f) => (f.response == null ? f.current || '' : f.response);
+
+function respContentHTML(words) {
+  const t = T();
+  const f = S.file;
+  const kind = fileKind(f.path);
+  const lang = kind === 'code' ? langOf(f.path) : kind === 'markdown' ? 'md' : '';
+  const docMode = kind === 'markdown' && S.doc;
+  const plain = (text, side) => (docMode ? renderDocPlain(text, side) : renderLines(text, lang, side));
+  const old = respOld(f);
+  if (f.responseDeleted) return `<div class="notice del">${t.rDeleted}</div><div class="gone-body">${plain(old, 'o')}</div>`;
+  if (f.response == null) return `<div class="notice">${t.rOnlyAnswers}</div>${plain(f.current || '')}`;
+  if (f.absent && !f.hasBase) return `<div class="notice add">${t.rCreated}</div>${plain(f.response)}`;
+  const labels = { base: `<span class="pill">${f.absent ? t.beforeTask : t.rCurrent}</span>`, current: `<span class="pill rs">${t.rResp}</span>` };
+  const bar = f.absent ? `<div class="notice">${t.rUnseen}</div>` : '';
+  if (docMode) return bar + renderDoc(S.chunks, old, f.response, { cols: S.cols, labels, words });
+  return bar + renderCode(S.chunks, { cols: S.cols, lang, oldText: old, newText: f.response, fold: kind === 'code', expanded: S.expanded, labels, foldText: t.fold });
+}
+
 function renderContent() {
   const sc = $('#sc');
   if (S.missing) { sc.innerHTML = `<div class="notice">${T().noReview} <a href="/" data-go="/">${T().back}</a></div>`; S.contentKey = ''; return; }
   if (!S.file) { sc.innerHTML = ''; S.contentKey = ''; $('#map').innerHTML = ''; return; }
   const f = S.file;
-  const key = JSON.stringify([f.path, f.base, f.current, f.currentDeleted, f.hasBase, f.state === 'moved', f.baseIsOriginal, f.originSource, S.chunks, S.cols, S.doc, [...S.expanded], S.lang]);
+  const key = JSON.stringify([!!S.resp, f.path, f.base, f.current, f.currentDeleted, f.hasBase, f.response, f.responseDeleted, f.state === 'moved', f.baseIsOriginal, f.originSource, S.chunks, S.cols, S.doc, [...S.expanded], S.lang]);
   if (key === S.contentKey) return;
   S.contentKey = key;
   sc.innerHTML = contentHTML();
@@ -435,7 +494,7 @@ function listHTML() {
   if (!list.length) return `<div class="list"><div class="lh"><b>${t.reviews}</b></div><p class="empty">${S.reviews ? t.noReviews : ''}</p></div>`;
   S.listSel = Math.min(S.listSel, list.length - 1);
   const rows = list.map((r, i) => {
-    const c = counts(r.files);
+    const c = counts(shown(r.files));
     const mk = r.accepted ? `<span class="mk okc"><span class="d-ok">✓</span> ${t.acceptedAll}</span>`
       : r.hasResponse ? `<span class="mk rpl">${RIPPLE(false)} ${t.unviewed}</span>` : '';
     return `<div class="lr${i === S.listSel ? ' on' : ''}" data-go="/r/${encodeURIComponent(r.id)}" data-i="${i}"><span class="cur">›</span><span class="nm">${esc(r.title || r.id)}</span><span>${esc(fmtDate(r.created, S.lang))}</span><span class="pr"><span><b>${c.done}</b>/${c.total}</span><span class="pbar"><i style="width:${c.total ? (c.done / c.total) * 100 : 0}%"></i></span></span><span class="ag">${agentText(r)}</span>${mk || '<span></span>'}</div>`;
@@ -454,6 +513,7 @@ function renderStatus() {
   else if (S.overlay === 'menu') mode = ['␣ ' + t.modeMenu, 'lead'];
   else if (S.overlay === 'help') mode = ['? ' + t.modeHelp, 'help'];
   else if (!id) mode = [t.modeList, ''];
+  else if (S.resp) mode = [t.modeResp, 'rspm'];
   let h = seg(mode[0], 'mode ' + mode[1]);
   if (!id) {
     h += seg(t.reviews.toLowerCase(), 'file') + '<span class="sp"></span>';
@@ -469,14 +529,16 @@ function renderStatus() {
   if (S.sync) h += seg(`<span class="spin"></span> ${t.syncing} <b>${S.sync.done}</b>/${S.sync.total}`);
   if (S.toast && S.toast.short) h += seg(`<span class="${S.toast.ok ? 'ok' : 'err'}">${esc(S.toast.short)}</span>`);
   h += '<span class="sp"></span>';
+  if (S.review && pendingResp() && !S.resp) h += `<span class="seg rsp" data-act="response">${RIPPLE(false)} ${t.rHint} · ␣r</span>`;
   if (S.review) {
-    const c = counts(S.review.files);
+    const c = counts(shown(S.review.files));
     if (S.review.unsent) h += `<span class="seg uns" data-act="send">${t.unsentN} <b>${S.review.unsent}</b> · ␣s</span>`;
     h += seg(`${S.lang === 'ru' ? 'принято' : 'accepted'} <b>${c.done}</b>/${c.total} <span class="pbar"><i style="width:${c.total ? (c.done / c.total) * 100 : 0}%"></i></span>`);
     h += seg(agentText(S.review) + (canInterrupt() ? `<button class="kb int" data-act="interrupt">${t.interrupt} <kbd>␣u</kbd></button>` : ''));
   }
   h += seg(position(), 'pos');
-  h += seg(`<span class="k">␣</span> ${t.menu} · <span class="k">?</span> ${t.keys}`, 'click" data-act="menu');
+  if (S.resp) h += seg(`<span class="k">␣a</span> ${t.rAccept} · <span class="k">␣x</span> ${t.rReject} · <span class="k">esc</span> ${t.rClose}`, 'click" data-act="menu');
+  else h += seg(`<span class="k">␣</span> ${t.menu} · <span class="k">?</span> ${t.keys}`, 'click" data-act="menu');
   $('#status').innerHTML = (S.sync ? `<span class="sync" style="width:${(S.sync.done / Math.max(1, S.sync.total)) * 100}%"></span>` : '') + h;
 }
 
@@ -506,14 +568,19 @@ function position() {
 function renderOverlays() {
   const t = T();
   let h = '';
-  if (S.overlay === 'menu') {
+  if (S.overlay === 'menu' && S.resp) {
+    const it = (k, ds, now, later) => `<div class="it${later ? ' later' : ''}" ${later ? '' : `data-key="${k}"`}><span class="key">${k}</span><span class="ar">→</span><span class="ds">${ds}</span>${now ? `<span class="now">${now}</span>` : ''}</div>`;
+    h += `<div class="wk"><div class="top"><span class="crumb">␣</span><span>${t.rTitle}${S.file ? ' · ' + esc(relPath(S.file.path)) : ''}</span><span class="sp"></span><kbd>esc</kbd> ${t.close}</div>
+<div class="grid"><div><div class="grp">${t.menuResp}</div>${it('a', t.rAccept)}${it('x', t.rReject)}${it('r', t.rClose)}</div>
+<div><div class="grp">${t.menuFile}</div>${it('c', t.menuComment, t.menuCommentNow, !canComment())}</div></div></div>`;
+  } else if (S.overlay === 'menu') {
     const it = (k, ds, now, later) => `<div class="it${later ? ' later' : ''}" ${later ? '' : `data-key="${k}"`}><span class="key">${k}</span><span class="ar">→</span><span class="ds">${ds}</span>${now ? `<span class="now">${now}</span>` : ''}</div>`;
     const file = S.file && !isAccepted(S.file) && S.file.state !== 'moved' ? it('a', t.menuAccept, t.menuAcceptNext) : '';
     const r = S.review || {};
     h += `<div class="wk"><div class="top"><span class="crumb">␣</span><span>${t.menuTitle}${S.file ? ' · ' + esc(relPath(S.file.path)) : ''}</span><span class="sp"></span><kbd>esc</kbd> ${t.close}</div>
 <div class="grid" style="grid-template-columns:repeat(3,max-content)"><div><div class="grp">${t.menuFile}</div>${file || `<div class="it later"><span class="key">a</span><span class="ar">→</span><span class="ds">${t.menuAccept}</span><span class="now">${S.file && isAccepted(S.file) ? '✓ ' + t.accepted : ''}</span></div>`}${it('c', t.menuComment, t.menuCommentNow, !canComment())}</div>
 <div><div class="grp">${t.menuAgent}</div>${it('s', t.menuSend, r.unsent ? t.menuSendNow(r.unsent) : '', !r.unsent)}${it('u', t.menuInterrupt, t.menuInterruptNow, !canInterrupt())}</div>
-<div><div class="grp">${t.menuLater}</div>${it('r', t.menuResponse, '', 1)}${it('e', t.menuEdit, '', 1)}</div></div></div>`;
+<div><div class="grp">${t.menuResp}</div>${it('r', t.menuRespOpen, '', !(pendingResp() && !r.working))}<div class="grp" style="margin-top:12px">${t.menuLater}</div>${it('e', t.menuEdit, '', 1)}</div></div></div>`;
   }
   if (S.overlay === 'help') {
     const k = (keys, ds) => `<div class="k"><span class="ks">${keys.map((x) => `<kbd>${x}</kbd>`).join('')}</span><span class="ds">${ds}</span></div>`;
@@ -521,11 +588,18 @@ function renderOverlays() {
 <div><div class="grp">${t.reading}</div>${k(['j', 'k'], t.kScroll)}${k(['↓', '↑'], t.kScroll)}${k(['gg', 'G'], t.kTopBottom)}</div>
 <div><div class="grp">${t.navigation}</div>${k([']c', '[c'], t.kChange)}${k([']f', '[f'], t.kFile)}${k([']b', '[b'], t.kBlock)}</div>
 <div><div class="grp">${t.actions}</div>${k(['␣'], t.kMenu)}${k(['␣a'], t.kAccept)}${k(['?'], t.kHelp)}${k(['esc'], t.kEsc)}</div>
+<div><div class="grp">${t.rHint}</div>${k(['␣r'], t.kResp)}${k(['␣a'], t.kRespAccept)}${k(['␣x'], t.kRespReject)}${k([']f', '[f'], t.kRespFile)}</div>
 <div><div class="grp">${t.view}</div>${k(['␣v'], t.kCols)}${k(['␣m'], t.kDoc)}</div>
 <div><div class="grp">${t.comments}</div>${k(['gc'], t.kComment)}${k(['␣c'], t.kCommentAny)}${k(['␣s'], t.kSend)}${k(['␣u'], t.kInterrupt)}${k([']n', '[n'], t.kNextComment)}</div>
 <div><div class="grp">${t.selected}</div>${k(['↵'], t.kCardEnter)}${k(['x'], t.kCardX)}${k(['1', '2', '3'], t.kCardNum)}</div>
 <div><div class="grp">${t.reviews.toLowerCase()}</div>${k(['j', 'k', '↵'], t.kList)}</div>
 </div></div>`;
+  }
+  if (S.overlay === 'reject') {
+    const p = pendingResp() || {};
+    const created = (S.review.files || []).filter((f) => f.absent && (p.files || []).includes(f.path)).map((f) => `<code>${esc(f.path.split('/').pop())}</code>`);
+    const mine = respMine();
+    h += `<div class="dimmer" data-act="close"></div><div class="off-card"><div class="h"><span class="pt"></span>${t.rRejTitle}</div><p>${t.rRejText(created.join(', '), p.answers || 0)}</p>${mine ? `<p class="strong">${t.rRejMine(mine)}</p>` : ''}<div class="ft"><button class="btn err" data-act="reject-go">${t.rRejGo} <kbd>↵</kbd></button><span><kbd>esc</kbd> ${t.rRejNo}</span></div></div>`;
   }
   if (S.overlay === 'interrupt') {
     h += `<div class="dimmer" data-act="close"></div><div class="off-card"><div class="h"><span class="pt"></span>${t.intTitle}</div><p>${t.intText}</p><div class="ft"><button class="btn err" data-act="interrupt-go">${t.intGo} <kbd>↵</kbd></button><span><kbd>esc</kbd> ${t.intNo}</span></div></div>`;
@@ -594,7 +668,7 @@ let posTimer = 0;
 function savePos() {
   clearTimeout(posTimer);
   posTimer = setTimeout(() => {
-    if (!S.review || !S.path) return;
+    if (!S.review || !S.path || S.resp) return;
     const a = anchorOf();
     store.set('pos:' + S.review.id, a ? { path: S.path, n: a.n, off: a.off } : { path: S.path, n: 0 });
   }, 250);
@@ -692,7 +766,7 @@ async function accept() {
     await act('accept-file', { path: f.path });
   } catch (e) {
     const text = { 'unviewed-response': t.errUnviewed, 'disk-changed': t.errDisk, moved: t.errMoved }[e.code] || esc(e.message || t.errNet);
-    toast({ title: t.denied, text, short: `✕ ${t.denied}` });
+    toast({ title: t.denied, text, short: `✕ ${t.denied}`, ...(e.code === 'unviewed-response' ? openRespBtn() : {}) });
     return;
   }
   toast(null);
@@ -750,6 +824,7 @@ function closeOverlay() {
 
 function canComment() {
   const f = S.file;
+  if (S.resp) return !!(S.review && f && !f.responseDeleted && (f.response != null || !f.currentDeleted));
   return !!(S.review && f && f.state !== 'moved' && !f.currentDeleted);
 }
 
@@ -758,7 +833,12 @@ function canInterrupt() {
   return !!(r && !r.stopping && (r.agentLost || r.files.some((f) => f.agentWorking)));
 }
 
-const openComments = () => (S.file && S.file.state !== 'moved' ? S.file.comments || [] : []).filter((c) => !c.inResponse);
+function openComments() {
+  const f = S.file;
+  const list = f && f.state !== 'moved' ? f.comments || [] : [];
+  const p = pendingResp();
+  return shownComments(list, { resp: !!S.resp, pending: p ? p.id : 0 });
+}
 const commentById = (id) => openComments().find((c) => c.id === id);
 
 function renderBanner() {
@@ -801,7 +881,7 @@ function renderComments() {
   const items = list.map((c, i) => {
     const mine = S.ed && S.ed.id === c.id;
     let html = cardHTML(c, {
-      t, n: i + 1, on: S.act === c.id,
+      t, n: i + 1, on: S.act === c.id, inResp: !!S.resp,
       edit: mine && S.ed.kind === 'edit' ? editorHTML(S.ed, t) : '',
       reply: mine && S.ed.kind === 'reply' ? editorHTML(S.ed, t) : '',
     });
@@ -811,7 +891,7 @@ function renderComments() {
     }
     return { c, html };
   });
-  const current = S.file.current || '';
+  const current = S.resp ? respNew(S.file) : S.file.current || '';
   placeCards(sc, items, current);
   S.ranges = anchorRanges(sc, list, current);
   paintAnchors(S.ranges, list, S.act);
@@ -857,7 +937,9 @@ function openNew() {
     document.querySelector('#ced')?.scrollIntoView({ block: 'nearest' });
     return;
   }
-  const tg = target(S.sel.a, S.sel.b, f.base || '', f.current || '', S.chunks || []);
+  const tg = S.resp
+    ? target(S.sel.a, S.sel.b, respOld(f), respNew(f), f.response == null ? [] : S.chunks || [])
+    : target(S.sel.a, S.sel.b, f.base || '', f.current || '', S.chunks || []);
   if (!tg) return;
   const sc = $('#sc');
   const ls = S.sel.lines || [];
@@ -905,7 +987,7 @@ async function saveEditor() {
   if (!text && !(ed.images || []).length) return;
   try {
     if (ed.kind === 'new') {
-      const b = { path: S.file.path, text, images: ed.images };
+      const b = { path: S.file.path, text, images: ed.images, inResponse: !!S.resp };
       if (ed.target && ed.target.range) b.range = ed.target.range;
       if (ed.target && ed.target.was) { b.range = { start: ed.target.at, end: ed.target.at }; b.was = ed.target.was; }
       const r = await act('comment', b);
@@ -942,7 +1024,7 @@ function commentError(e) {
     'comment-status': [t.errSave, t.errStatus],
   };
   const m = map[e.code] || [t.errSave, esc(e.message || t.errNet)];
-  toast({ title: m[0], text: m[1], short: `✕ ${m[0]}` });
+  toast({ title: m[0], text: m[1], short: `✕ ${m[0]}`, ...(e.code === 'unviewed-response' && !S.resp ? openRespBtn() : {}) });
 }
 
 async function cardAction(kind, c, i) {
@@ -1033,6 +1115,103 @@ async function interrupt() {
   closeOverlay();
   try { await act('interrupt'); } catch (e) { commentError(e); return; }
   await reloadFile();
+}
+
+// ── окно ответа ──
+// Окно — это тот же основной экран в режиме ответа: справа от дерева, поверх затемнения, со своей
+// шапкой и низом. Под окном остаётся место чтения (S.resp.back), куда возвращаемся после закрытия.
+
+function renderFrame() {
+  const on = !!(S.resp && S.review);
+  $('#app').classList.toggle('rmode', on);
+  if (!on) { $('#rhead').innerHTML = ''; $('#rfoot').innerHTML = ''; return; }
+  const t = T();
+  const p = pendingResp() || { files: [] };
+  const kind = { claude: 'Claude Code', codex: 'Codex' }[S.review.agentKind] || S.review.agentKind || '';
+  const time = p.at ? new Date(p.at).toLocaleTimeString(S.lang, { hour: '2-digit', minute: '2-digit' }) : '';
+  const meta = [kind, time, t.rFiles(p.files.length), p.answers ? t.rAnswers(p.answers, p.questions) : ''].filter(Boolean).join(' · ');
+  $('#rhead').innerHTML = `<span class="ttl"><span class="pt"></span>${t.rTitle}</span><span class="meta">${esc(meta)}</span><span class="sp"></span>
+<button class="ract no" data-act="resp-reject">${t.rReject} <kbd>␣x</kbd></button><button class="ract" data-act="resp-close">${t.rClose} <kbd>esc</kbd></button><button class="ract ok" data-act="resp-accept">${t.rAccept} <kbd>␣a</kbd></button>`;
+  const list = respFiles();
+  const i = list.findIndex((f) => f.path === S.path) + 1;
+  const back = S.resp.back.path && S.review.files.some((f) => f.path === S.resp.back.path) ? relPath(S.resp.back.path) : '';
+  $('#rfoot').innerHTML = `<span>${t.rFileN(i, list.length)}</span><span><b>]f</b> <b>[f</b> ${t.rKeyFiles}</span><span><b>]c</b> <b>[c</b> ${t.rKeyChanges}</span><span><b>]n</b> <b>[n</b> ${t.rKeyComments}</span><span class="sp"></span>${back ? `<span>${t.rUnder} <b>${esc(back)}</b></span>` : ''}`;
+}
+
+function openRespBtn() {
+  return { btn: `<button class="btn" data-act="response">${T().rOpen} <kbd>↵</kbd></button>`, enter: 'response' };
+}
+
+async function openResp() {
+  const t = T();
+  if (!S.review || S.resp) return;
+  toast(null);
+  if (!pendingResp()) { toast({ ok: true, short: S.review.working ? t.rWorking : t.rNone }); return; }
+  S.resp = { back: { path: S.path, anchor: S.path ? anchorOf() : null } };
+  S.overlay = '';
+  rebuildTree();
+  const list = respFiles();
+  const path = list.some((f) => f.path === S.path) ? S.path : (list[0] || {}).path;
+  S.path = null; // файл открывается заново: другой вид, другие отличия
+  renderFrame();
+  if (path) await openFile(path);
+  else renderAll();
+}
+
+// closeResp — закрыть окно. path — какой файл открыть (после «принять»), иначе — то, что было под окном.
+async function closeResp(path) {
+  if (!S.resp) return;
+  const back = S.resp.back;
+  S.resp = null;
+  S.overlay = '';
+  if (S.review) await loadReview(S.review.id);
+  if (!S.review) { renderAll(); return; }
+  const has = (x) => x && visibleFiles().some((f) => f.path === x);
+  S.path = null;
+  if (has(path)) await openFile(path);
+  else if (has(back.path)) await openFile(back.path, back.anchor ? { line: back.anchor.n, off: back.anchor.off } : {});
+  else if (S.order[0]) await openFile(S.order[0].path);
+  else renderAll();
+}
+
+function toggleResp() {
+  if (S.resp) closeResp();
+  else openResp();
+}
+
+function jumpRespFile(dir) {
+  const list = respFiles();
+  if (!list.length) return;
+  const i = list.findIndex((f) => f.path === S.path);
+  const n = list[(i + dir + list.length * 2) % list.length];
+  if (n.path !== S.path) openFile(n.path);
+}
+
+// respMine — сколько написано в окне ответа: комментарии к версии из ответа и ответы в ветках.
+const respMine = () => (pendingResp() || {}).mine || 0;
+
+async function acceptResp() {
+  if (!S.resp) return;
+  const t = T();
+  const path = S.path;
+  try { await act('accept-response'); } catch (e) { commentError(e); return; }
+  await closeResp(path);
+  toast({ ok: true, short: `✓ ${t.rAccepted}` });
+}
+
+function askReject() {
+  if (!S.resp) return;
+  S.overlay = 'reject';
+  renderOverlays();
+  renderStatus();
+}
+
+async function rejectResp() {
+  const t = T();
+  S.overlay = '';
+  try { await act('reject-response'); } catch (e) { commentError(e); renderOverlays(); return; }
+  await closeResp();
+  toast({ ok: true, short: `✓ ${t.rRejected}` });
 }
 
 // Картинки: из буфера (⌘V) или перетащенные в окно.
@@ -1200,12 +1379,29 @@ document.addEventListener('keydown', (e) => {
   if (S.overlay === 'menu') {
     e.preventDefault();
     closeOverlay();
-    if (k === 'a') accept();
+    if (S.resp) {
+      if (k === 'a') acceptResp();
+      else if (k === 'x') askReject();
+      else if (k === 'r') closeResp();
+      else if (k === 'c') openNew();
+      else if (k === 'v') toggleCols();
+      else if (k === 'm') toggleDoc();
+      else if (k === 's') send();
+      return;
+    }
+    if (k === 'r') openResp();
+    else if (k === 'a') accept();
     else if (k === 'v') toggleCols();
     else if (k === 'm') toggleDoc();
     else if (k === 'c') openNew();
     else if (k === 's') send();
     else if (k === 'u') askInterrupt();
+    return;
+  }
+  if (S.overlay === 'reject') {
+    e.preventDefault();
+    if (k === 'Enter') rejectResp();
+    else if (k === 'Escape') closeOverlay();
     return;
   }
   if (S.overlay === 'interrupt') {
@@ -1224,9 +1420,11 @@ document.addEventListener('keydown', (e) => {
     else if (S.toast) toast(null);
     else if (S.sel) clearSelection();
     else if (S.act) { S.act = null; renderComments(); }
+    else if (S.resp) closeResp();
     return;
   }
   if (k === 'Enter' && S.toast && S.toast.enter === 'copylink') { e.preventDefault(); copyLink(); return; }
+  if (k === 'Enter' && S.toast && S.toast.enter === 'response') { e.preventDefault(); openResp(); return; }
   if (!S.pending && S.act && !isList) {
     const c = commentById(S.act);
     if (c) {
@@ -1249,8 +1447,8 @@ document.addEventListener('keydown', (e) => {
     if (seq === 'gg') $('#sc').scrollTop = 0;
     else if (seq === ']c') jumpChange(1);
     else if (seq === '[c') jumpChange(-1);
-    else if (seq === ']f') jumpFile(1);
-    else if (seq === '[f') jumpFile(-1);
+    else if (seq === ']f') (S.resp ? jumpRespFile : jumpFile)(1);
+    else if (seq === '[f') (S.resp ? jumpRespFile : jumpFile)(-1);
     else if (seq === ']b') jumpBlock(1);
     else if (seq === '[b') jumpBlock(-1);
     else if (seq === ']n') jumpComment(1);
@@ -1303,6 +1501,11 @@ document.addEventListener('click', (e) => {
       case 'interrupt-go': interrupt(); break;
       case 'restore': act('restore-anyway').catch(commentError); break;
       case 'copylink': copyLink(); break;
+      case 'response': toggleResp(); break;
+      case 'resp-accept': acceptResp(); break;
+      case 'resp-reject': askReject(); break;
+      case 'resp-close': closeResp(); break;
+      case 'reject-go': rejectResp(); break;
     }
     return;
   }
@@ -1310,7 +1513,15 @@ document.addEventListener('click', (e) => {
   if (key) {
     closeOverlay();
     const k = key.dataset.key;
-    if (k === 'a') accept();
+    if (S.resp) {
+      if (k === 'a') acceptResp();
+      else if (k === 'x') askReject();
+      else if (k === 'r') closeResp();
+      else if (k === 'c') openNew();
+      return;
+    }
+    if (k === 'r') openResp();
+    else if (k === 'a') accept();
     else if (k === 'c') openNew();
     else if (k === 's') send();
     else if (k === 'u') askInterrupt();
@@ -1349,6 +1560,7 @@ document.addEventListener('click', (e) => {
   const file = t.closest('[data-file]');
   if (file) {
     const p = file.dataset.file;
+    if (S.resp && file.classList.contains('untouched')) return;
     if (p === S.path) { S.blocksHidden = !S.blocksHidden; renderTree(); }
     else openFile(p);
     return;

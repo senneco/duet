@@ -124,9 +124,6 @@ func TestReplyWaitsForSend(t *testing.T) {
 	a := addC(t, c, r, "/a", nil, "А")
 	sendTake(t, c, r)
 	c.AgentFinish(r, nil, []Answer{{CommentID: a, Text: "сделал"}})
-	if err := c.Reply(r, a, "нет", nil); !errors.Is(err, ErrUnviewedResponse) {
-		t.Fatal(err) // 10
-	}
 	must(t, c.AcceptResponse(r))
 	must(t, c.Reply(r, a, "не согласен", nil))
 	if s := status(t, c, r, "/a", a); s != CommentUnsent {
@@ -506,13 +503,13 @@ func TestDiffRandom(t *testing.T) {
 func TestRemovedTextComment(t *testing.T) {
 	c, r := setup(t)
 	at := strings.Index(doc, "три")
-	a, err := c.AddRemovedComment(r, "/a", at, "старая строка", "Зачем удалил?", nil)
+	a, err := c.AddRemovedComment(r, "/a", at, "старая строка", "Зачем удалил?", nil, false)
 	must(t, err)
 	x := cv(t, c, r, "/a", a)
 	if x.Range != (Range{at, at}) || !x.Removed || x.Was != "старая строка" {
 		t.Fatalf("%+v", x)
 	}
-	if _, err := c.AddRemovedComment(r, "/a", at, "", "А", nil); !errors.Is(err, ErrBadRange) {
+	if _, err := c.AddRemovedComment(r, "/a", at, "", "А", nil, false); !errors.Is(err, ErrBadRange) {
 		t.Fatal(err)
 	}
 	nw := "ноль\n" + doc
@@ -523,5 +520,106 @@ func TestRemovedTextComment(t *testing.T) {
 	got := sendTake(t, c, r)
 	if len(got) != 1 || !got[0].Removed || got[0].Quote != "старая строка" {
 		t.Fatalf("%+v", got)
+	}
+}
+
+// 180, 185: в окне ответа можно ответить в ветке на то, на что агент ответил в этом ответе;
+// при отклонении такой ответ пропадает вместе с ответом агента.
+func TestReplyInResponseWindow(t *testing.T) {
+	c, r := setup(t)
+	a := addC(t, c, r, "/a", sel(doc, "два"), "А")
+	b := addC(t, c, r, "/a", sel(doc, "три"), "Б")
+	sendTake(t, c, r)
+	_, err := c.AgentFinish(r, nil, []Answer{{CommentID: b, Text: "сделал"}, {CommentID: a, Text: "как?", Question: true}})
+	must(t, err)
+	must(t, c.AcceptResponse(r))
+	// Новый заход: агент отвечает только на «А».
+	must(t, c.Reply(r, a, "вот так", nil))
+	sendTake(t, c, r)
+	_, err = c.AgentFinish(r, nil, []Answer{{CommentID: a, Text: "сделал"}})
+	must(t, err)
+	if err := c.Reply(r, b, "нет", nil); !errors.Is(err, ErrUnviewedResponse) {
+		t.Fatalf("на старый ответ — только после просмотра: %v", err)
+	}
+	must(t, c.Reply(r, a, "не так", nil))
+	if rv, _ := c.Review(r); rv.Response == nil || rv.Response.Mine != 1 || rv.Unsent != 0 {
+		t.Fatalf("написанное в окне: %+v", rv.Response)
+	}
+	x := cv(t, c, r, "/a", a)
+	if x.Status != CommentUnsent || x.Thread[len(x.Thread)-1].Text != "не так" {
+		t.Fatalf("%+v", x)
+	}
+	must(t, c.RejectResponse(r))
+	x = cv(t, c, r, "/a", a)
+	if x.Status != CommentUnsent || len(x.Thread) != 3 || x.Thread[2].Text != "вот так" {
+		t.Fatalf("ответ из окна должен пропасть вместе с ответом агента: %+v", x)
+	}
+}
+
+// 182: ответ из окна после принятия — обычный неотправленный.
+func TestReplyInResponseWindowAccepted(t *testing.T) {
+	c, r := setup(t)
+	a := addC(t, c, r, "/a", sel(doc, "два"), "А")
+	sendTake(t, c, r)
+	_, err := c.AgentFinish(r, nil, []Answer{{CommentID: a, Text: "как?", Question: true, Options: []string{"так", "эдак"}}})
+	must(t, err)
+	must(t, c.Reply(r, a, "так", nil))
+	must(t, c.AcceptResponse(r))
+	if x := cv(t, c, r, "/a", a); x.Status != CommentUnsent || len(x.Thread) != 3 {
+		t.Fatalf("%+v", x)
+	}
+	if rv, _ := c.Review(r); rv.Unsent != 1 {
+		t.Fatalf("%+v", rv)
+	}
+}
+
+// 178, 179: файл, где агент только ответил на комментарий, тоже можно комментировать в окне.
+func TestCommentInResponseOnlyAnswers(t *testing.T) {
+	c, r := setup(t)
+	a := addC(t, c, r, "/a", nil, "А")
+	sendTake(t, c, r)
+	_, err := c.AgentFinish(r, nil, []Answer{{CommentID: a, Text: "оставил"}})
+	must(t, err)
+	if ch, err := c.ResponseDiff(r, "/a"); err != nil || len(ch) != 1 || ch[0].Kind != "same" {
+		t.Fatalf("файл без правок: %v %+v", err, ch)
+	}
+	w, err := c.AddComment(r, "/a", sel(doc, "три"), "в окне", nil, true)
+	must(t, err)
+	if x := cv(t, c, r, "/a", w); !x.InResponse || x.Resp == nil || x.Resp.Range != *sel(doc, "три") {
+		t.Fatalf("%+v", x)
+	}
+	must(t, c.RejectResponse(r))
+	for _, x := range fv(t, c, r, "/a").Comments {
+		if x.ID == w {
+			t.Fatal("комментарий из окна должен уйти вместе с ответом")
+		}
+	}
+}
+
+// 176: в окне ответа карточки стоят там, где комментарии окажутся после принятия ответа.
+func TestCommentPlaceInResponse(t *testing.T) {
+	c, r := setup(t)
+	a := addC(t, c, r, "/a", sel(doc, "четыре"), "А")
+	b := addC(t, c, r, "/a", sel(doc, "два"), "Б")
+	nw := "один\nвставка\nДВА\nтри\nчетыре\n"
+	respond(t, c, r, Submission{Path: "/a", Content: nw})
+	x := cv(t, c, r, "/a", a)
+	if x.Range != *sel(doc, "четыре") || x.Resp == nil || x.Resp.Range != *sel(nw, "четыре") || x.Resp.Changed {
+		t.Fatalf("%+v", x)
+	}
+	y := cv(t, c, r, "/a", b)
+	if y.Resp == nil || !y.Resp.Changed || y.Resp.Was != "два" {
+		t.Fatalf("%+v", y.Resp)
+	}
+	rv, _ := c.Review(r)
+	if rv.Response == nil || len(rv.Response.Files) != 1 || rv.Response.Files[0] != "/a" {
+		t.Fatalf("%+v", rv.Response)
+	}
+	must(t, c.AcceptResponse(r))
+	if z := cv(t, c, r, "/a", b); z.Range != y.Resp.Range || z.Resp != nil {
+		t.Fatalf("после принятия место то же, что было в окне: %+v / %+v", z, y.Resp)
+	}
+	if rv, _ := c.Review(r); rv.Response != nil {
+		t.Fatal("ответ просмотрен")
 	}
 }

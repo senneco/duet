@@ -236,7 +236,7 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 	case "comment":
 		var cid string
 		if b.Was != "" && b.Range != nil {
-			cid, err = c.AddRemovedComment(id, b.Path, b.Range.Start, b.Was, b.Text, b.Images)
+			cid, err = c.AddRemovedComment(id, b.Path, b.Range.Start, b.Was, b.Text, b.Images, b.InResponse)
 		} else {
 			cid, err = c.AddComment(id, b.Path, b.Range, b.Text, b.Images, b.InResponse)
 		}

@@ -830,6 +830,9 @@ func (c *Core) ResponseDiff(reviewID, p string) ([]Chunk, error) {
 	n, ok := 0, false
 	if resp != nil {
 		n, ok = resp.Files[p]
+		if !ok && resp.touches(c, p) {
+			n, ok = f.Current, true // агент только ответил на комментарии: правок нет
+		}
 	}
 	if !ok {
 		c.mu.Unlock()
