@@ -189,8 +189,17 @@ func locked(path string) bool {
 
 const usage = `duet — async review of agent work.
 
-  duet web [review]   open duet in a new browser tab (a review or the list of reviews)
+  duet web [review]   open duet in a new browser tab (a review, the review of this agent session, or the list)
   duet stop           stop the background duet
+  duet install        install duet into ~/.local/bin and its skill and hooks into Claude Code and Codex
+
+Agent commands (see the duet skill):
+  duet submit         send files for review (JSON manifest as one argument, or file arguments)
+  duet connect <link> pick up a review
+  duet done           finish a turn: answers to the comments (JSON as one argument)
+  duet original <file> --source S --command C | --file F | --text T
+  duet take           take new comments and messages now
+  duet status         which review this session is connected to
 `
 
 // Main — точка входа команды duet. Возвращает код выхода.
@@ -208,11 +217,38 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		err = cfg.stopCmd(stdout)
 	case "serve":
 		err = cfg.Serve()
+	case "install":
+		err = cfg.install(stdout)
+	case "submit":
+		err = cfg.submit(args, stdout)
+	case "connect":
+		if len(args) != 1 {
+			err = &agentError{"usage: duet connect <review link or id>"}
+			break
+		}
+		err = cfg.textCmd("/api/agent/connect", map[string]any{"who": who(), "review": args[0]}, stdout)
+	case "done":
+		err = cfg.done(args, stdout)
+	case "original":
+		err = cfg.original(args, stdout)
+	case "take":
+		err = cfg.textCmd("/api/agent/take", map[string]any{"who": who()}, stdout)
+	case "status":
+		err = cfg.textCmd("/api/agent/status", map[string]any{"who": who()}, stdout)
+	case "hook":
+		return cfg.hook(args, stdout, stderr)
+	case "wait":
+		return cfg.wait(stderr)
 	case "", "help", "-h", "--help":
 		fmt.Fprint(stdout, usage)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n\n%s", cmd, usage)
 		return 2
+	}
+	var ae *agentError
+	if errors.As(err, &ae) {
+		fmt.Fprintln(stderr, ae.text)
+		return 1
 	}
 	if err != nil {
 		fmt.Fprintln(stderr, "duet:", err)
@@ -231,6 +267,15 @@ func (cfg Config) web(args []string, stdout io.Writer) error {
 		return err
 	}
 	link := URL(port) + "/"
+	if len(args) == 0 {
+		// Из сессии агента — ревью этой сессии.
+		if w := who(); w.Session != "" {
+			var out struct{ Review string }
+			if post(client, port, "/api/agent/review-of", map[string]string{"session": w.Session}, &out) == nil && out.Review != "" {
+				args = []string{out.Review}
+			}
+		}
+	}
 	if len(args) == 1 {
 		id := args[0]
 		resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/api/reviews/%s", port, url.PathEscape(id)))

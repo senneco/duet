@@ -55,6 +55,7 @@ type Submission struct {
 	Content  string
 	Deleted  bool
 	Original *Original
+	Blocks   []Block // блоки, размеченные агентом; nil — не менять
 }
 
 type File struct {
@@ -71,6 +72,7 @@ type File struct {
 	Opened  bool `json:"opened,omitempty"`
 	// Comments — все комментарии файла, включая закрытые и удалённые (история).
 	Comments []*Comment `json:"comments,omitempty"`
+	Blocks   []Block    `json:"blocks,omitempty"`
 }
 
 type ResponseStatus string
@@ -121,7 +123,15 @@ type Review struct {
 	NotAdded []Busy            `json:"notAdded,omitempty"`
 	Working  bool              `json:"working,omitempty"`
 	Agent    bool              `json:"agent,omitempty"`   // агент подключён
-	Editing  bool              `json:"editing,omitempty"` // открыт редактор правки
+	Session  string            `json:"session,omitempty"` // сессия подключённого агента
+	// Busy — подключённый агент чем-то занят (отвечает в чате, работает): комментарии «ожидают».
+	Busy bool `json:"busy,omitempty"`
+	// Turn — агент в заходе: взял комментарии или начал менять файлы ревью.
+	Turn bool   `json:"turn,omitempty"`
+	Note string `json:"note,omitempty"` // записка агента «начните отсюда»
+	// Open — ревью было не принято целиком: когда оно станет принятым, агент получит сообщение.
+	Open    bool `json:"open,omitempty"`
+	Editing bool `json:"editing,omitempty"` // открыт редактор правки
 	// Stopping — владелец нажал «прервать», агент ещё не остановился; диск не трогаем.
 	Stopping bool `json:"stopping,omitempty"`
 	// Returned — комментарии, вернувшиеся владельцу при «прервать», для сообщения агенту.
@@ -146,6 +156,8 @@ type state struct {
 	Seq     int                `json:"seq"`
 	Reviews map[string]*Review `json:"reviews"`
 	Files   map[string]*File   `json:"files"`
+	// Sessions — сессии агентов, о которых знает duet: подключённые и отключённые перехватом.
+	Sessions map[string]*Session `json:"sessions,omitempty"`
 }
 
 // Core — ядро. Все методы безопасны для одновременного вызова.
@@ -172,11 +184,14 @@ func Open(dir string) (*Core, error) {
 	c := &Core{path: filepath.Join(dir, "state.json"), now: time.Now, disk: osDisk{},
 		synced: map[string]bool{}, drift: map[string]*Version{}, stamps: map[string]string{}}
 	c.subs = map[*Subscription]bool{}
-	c.s = state{Reviews: map[string]*Review{}, Files: map[string]*File{}}
+	c.s = state{Reviews: map[string]*Review{}, Files: map[string]*File{}, Sessions: map[string]*Session{}}
 	data, err := os.ReadFile(c.path)
 	if err == nil {
 		if err := json.Unmarshal(data, &c.s); err != nil {
 			return nil, fmt.Errorf("чтение %s: %w", c.path, err)
+		}
+		if c.s.Sessions == nil {
+			c.s.Sessions = map[string]*Session{}
 		}
 	} else if !os.IsNotExist(err) {
 		return nil, err
@@ -318,8 +333,20 @@ func (c *Core) addFirst(r *Review, sub Submission) {
 		c.reanchor(f, f.Current, n, nil)
 		f.Current = n
 	}
-	r.Paths = append(r.Paths, f.Path)
+	if sub.Blocks != nil {
+		f.Blocks = sub.Blocks
+	}
+	r.addPath(f.Path)
 	delete(r.Moved, f.Path)
+}
+
+func (r *Review) addPath(p string) {
+	for _, q := range r.Paths {
+		if q == p {
+			return
+		}
+	}
+	r.Paths = append(r.Paths, p)
 }
 
 // AgentStart — агент взял работу по ревью.
@@ -336,7 +363,11 @@ func (c *Core) AgentStart(reviewID string) error {
 	if r.Stopping {
 		return ErrStopping
 	}
+	if r.Editing {
+		return ErrEditing
+	}
 	r.Working = true
+	r.Turn = true
 	return c.commit(r)
 }
 
@@ -351,6 +382,10 @@ func (c *Core) AgentFinish(reviewID string, files []Submission, answers []Answer
 	if err != nil {
 		return false, err
 	}
+	return c.finish(r, files, answers)
+}
+
+func (c *Core) finish(r *Review, files []Submission, answers []Answer) (bool, error) {
 	if !r.Working {
 		return false, ErrAgentNotWorking
 	}
@@ -381,7 +416,7 @@ func (c *Core) AgentFinish(reviewID string, files []Submission, answers []Answer
 		if !ok {
 			f = &File{Path: sub.Path, ReviewID: r.ID, Base: -1, Current: -1}
 			c.s.Files[sub.Path] = f
-			r.Paths = append(r.Paths, f.Path)
+			r.addPath(f.Path)
 		}
 		v := Version{Content: sub.Content, Deleted: sub.Deleted, Author: "agent"}
 		if f.Current >= 0 && same(f.Versions[f.Current], v) {
@@ -394,6 +429,9 @@ func (c *Core) AgentFinish(reviewID string, files []Submission, answers []Answer
 		d.Files[f.Path] = c.addVersion(f, v)
 	}
 	for _, a := range answers {
+		if a.Anchor == nil && a.AnchorText != "" {
+			a.Anchor = c.findAnchor(r, d, a)
+		}
 		d.Answers[a.CommentID] = a
 	}
 	// Не отвеченные агентом комментарии снова ждут его.
@@ -409,6 +447,7 @@ func (c *Core) AgentFinish(reviewID string, files []Submission, answers []Answer
 		return false, c.save()
 	}
 	r.Working = false
+	r.Turn = false
 	r.Draft = nil
 	if len(d.Files) == 0 && len(d.Answers) == 0 {
 		return false, c.commit(r)
@@ -694,9 +733,10 @@ type FileView struct {
 	Comments        []CommentView `json:"comments"`     // открытые комментарии: без решённых и удалённых
 	AgentWorking    bool          `json:"agentWorking"` // есть «ожидает» или «в работе» — в дереве бегают точки
 	// DiskChanged — «изменён на диске»: на диске не то, что ожидается. Disk — что там лежит.
-	DiskChanged bool   `json:"diskChanged"`
-	Disk        string `json:"disk"`
-	DiskDeleted bool   `json:"diskDeleted"`
+	DiskChanged bool    `json:"diskChanged"`
+	Disk        string  `json:"disk"`
+	DiskDeleted bool    `json:"diskDeleted"`
+	Blocks      []Block `json:"blocks"` // блоки агента: строка, с которой блок начинается
 }
 
 // isAccepted — текущая версия совпадает с базой, и нет комментариев «отвечен», ждущих `␣a`.
@@ -717,7 +757,7 @@ func (c *Core) view(r *Review, path string) FileView {
 		return FileView{Path: path, State: StateMoved, MovedTo: to}
 	}
 	f := c.s.Files[path]
-	v := FileView{Path: path, HasBase: f.Base >= 0, BaseIsOriginal: f.BaseIsOriginal, OriginSource: f.OriginSource}
+	v := FileView{Path: path, HasBase: f.Base >= 0, BaseIsOriginal: f.BaseIsOriginal, OriginSource: f.OriginSource, Blocks: f.Blocks}
 	if f.Base >= 0 {
 		v.Base = f.Versions[f.Base].Content
 	}
@@ -783,6 +823,9 @@ type ReviewView struct {
 	HasResponse bool       `json:"hasResponse"`
 	Accepted    bool       `json:"accepted"`  // ревью принято целиком
 	Agent       bool       `json:"agent"`     // агент подключён
+	AgentBusy   bool       `json:"agentBusy"` // подключённый агент занят (в чате или работает)
+	AgentKind   string     `json:"agentKind"` // claude, codex
+	Note        string     `json:"note"`      // записка агента «начните отсюда»
 	AgentLost   bool       `json:"agentLost"` // агент пропал посреди работы: есть «в работе», а агента нет
 	Unsent      int        `json:"unsent"`    // неотправленные комментарии (без написанных в окне ответа)
 	Questions   int        `json:"questions"` // неотвеченные вопросы агента
@@ -833,6 +876,11 @@ func (c *Core) reviewView(r *Review) ReviewView {
 		}
 	})
 	rv.Agent = r.Agent
+	rv.AgentBusy = r.Agent && r.Busy
+	rv.Note = r.Note
+	if s, ok := c.s.Sessions[r.Session]; ok && r.Agent {
+		rv.AgentKind = s.Agent
+	}
 	rv.AgentLost = !r.Agent && c.count(r, CommentWorking) > 0
 	rv.Accepted = c.allDone(r) && len(rv.DiskChanged) == 0
 	return rv

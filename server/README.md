@@ -5,7 +5,7 @@
 ## Части
 
 - `cmd/duet` — команда `duet`. Вся логика в `app/`.
-- `app/` — фоновый запуск и команды: `duet web [review]`, `duet stop`, `duet serve` (само ядро, обычно его запускает `Ensure`).
+- `app/` — фоновый запуск и команды: `duet web [review]`, `duet stop`, `duet serve` (само ядро, обычно его запускает `Ensure`), `duet install` и команды агента (`agent/README.md`).
 - `server/` — HTTP поверх ядра: API, поток событий, временная страница (`server/web/index.html`, встроена в программу).
 
 ## Фоновый запуск (`app/`)
@@ -30,6 +30,8 @@
 - `GET /api/reviews/{id}/responses` — история ответов.
 - `GET /api/health` — `{build}`.
 
+Команды и хуки агентов — `POST /api/agent/...`, см. `agent/README.md`.
+
 Действия — `POST /api/reviews/{id}/{action}` с JSON-телом: `sync`, `opened {path}`, `accept-file {path}`, `edit {path, content}`, `editing {on}`, `revert {path}`, `accept-response`, `reject-response`, `take-from-disk {paths}`, `overwrite {paths}`, `interrupt`, `restore-anyway`, `send`, `comment {path, range?, text, images, inResponse}` → `{id}`, `comment-edit {id, text, images}`, `comment-delete {id}`, `reply {id, text, images}`, `dismiss {id}`. `POST /api/shutdown` — остановить ядро.
 
 Ошибки — `{error, message, paths?}`: `error` — код, по нему клиент выбирает текст на своём языке (`unviewed-response`, `agent-working`, `disk-changed` с `paths`, `no-agent`, `stopping`, `nothing-to-send` и т. д., список в `codes`). 404 — нет ревью или файла, 409 — ядро запретило действие.
@@ -47,7 +49,7 @@
 
 ```sh
 go test ./...                              # из корня репозитория
-go build -o ~/.local/bin/duet ./cmd/duet   # поставить duet
+./install.sh                               # поставить duet, скилл и хуки (или по ссылке: INSTALL.md)
 ```
 
 Тесты `app/` собирают настоящую программу и запускают её в отдельной папке данных и на свободном порту. С `-race` медленный тест скорости отличий в `core/` не проходит: гоняйте `-race` для `./server/ ./app/`.

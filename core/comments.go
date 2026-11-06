@@ -69,6 +69,8 @@ type Answer struct {
 	Options   []string `json:"options"`
 	// Anchor — новое место в версии файла из ответа, если агент его указал.
 	Anchor *Range `json:"anchor"`
+	// AnchorText — или текст нового места: duet сам найдёт его в версии из ответа.
+	AnchorText string `json:"anchorText,omitempty"`
 }
 
 // AgentComment — комментарий, как его получает агент.
@@ -293,7 +295,7 @@ func (c *Core) Send(reviewID string) error {
 		return &DiskChangedError{d}
 	}
 	st := CommentWorking
-	if r.Working {
+	if r.Working || r.Busy {
 		st = CommentWaiting
 	}
 	n := 0
@@ -320,6 +322,12 @@ func (c *Core) Take(reviewID string) ([]AgentComment, error) {
 	if err != nil {
 		return nil, err
 	}
+	out := c.take(r)
+	c.changed(r.ID)
+	return out, c.save()
+}
+
+func (c *Core) take(r *Review) []AgentComment {
 	var out []AgentComment
 	c.eachComment(r, func(f *File, cm *Comment) {
 		if cm.Status == CommentWaiting {
@@ -327,14 +335,18 @@ func (c *Core) Take(reviewID string) ([]AgentComment, error) {
 		}
 		if cm.Status == CommentWorking && !cm.Delivered {
 			cm.Delivered = true
-			out = append(out, AgentComment{ID: cm.ID, Path: cm.Path, Whole: cm.Whole || c.fileDeleted(f), Quote: cm.Quote, Thread: append([]Message(nil), cm.Thread...)})
+			out = append(out, c.agentComment(f, cm))
 		}
 	})
 	if len(out) > 0 {
 		r.Working = true
+		r.Turn = true
+		if r.Agent {
+			r.Busy = true
+		}
+		c.changed(r.ID)
 	}
-	c.changed(r.ID)
-	return out, c.save()
+	return out
 }
 
 // Connect — агент подключился к ревью.
@@ -357,15 +369,7 @@ func (c *Core) Disconnect(reviewID string) error {
 	if err != nil {
 		return err
 	}
-	r.Agent = false
-	c.eachComment(r, func(_ *File, cm *Comment) {
-		if cm.Status == CommentWaiting {
-			cm.Status = CommentUnsent
-		}
-	})
-	if c.count(r, CommentWorking) == 0 && r.Draft == nil {
-		r.Working = false
-	}
+	c.disconnect(r)
 	var err2 error
 	if r.Stopping {
 		err2 = c.restore(r) // агента больше нет — возвращаем диск
@@ -374,6 +378,23 @@ func (c *Core) Disconnect(reviewID string) error {
 		return err
 	}
 	return err2
+}
+
+// disconnect — агента больше нет: «ожидает» возвращаются владельцу, «в работе» остаются.
+func (c *Core) disconnect(r *Review) {
+	if s, ok := c.s.Sessions[r.Session]; ok && s.Review == r.ID {
+		delete(c.s.Sessions, s.ID)
+	}
+	r.Agent, r.Session, r.Busy = false, "", false
+	c.eachComment(r, func(_ *File, cm *Comment) {
+		if cm.Status == CommentWaiting {
+			cm.Status = CommentUnsent
+		}
+	})
+	if c.count(r, CommentWorking) == 0 && r.Draft == nil {
+		r.Working = false
+		r.Turn = false
+	}
 }
 
 // Interrupt — «прервать»: текущий заход агента выбрасывается целиком,
@@ -402,12 +423,16 @@ func (c *Core) Interrupt(reviewID string) error {
 			returned = append(returned, cm.ID)
 		}
 	})
+	// Ждать остановки стоит, только если агент сейчас в заходе. Он не подключён,
+	// ничем не занят или ещё не взял комментарии — диск возвращается сразу.
+	wait := r.Agent && r.Busy && r.Turn
 	r.Working = false
+	r.Turn = false
 	r.Stopping = true
 	r.Returned = returned
 	var err2 error
-	if !r.Agent {
-		err2 = c.restore(r) // ждать некого: агента нет
+	if !wait {
+		err2 = c.restore(r)
 	}
 	if err := c.commit(r); err != nil {
 		return err

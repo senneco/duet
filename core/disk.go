@@ -85,6 +85,7 @@ const (
 	NoticeRejected    NoticeReason = "rejected"    // ответ отклонён
 	NoticeInterrupted NoticeReason = "interrupted" // работа прервана
 	NoticeOverwritten NoticeReason = "overwritten" // владелец выбрал «перезаписать»
+	NoticeAccepted    NoticeReason = "accepted"    // ревью принято целиком: Files — принятые файлы
 )
 
 // Notice — сообщение агенту: какие файлы поменялись и почему, какие комментарии вернулись владельцу.
@@ -169,7 +170,7 @@ func (c *Core) writeDisk(path string, v Version) error {
 // и не останавливается, и ревью не принято целиком. Пока в ревью есть пометка «изменён на диске»,
 // слежка не прекращается, иначе ревью стало бы принятым целиком с непросмотренным на диске.
 func (c *Core) watched(r *Review) bool {
-	if c.disk == nil || !c.synced[r.ID] || r.Working || r.Stopping {
+	if c.disk == nil || !c.synced[r.ID] || r.Working || r.Busy || r.Stopping {
 		return false
 	}
 	return !c.allDone(r) || len(c.drifted(r)) > 0
@@ -243,8 +244,30 @@ func (c *Core) touch(r *Review) {
 // commit — сохранить состояние после изменения ревью и сверить его с диском.
 func (c *Core) commit(r *Review) error {
 	c.touch(r)
+	c.acceptedCheck(r)
 	c.changed(r.ID)
 	return c.save()
+}
+
+// acceptedCheck — ревью стало принятым целиком: агент получает сообщение со списком принятого.
+// Ревью, которое было принятым с самого начала (агент прислал файлы без правок), не считается.
+func (c *Core) acceptedCheck(r *Review) {
+	done := c.allDone(r) && len(c.drifted(r)) == 0
+	if !done {
+		r.Open = true
+		return
+	}
+	if !r.Open {
+		return
+	}
+	r.Open = false
+	var files []string
+	for _, f := range c.files(r) {
+		if f.Current >= 0 {
+			files = append(files, f.Path)
+		}
+	}
+	c.notice(r, NoticeAccepted, files, nil)
 }
 
 // Sync — владелец открыл ревью: duet сверяет его с диском, сообщая прогресс,

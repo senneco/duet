@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/senneco/duet/agent"
 	"github.com/senneco/duet/core"
 	"github.com/senneco/duet/server"
 )
@@ -54,6 +55,10 @@ func (cfg Config) Serve() error {
 		log.Printf("port %d is busy, using %d", cfg.Port, port)
 	}
 	srv := server.New(c, Build())
+	srv.Agent = agent.New(c, cfg.Home, func(id string) string { return URL(port) + "/r/" + id })
+	agentCtx, stopAgent := context.WithCancel(context.Background())
+	defer stopAgent()
+	go srv.Agent.Run(agentCtx)
 	hs := &http.Server{Handler: srv, ReadHeaderTimeout: 10 * time.Second}
 	done := make(chan struct{})
 	stop := sync.OnceFunc(func() {

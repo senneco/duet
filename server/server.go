@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/senneco/duet/agent"
 	"github.com/senneco/duet/core"
 )
 
@@ -32,6 +33,8 @@ type Server struct {
 	cancel context.CancelFunc
 	// OnShutdown вызывается по запросу остановки (`duet stop`), после ответа клиенту.
 	OnShutdown func()
+	// Agent — команды и хуки агентов; nil — их нет (тесты клиента).
+	Agent *agent.Service
 
 	mu   sync.Mutex
 	subs map[chan event]bool
@@ -139,6 +142,7 @@ func (s *Server) routes() {
 		reply(w, nonNil(h), err)
 	})
 	m.HandleFunc("POST /api/reviews/{id}/{action}", s.action)
+	s.agentRoutes()
 	m.HandleFunc("POST /api/shutdown", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]bool{"ok": true})
 		if f, ok := w.(http.Flusher); ok {
@@ -399,6 +403,8 @@ var codes = []struct {
 	{core.ErrNotInResponse, "not-in-response"},
 	{core.ErrNothingToSend, "nothing-to-send"},
 	{core.ErrNothingRunning, "nothing-running"},
+	{core.ErrOtherAgent, "other-agent"},
+	{core.ErrNotConnected, "not-connected"},
 }
 
 func classify(err error) (int, string) {

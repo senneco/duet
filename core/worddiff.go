@@ -835,7 +835,11 @@ func (c *Core) ResponseDiff(reviewID, p string) ([]Chunk, error) {
 		c.mu.Unlock()
 		return nil, ErrNoResponse
 	}
-	old, nw := content(f, f.Current), content(f, n)
+	from := f.Current
+	if from < 0 {
+		from = f.Base // файл, которого владелец ещё не видел: отличие от исходной версии, если она есть
+	}
+	old, nw := content(f, from), content(f, n)
 	c.mu.Unlock()
 	return DiffText(old, nw, IsProse(p)), nil
 }

@@ -104,7 +104,8 @@ func TestRevertWritesDisk(t *testing.T) {
 	if p.read("a.md") != "1\n" || fv(t, c, r, a).State != StateAccepted {
 		t.Fatal(p.read("a.md"))
 	}
-	wantNotices(t, c, r, Notice{Reason: NoticeRevert, Files: []string{a}})
+	// Файл снова совпадает с базой — ревью принято целиком, агент узнаёт и об этом.
+	wantNotices(t, c, r, Notice{Reason: NoticeRevert, Files: []string{a}}, Notice{Reason: NoticeAccepted, Files: []string{a}})
 }
 
 // 23: на диске не то, что ожидается, — duet не пишет и предлагает выбор.
