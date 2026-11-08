@@ -129,8 +129,6 @@ func (s *Server) routes() {
 			ch, err = s.core.FileDiff(id, path)
 		case "response":
 			ch, err = s.core.ResponseDiff(id, path)
-		case "disk":
-			ch, err = s.core.DiskDiff(id, path)
 		default:
 			writeErr(w, http.StatusBadRequest, "bad-request", "unknown mode "+mode, nil)
 			return
@@ -184,7 +182,6 @@ func summary(rv core.ReviewView) core.ReviewView {
 // body — тело действия. Все поля необязательные, каждое действие берёт свои.
 type body struct {
 	Path       string      `json:"path"`
-	Paths      []string    `json:"paths"`
 	Content    string      `json:"content"`
 	On         bool        `json:"on"`
 	ID         string      `json:"id"`
@@ -194,6 +191,10 @@ type body struct {
 	InResponse bool        `json:"inResponse"`
 	// Was — комментарий к удалённому тексту: что было; Range — точка, где это было.
 	Was string `json:"was"`
+	// From — правка: текст, который владелец начал править; Force — сохранить, даже если файл
+	// с тех пор поменяли.
+	From  *string `json:"from"`
+	Force bool    `json:"force"`
 }
 
 func (s *Server) action(w http.ResponseWriter, r *http.Request) {
@@ -214,7 +215,7 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 	case "accept-file":
 		err = c.AcceptFile(id, b.Path)
 	case "edit":
-		err = c.Edit(id, b.Path, b.Content)
+		err = c.EditFrom(id, b.Path, b.Content, b.From, b.Force)
 	case "editing":
 		err = c.SetEditing(id, b.On)
 	case "revert":
@@ -223,10 +224,6 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 		err = c.AcceptResponse(id)
 	case "reject-response":
 		err = c.RejectResponse(id)
-	case "take-from-disk":
-		err = c.TakeFromDisk(id, b.Paths)
-	case "overwrite":
-		err = c.Overwrite(id, b.Paths)
 	case "interrupt":
 		err = c.Interrupt(id)
 	case "restore-anyway":
@@ -409,6 +406,7 @@ var codes = []struct {
 	{core.ErrMoved, "moved"},
 	{core.ErrEditing, "editing"},
 	{core.ErrDiskChanged, "disk-changed"},
+	{core.ErrChangedMeanwhile, "changed-meanwhile"},
 	{core.ErrStopping, "stopping"},
 	{core.ErrNoAgent, "no-agent"},
 	{core.ErrCommentStatus, "comment-status"},

@@ -518,3 +518,36 @@ body.dark #app.rmode .main { box-shadow: 0 30px 90px rgba(0, 0, 0, .7), 0 4px 14
 
 .rhead .rstale, .rhead .rwork { flex: none; white-space: nowrap }
 .rhead .meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+
+/* ══ 6d: правка владельца — окно поверх места чтения ══ */
+body.light { --own: #c2620c; --own-soft: #fbeedd }
+body.dark { --own: #ef9a4a; --own-soft: #3b2a19 }
+.status .seg.mode.edm { background: var(--own); color: #fff }
+.ewrap { display: none }
+#app.emode .ewrap { display: block; position: absolute; inset: 0; z-index: 6; background: var(--veil) }
+.ewin { position: absolute; inset: 16px 22px; display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--line2); border-radius: 14px; overflow: hidden; box-shadow: 0 30px 80px rgba(20, 10, 40, .28), 0 4px 14px rgba(20, 10, 40, .12) }
+body.dark .ewin { box-shadow: 0 30px 90px rgba(0, 0, 0, .7), 0 4px 14px rgba(0, 0, 0, .4) }
+.ehead { flex: none; display: flex; align-items: center; gap: 12px; height: 48px; padding: 0 14px 0 22px; border-bottom: 1px solid var(--line); background: var(--bg-bar); white-space: nowrap }
+.ehead .ttl { font: 600 15px/1 var(--sans); color: var(--fg); display: flex; align-items: center; gap: 8px; min-width: 0 }
+.ehead .ttl .pt { width: 9px; height: 9px; border-radius: 50%; background: var(--own); margin-right: 2px }
+.ehead .ttl .fn { font: 500 13.5px/1 var(--mono); overflow: hidden; text-overflow: ellipsis }
+.ehead .meta { font: 11.5px/1 var(--mono); color: var(--fg3) }
+.ehead .sp { flex: 1 }
+.ract.sv { background: var(--own); color: #fff }
+.ract.sv:hover { background: var(--own); filter: brightness(1.07); color: #fff }
+.ract.sv kbd { background: rgba(255, 255, 255, .2); color: #fff; box-shadow: none }
+.escroll { flex: 1; overflow: auto; min-height: 0; scrollbar-width: thin }
+.ebox { position: relative; font: 13.5px/22px var(--mono); tab-size: 4; min-height: 100% }
+.ehl, .eta { padding: 14px 40px 45vh 64px; white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; font: inherit; letter-spacing: 0 }
+.ehl { counter-reset: el; color: var(--fg); pointer-events: none }
+.ehl .el { position: relative; counter-increment: el; min-height: 22px }
+.ehl .el::before { content: counter(el); position: absolute; left: -56px; width: 40px; text-align: right; color: var(--fg4); font-size: 12px; user-select: none }
+.eta { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; border: 0; outline: 0; resize: none; overflow: hidden; background: transparent; color: transparent; caret-color: var(--own); -webkit-text-fill-color: transparent }
+.eta::selection { background: color-mix(in srgb, var(--own) 26%, transparent); -webkit-text-fill-color: transparent }
+.efoot { flex: none; height: 28px; display: flex; align-items: center; gap: 16px; padding: 0 18px; border-top: 1px solid var(--line); background: var(--bg-bar); font: 11.5px/1 var(--mono); color: var(--fg3); white-space: nowrap; overflow: hidden }
+.efoot .sp { flex: 1 }
+.efoot b { color: var(--fg2); font-weight: 600 }
+.off-card .h .pt.o { background: var(--own) }
+.off-card .h .pt.w { background: var(--warn) }
+.toast .x.o { background: var(--own-soft); color: var(--own) }
+.winbar .dnote { font: 11px/1 var(--mono); color: var(--own); background: var(--own-soft); padding: 4px 7px; border-radius: 4px; margin-left: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }

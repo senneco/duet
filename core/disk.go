@@ -3,8 +3,10 @@ package core
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -15,8 +17,8 @@ var (
 	ErrStopping    = errors.New("агент останавливается")
 )
 
-// DiskChangedError — на диске лежит не то, что ожидает duet. Владелец выбирает
-// «взять с диска» (TakeFromDisk) или «перезаписать» (Overwrite).
+// DiskChangedError — файл изменён на диске, а взять это правкой владельца пока нельзя
+// (есть непросмотренный ответ, агент пропал посреди работы, открыт редактор).
 type DiskChangedError struct{ Paths []string }
 
 func (e *DiskChangedError) Error() string {
@@ -84,7 +86,6 @@ const (
 	NoticeRevert      NoticeReason = "revert"      // «вернуть к базе»
 	NoticeRejected    NoticeReason = "rejected"    // ответ отклонён
 	NoticeInterrupted NoticeReason = "interrupted" // работа прервана
-	NoticeOverwritten NoticeReason = "overwritten" // владелец выбрал «перезаписать»
 	NoticeAccepted    NoticeReason = "accepted"    // ревью принято целиком: Files — принятые файлы
 )
 
@@ -101,8 +102,24 @@ func (c *Core) notice(r *Review, reason NoticeReason, files, comments []string) 
 	if len(files) == 0 && len(comments) == 0 {
 		return
 	}
+	// Правки владельца копятся в одно сообщение: агент перечитает каждый файл один раз.
+	if n := len(r.Notices); n > 0 && len(comments) == 0 && (reason == NoticeOwnerEdit || reason == NoticeRevert) &&
+		r.Notices[n-1].Reason == reason {
+		last := &r.Notices[n-1]
+		for _, f := range files {
+			if !slices.Contains(last.Files, f) {
+				last.Files = append(last.Files, f)
+			}
+		}
+		last.At = c.now()
+		return
+	}
 	r.Notices = append(r.Notices, Notice{Reason: reason, Files: files, Comments: comments, At: c.now()})
 }
+
+// wakes — сообщение стоит того, чтобы будить свободного агента. Правку владельца агент
+// узнаёт со следующими комментариями: иначе каждое сохранение в редакторе тратило бы его ход.
+func (n Notice) wakes() bool { return n.Reason != NoticeOwnerEdit && n.Reason != NoticeRevert }
 
 // TakeNotices — агент забирает накопленные сообщения.
 func (c *Core) TakeNotices(reviewID string) ([]Notice, error) {
@@ -186,25 +203,74 @@ func (c *Core) files(r *Review) []*File {
 	return out
 }
 
-// checkFile сверяет один файл с диском и обновляет пометку «изменён на диске».
-func (c *Core) checkFile(r *Review, f *File) {
+// adoptable — изменение на диске можно сразу взять правкой владельца: менять текущую версию
+// можно и редактор правки не открыт.
+func (c *Core) adoptable(r *Review) bool { return c.checkChange(r) == nil && !r.Editing }
+
+// checkFile сверяет один файл с диском. Изменение на диске сразу становится правкой владельца,
+// а если сейчас это нельзя — файл помечен «изменён на диске» до тех пор, пока станет можно.
+// Возвращает true, если правка взята.
+func (c *Core) checkFile(r *Review, f *File) bool {
 	exp, ok := c.expected(r, f)
 	if !ok {
 		c.undrift(r, f.Path)
-		return
+		return false
 	}
 	d, err := c.readDisk(f.Path)
 	if err != nil {
-		return // не прочитали — оставляем как было, попробуем в следующий раз
+		return false // не прочитали — оставляем как было, попробуем в следующий раз
 	}
 	if same(d, exp) {
 		c.undrift(r, f.Path)
-		return
+		return false
+	}
+	if c.adoptable(r) {
+		c.adopt(r, f, d)
+		return true
 	}
 	if old, ok := c.drift[f.Path]; !ok || !same(*old, d) {
 		c.changed(r.ID)
 	}
 	c.drift[f.Path] = &d
+	return false
+}
+
+// adopt — то, что лежит на диске, становится текущей версией как правка владельца.
+func (c *Core) adopt(r *Review, f *File, d Version) {
+	delete(c.drift, f.Path)
+	d.Author = "owner"
+	n := f.Base
+	if f.Base < 0 || !same(f.Versions[f.Base], d) {
+		n = c.addVersion(f, d)
+	}
+	c.reanchor(f, f.Current, n, nil)
+	f.Current = n
+	c.notice(r, NoticeOwnerEdit, []string{f.Path}, nil)
+	fd := c.diskTaken[r.ID]
+	if fd == nil || c.now().Sub(fd.At) > 3*time.Second {
+		fd = &FromDisk{Seq: c.fromDiskSeq(r.ID) + 1}
+		c.diskTaken[r.ID] = fd
+	}
+	fd.At = c.now()
+	if !slices.Contains(fd.Files, f.Path) {
+		fd.Files = append(fd.Files, f.Path)
+	}
+	c.changed(r.ID)
+}
+
+// FromDisk — duet взял изменения с диска правкой владельца (для подсказки в клиенте).
+// Изменения, взятые одно за другим, собираются вместе под одним номером.
+type FromDisk struct {
+	Seq   int       `json:"seq"`
+	Files []string  `json:"files"`
+	At    time.Time `json:"at"`
+}
+
+func (c *Core) fromDiskSeq(id string) int {
+	if fd := c.diskTaken[id]; fd != nil {
+		return fd.Seq
+	}
+	return 0
 }
 
 // undrift снимает пометку «изменён на диске».
@@ -224,11 +290,27 @@ func (c *Core) recheck(r *Review, progress func(done, total int)) {
 		}
 		return
 	}
+	adopted := false
 	for i, f := range fs {
-		c.checkFile(r, f)
+		if c.checkFile(r, f) {
+			adopted = true
+		}
 		if progress != nil {
 			progress(i+1, len(fs))
 		}
+	}
+	c.adopted(r, adopted)
+}
+
+// adopted — после сверки, в которой взяты правки с диска: ревью могло стать принятым целиком,
+// а состояние нужно сохранить, даже если дальше действие откажет.
+func (c *Core) adopted(r *Review, any bool) {
+	if !any {
+		return
+	}
+	c.acceptedCheck(r)
+	if err := c.save(); err != nil {
+		log.Printf("duet: сохранить правку с диска: %v", err)
 	}
 }
 
@@ -303,12 +385,18 @@ func (c *Core) Poll() {
 			c.recheck(r, nil)
 			continue
 		}
+		adopted := false
 		for _, f := range c.files(r) {
 			if st, err := c.disk.Stamp(f.Path); err == nil && st == c.stamps[f.Path] {
-				continue
+				if _, held := c.drift[f.Path]; !held || !c.adoptable(r) {
+					continue
+				}
 			}
-			c.checkFile(r, f)
+			if c.checkFile(r, f) {
+				adopted = true
+			}
 		}
+		c.adopted(r, adopted)
 	}
 }
 
@@ -339,138 +427,6 @@ func (c *Core) drifted(r *Review) []string {
 		}
 	}
 	return out
-}
-
-// diskCheck — перед записью: на диске должно лежать ожидаемое. Несовпавшие файлы помечаются.
-func (c *Core) diskCheck(r *Review, fs ...*File) error {
-	if c.disk == nil {
-		return nil
-	}
-	var bad []string
-	for _, f := range fs {
-		exp, ok := c.expected(r, f)
-		if !ok {
-			continue
-		}
-		d, err := c.readDisk(f.Path)
-		if err != nil {
-			return err
-		}
-		if !same(d, exp) {
-			c.drift[f.Path] = &d
-			bad = append(bad, f.Path)
-		}
-	}
-	if len(bad) > 0 {
-		return &DiskChangedError{bad}
-	}
-	return nil
-}
-
-// pick — файлы ревью по путям; пусто — все файлы с пометкой «изменён на диске».
-func (c *Core) pick(r *Review, paths []string) ([]*File, error) {
-	if len(paths) == 0 {
-		c.touch(r)
-		paths = c.drifted(r)
-	}
-	var out []*File
-	for _, p := range paths {
-		f, err := c.file(r, p)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, f)
-	}
-	return out, nil
-}
-
-// TakeFromDisk — «взять с диска»: то, что лежит на диске, становится текущей версией
-// как правка владельца. Пустой paths — все файлы ревью с пометкой «изменён на диске».
-func (c *Core) TakeFromDisk(reviewID string, paths []string) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	r, err := c.review(reviewID)
-	if err != nil {
-		return err
-	}
-	if c.disk == nil {
-		return nil
-	}
-	if err := c.checkChange(r); err != nil {
-		return err
-	}
-	fs, err := c.pick(r, paths)
-	if err != nil {
-		return err
-	}
-	var changed []string
-	for _, f := range fs {
-		d, err := c.readDisk(f.Path)
-		if err != nil {
-			return err
-		}
-		delete(c.drift, f.Path)
-		d.Author = "owner"
-		if f.Current >= 0 && same(f.Versions[f.Current], d) {
-			continue
-		}
-		n := f.Base
-		if f.Base < 0 || !same(f.Versions[f.Base], d) {
-			n = c.addVersion(f, d)
-		}
-		c.reanchor(f, f.Current, n, nil)
-		f.Current = n
-		changed = append(changed, f.Path)
-	}
-	c.notice(r, NoticeOwnerEdit, changed, nil)
-	return c.commit(r)
-}
-
-// Overwrite — «перезаписать»: duet пишет на диск ожидаемую версию.
-// То, что лежало на диске, остаётся в истории файла. Пустой paths — все файлы с пометкой.
-func (c *Core) Overwrite(reviewID string, paths []string) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	r, err := c.review(reviewID)
-	if err != nil {
-		return err
-	}
-	if c.disk == nil {
-		return nil
-	}
-	if r.Stopping {
-		return ErrStopping
-	}
-	if r.Working {
-		return ErrAgentWorking
-	}
-	fs, err := c.pick(r, paths)
-	if err != nil {
-		return err
-	}
-	var changed []string
-	for _, f := range fs {
-		exp, ok := c.expected(r, f)
-		if !ok {
-			continue
-		}
-		d, err := c.readDisk(f.Path)
-		if err != nil {
-			return err
-		}
-		if same(d, exp) {
-			delete(c.drift, f.Path)
-			continue
-		}
-		d.Author = "disk"
-		c.addVersion(f, d)
-		if err := c.writeDisk(f.Path, exp); err != nil {
-			return err
-		}
-		changed = append(changed, f.Path)
-	}
-	c.notice(r, NoticeOverwritten, changed, nil)
-	return c.commit(r)
 }
 
 // AgentStopped — агент остановился после «прервать»: duet возвращает диск.
@@ -526,32 +482,4 @@ func (c *Core) restore(r *Review) error {
 	r.Returned = nil
 	r.Restored = restored
 	return firstErr
-}
-
-// DiskDiff — отличия «ожидаемое → на диске» для файла с пометкой «изменён на диске».
-func (c *Core) DiskDiff(reviewID, path string) ([]Chunk, error) {
-	c.mu.Lock()
-	r, err := c.review(reviewID)
-	var f *File
-	if err == nil {
-		f, err = c.file(r, path)
-	}
-	if err != nil {
-		c.mu.Unlock()
-		return nil, err
-	}
-	d, ok := c.drift[path]
-	exp, has := c.expected(r, f)
-	c.mu.Unlock()
-	if !ok || !has {
-		return nil, fmt.Errorf("файл %s на диске не изменён: %w", path, ErrNotFound)
-	}
-	old, nw := exp.Content, d.Content
-	if exp.Deleted {
-		old = ""
-	}
-	if d.Deleted {
-		nw = ""
-	}
-	return DiffText(old, nw, IsProse(path)), nil
 }

@@ -7,6 +7,7 @@ import { dict, defaultLang, fmtDate } from './i18n.js';
 import { buildTree, flatten, fileOrder, isAccepted, counts } from './tree.js';
 import { renderCode, renderDoc, renderDocPlain, renderLines } from './view.js';
 import { target, commentOrder } from './anchors.js';
+import { editLinesHTML, editSelection, lineOf, indentUnit } from './edit.js';
 import { cardHTML, editorHTML, threadState, shownComments, placeCards, anchorRanges, paintAnchors, pointPos, shapeMarks, drawSelection } from './comments.js';
 
 const $ = (s) => document.querySelector(s);
@@ -55,6 +56,10 @@ const S = {
   stopSince: 0, // когда увидели «останавливается…»
   // окно ответа (шаг 6c): {back: {path, anchor}} — что было под окном
   resp: null,
+  // правка владельца (шаг 6d): {key, path, from, text, kind, lang, line, off, sel}
+  edit: null,
+  editAfterStop: null, // «прервать и править»: что сделать, когда агент остановится — edit | revert
+  diskSeq: {}, // последняя показанная правка с диска по ревью
 };
 const T = () => dict(S.lang);
 
@@ -92,6 +97,8 @@ function go(path) {
 window.addEventListener('popstate', enter);
 
 async function enter() {
+  if (S.edit && S.review) act('editing', { on: false }).catch(() => {});
+  S.edit = null; S.editAfterStop = null;
   S.review = null; S.missing = false; S.path = null; S.file = null; S.chunks = null; S.contentKey = '';
   S.overlay = ''; S.toast = null; S.sync = null; S.expanded = new Set();
   S.sel = null; S.menuSel = false; S.ed = null; S.act = null; S.ask = null; S.resp = null;
@@ -124,6 +131,27 @@ async function loadReview(id) {
   // «Вернуть файлы всё равно» — через 10 секунд после «останавливается…».
   if (S.review.stopping && !S.stopSince) { S.stopSince = Date.now(); setTimeout(renderOverlays, 10100); }
   if (!S.review.stopping) S.stopSince = 0;
+  diskNotice(id);
+  // Редактор в этой вкладке закрыт, а ядро считает его открытым (вкладку перезагрузили) — закрываем.
+  if (S.review.editing && !S.edit) act('editing', { on: false }).catch(() => {});
+  if (S.editAfterStop && !S.review.locked) {
+    const x = S.editAfterStop;
+    S.editAfterStop = null;
+    setTimeout(() => (x === 'edit' ? startEdit() : askRevert()), 0);
+  }
+}
+
+// diskNotice — duet взял изменения с диска правкой владельца: короткая подсказка.
+function diskNotice(id) {
+  const fd = S.review.fromDisk;
+  if (!fd) return;
+  const seen = S.diskSeq[id];
+  S.diskSeq[id] = fd.seq;
+  const fresh = Date.now() - new Date(fd.at).getTime() < 15000;
+  if (seen !== undefined ? fd.seq <= seen : !fresh) return;
+  const t = T();
+  const name = (fd.files[0] || '').split('/').pop();
+  toast({ ok: true, icon: '✎', cls: 'o', title: t.diskTitle(name, fd.files.length), text: t.diskText, short: `✎ ${t.diskTitle(name, fd.files.length)}` });
 }
 
 // Файлы, которых нет в текущей версии (есть только в ответе), видны только в окне ответа.
@@ -285,6 +313,7 @@ function renderAll() {
     $('#map').innerHTML = '';
     $('#sc').innerHTML = listHTML();
     renderFrame();
+    renderEdit();
     S.contentKey = '';
     document.title = 'duet';
   } else {
@@ -294,6 +323,7 @@ function renderAll() {
     renderBanner();
     renderContent();
     renderComments();
+    renderEdit();
     document.title = S.review ? `${S.review.title || S.review.id} — duet` : 'duet';
   }
   renderStatus();
@@ -361,7 +391,7 @@ function renderTree() {
     const open = f.path === S.path;
     const gone = ['deleted', 'deleted-accepted', 'moved'].includes(f.state) ? ' gone' : '';
     const off = rset && !rset.has(f.path) ? ' untouched' : '';
-    const tag = S.resp ? (f.absent ? `<span class="tag rnew">${T().rNew}</span>` : '') : fileTag(f);
+    const tag = S.resp ? (f.absent ? `<span class="tag rnew">${T().rNew}</span>` : f.diskChanged ? `<span class="tag warn">${T().stDiskShort}</span>` : '') : fileTag(f);
     h += `<div class="tr${open ? ' open' : ''}${gone}${off}" data-file="${esc(f.path)}" title="${esc(f.path)}"><span class="pad"></span>${ind(r.depth)}<span class="ic">${fileIcon(f)}</span><span class="nm">${esc(f.name)}</span>${f.open && !S.resp ? `<span class="cmk${f.questions ? ' q' : ''}">${f.open}</span>` : ''}<span class="fill"></span>${tag}</div>`;
     if (open && !S.resp && !S.blocksHidden && S.file && S.file.path === f.path) {
       const cur = currentBlock();
@@ -408,11 +438,13 @@ function renderWinbar() {
     if (f.response == null && !f.responseDeleted) vs = `${P(t.rCurrent)} = ${P(t.rResp, ' rs')}`;
     else if (f.absent && !f.hasBase) vs = `${P(t.rResp, ' rs')} <span class="rnew">${t.rNew}</span>`;
     else vs = `${P(f.absent ? t.beforeTask : t.rCurrent)} → ${P(t.rResp, ' rs')}`;
-    el.innerHTML = `${name}<span class="vs">${vs}</span><span class="sp"></span>${cm}`;
+    const held = f.diskChanged ? `<span class="dnote">${t.diskHeld}</span>` : '';
+    el.innerHTML = `${name}<span class="vs">${vs}</span>${held}<span class="sp"></span>${cm}`;
     return;
   }
   const rb = f.ripple && pendingResp() ? `<button class="kb rsp" data-act="response">${t.rHint} <kbd>␣r</kbd></button>` : '';
-  el.innerHTML = `${name}<span class="st">${stateText(f)}</span><span class="sp"></span>${rb}${cm}${acc}`;
+  const ed = canEdit() ? `<button class="kb" data-act="edit">${t.edit} <kbd>␣e</kbd></button>` : '';
+  el.innerHTML = `${name}<span class="st">${stateText(f)}</span><span class="sp"></span>${rb}${ed}${cm}${acc}`;
 }
 
 function relPath(p) {
@@ -519,6 +551,7 @@ function renderStatus() {
   else if (S.overlay === 'menu') mode = ['␣ ' + t.modeMenu, 'lead'];
   else if (S.overlay === 'help') mode = ['? ' + t.modeHelp, 'help'];
   else if (!id) mode = [t.modeList, ''];
+  else if (S.edit) mode = [t.modeEdit, 'edm'];
   else if (S.resp) mode = [t.modeResp, 'rspm'];
   let h = seg(mode[0], 'mode ' + mode[1]);
   if (!id) {
@@ -545,6 +578,12 @@ function renderStatus() {
     if (uns) h += `<span class="seg uns" data-act="send">${t.unsentN} <b>${uns}</b> · ␣s</span>`;
     h += seg(`${S.lang === 'ru' ? 'принято' : 'accepted'} <b>${c.done}</b>/${c.total} <span class="pbar"><i style="width:${c.total ? (c.done / c.total) * 100 : 0}%"></i></span>`);
     h += seg(agentText(S.review) + (canInterrupt() ? `<button class="kb int" data-act="interrupt">${t.interrupt} <kbd>␣u</kbd></button>` : ''));
+  }
+  if (S.edit) {
+    h += seg(editPos(), 'pos');
+    h += seg(`<span class="k">⌘↵</span> ${t.eHint} · <span class="k">esc</span> ${t.eHintEsc}`);
+    $('#status').innerHTML = (S.sync ? `<span class="sync" style="width:${(S.sync.done / Math.max(1, S.sync.total)) * 100}%"></span>` : '') + h;
+    return;
   }
   h += seg(position(), 'pos');
   if (S.resp) h += seg(`<span class="k">␣a</span> ${t.rAccept} · <span class="k">␣x</span> ${t.rReject} · <span class="k">esc</span> ${t.rClose}`, 'click" data-act="menu');
@@ -588,16 +627,16 @@ function renderOverlays() {
     const file = S.file && !isAccepted(S.file) && S.file.state !== 'moved' ? it('a', t.menuAccept, t.menuAcceptNext) : '';
     const r = S.review || {};
     h += `<div class="wk"><div class="top"><span class="crumb">␣</span><span>${t.menuTitle}${S.file ? ' · ' + esc(relPath(S.file.path)) : ''}</span><span class="sp"></span><kbd>esc</kbd> ${t.close}</div>
-<div class="grid" style="grid-template-columns:repeat(3,max-content)"><div><div class="grp">${t.menuFile}</div>${file || `<div class="it later"><span class="key">a</span><span class="ar">→</span><span class="ds">${t.menuAccept}</span><span class="now">${S.file && isAccepted(S.file) ? '✓ ' + t.accepted : ''}</span></div>`}${it('c', t.menuComment, t.menuCommentNow, !canComment())}</div>
+<div class="grid" style="grid-template-columns:repeat(3,max-content)"><div><div class="grp">${t.menuFile}</div>${file || `<div class="it later"><span class="key">a</span><span class="ar">→</span><span class="ds">${t.menuAccept}</span><span class="now">${S.file && isAccepted(S.file) ? '✓ ' + t.accepted : ''}</span></div>`}${it('c', t.menuComment, t.menuCommentNow, !canComment())}${it('e', t.menuEdit, t.menuEditNow, !canEdit())}${it('b', t.menuRevert, t.menuRevertNow, !canEdit(true))}</div>
 <div><div class="grp">${t.menuAgent}</div>${it('s', t.menuSend, r.unsent ? t.menuSendNow(r.unsent) : '', !r.unsent)}${it('u', t.menuInterrupt, t.menuInterruptNow, !canInterrupt())}</div>
-<div><div class="grp">${t.menuResp}</div>${it('r', t.menuRespOpen, '', !pendingResp())}<div class="grp" style="margin-top:12px">${t.menuLater}</div>${it('e', t.menuEdit, '', 1)}</div></div></div>`;
+<div><div class="grp">${t.menuResp}</div>${it('r', t.menuRespOpen, '', !pendingResp())}</div></div></div>`;
   }
   if (S.overlay === 'help') {
     const k = (keys, ds) => `<div class="k"><span class="ks">${keys.map((x) => `<kbd>${x}</kbd>`).join('')}</span><span class="ds">${ds}</span></div>`;
     h += `<div class="dimmer" data-act="close"></div><div class="keys"><div class="h"><b>${t.allKeys}</b><span class="sp"></span><kbd>esc</kbd> ${t.close}</div><div class="g">
 <div><div class="grp">${t.reading}</div>${k(['j', 'k'], t.kScroll)}${k(['↓', '↑'], t.kScroll)}${k(['gg', 'G'], t.kTopBottom)}</div>
 <div><div class="grp">${t.navigation}</div>${k([']c', '[c'], t.kChange)}${k([']f', '[f'], t.kFile)}${k([']b', '[b'], t.kBlock)}</div>
-<div><div class="grp">${t.actions}</div>${k(['␣'], t.kMenu)}${k(['␣a'], t.kAccept)}${k(['?'], t.kHelp)}${k(['esc'], t.kEsc)}</div>
+<div><div class="grp">${t.actions}</div>${k(['␣'], t.kMenu)}${k(['␣a'], t.kAccept)}${k(['␣e'], t.kEdit)}${k(['␣b'], t.kRevert)}${k(['?'], t.kHelp)}${k(['esc'], t.kEsc)}</div>
 <div><div class="grp">${t.rHint}</div>${k(['␣r'], t.kResp)}${k(['␣a'], t.kRespAccept)}${k(['␣x'], t.kRespReject)}${k([']f', '[f'], t.kRespFile)}${k(['␣s'], t.kRespSend)}</div>
 <div><div class="grp">${t.view}</div>${k(['␣v'], t.kCols)}${k(['␣m'], t.kDoc)}</div>
 <div><div class="grp">${t.comments}</div>${k(['gc'], t.kComment)}${k(['␣c'], t.kCommentAny)}${k(['␣s'], t.kSend)}${k(['␣u'], t.kInterrupt)}${k([']n', '[n'], t.kNextComment)}</div>
@@ -609,7 +648,17 @@ function renderOverlays() {
     const p = pendingResp() || {};
     const created = (S.review.files || []).filter((f) => f.absent && (p.files || []).includes(f.path)).map((f) => `<code>${esc(f.path.split('/').pop())}</code>`);
     const mine = respMine();
-    h += `<div class="dimmer" data-act="close"></div><div class="off-card"><div class="h"><span class="pt"></span>${t.rRejTitle}</div><p>${t.rRejText(created.join(', '), p.answers || 0)}</p>${mine ? `<p class="strong">${t.rRejMine(mine)}</p>` : ''}<div class="ft"><button class="btn err" data-act="reject-go">${t.rRejGo} <kbd>↵</kbd></button><span><kbd>esc</kbd> ${t.rRejNo}</span></div></div>`;
+    const disk = (S.review.diskChanged || []).filter((x) => (p.files || []).includes(x)).map((x) => `<code>${esc(x.split('/').pop())}</code>`);
+    h += `<div class="dimmer" data-act="close"></div><div class="off-card"><div class="h"><span class="pt"></span>${t.rRejTitle}</div><p>${t.rRejText(created.join(', '), p.answers || 0)}</p>${disk.length ? `<p>${t.rRejDisk(disk.join(', '))}</p>` : ''}${mine ? `<p class="strong">${t.rRejMine(mine)}</p>` : ''}<div class="ft"><button class="btn err" data-act="reject-go">${t.rRejGo} <kbd>↵</kbd></button><span><kbd>esc</kbd> ${t.rRejNo}</span></div></div>`;
+  }
+  const card = (dot, title, text, go, goText, noText) => `<div class="dimmer" data-act="close"></div><div class="off-card"><div class="h"><span class="pt ${dot}"></span>${title}</div><p>${text}</p><div class="ft"><button class="btn err" data-act="${go}">${goText} <kbd>↵</kbd></button><span><kbd>esc</kbd> ${noText}</span></div></div>`;
+  if (S.overlay === 'editDiscard') h += card('o', t.eDiscardTitle, t.eDiscardText, 'edit-discard-go', t.eDiscardGo, t.eDiscardNo);
+  if (S.overlay === 'editMeanwhile') h += card('o', t.eMeanTitle, t.eMeanText, 'edit-mean-go', t.eMeanGo, t.eMeanNo);
+  if (S.overlay === 'editWork') h += card('w', t.eWorkTitle, t.eWorkText, 'edit-work-go', t.eWorkGo, t.eWorkNo);
+  if (S.overlay === 'revert' && S.file) {
+    const f = S.file;
+    const base = f.baseIsOriginal ? ` («${t.beforeTask}»)` : '';
+    h += card('w', esc(t.revTitle(f.path.split('/').pop())), t.revText(base), 'revert-go', t.revGo, t.revNo);
   }
   if (S.overlay === 'interrupt') {
     h += `<div class="dimmer" data-act="close"></div><div class="off-card"><div class="h"><span class="pt"></span>${t.intTitle}</div><p>${t.intText}</p><div class="ft"><button class="btn err" data-act="interrupt-go">${t.intGo} <kbd>↵</kbd></button><span><kbd>esc</kbd> ${t.intNo}</span></div></div>`;
@@ -625,6 +674,12 @@ function renderOverlays() {
     h += `<div class="dimmer"></div><div class="off-card"><div class="h"><span class="pt"></span>${t.offTitle}</div><p>${t.offText}</p><div class="ft"><span class="spin"></span> ${t.offWait}</div></div>`;
   }
   $('#over').innerHTML = h;
+}
+
+// note — короткое «готово» в строке состояния; подсказку с текстом (например, о правке с диска) не перекрывает.
+function note(short) {
+  if (S.toast && S.toast.title) return;
+  toast({ ok: true, short });
 }
 
 let toastTimer = 0;
@@ -1136,6 +1191,224 @@ async function interrupt() {
   await reloadFile();
 }
 
+// ── правка владельца ──
+// Окно с исходником текущей версии поверх места чтения (как окно ответа). Под исходником — его
+// подсветка, сверху — прозрачная textarea: переносы строк у них одинаковые, номера строк у подсветки.
+
+// canEdit — файл можно править (revert — вернуть к базе). Запреты ядра (ответ, агент) объясняются при нажатии.
+function canEdit(revert) {
+  const f = S.file;
+  if (!S.review || !f || S.resp || f.state === 'moved') return false;
+  if (!revert) return !f.currentDeleted;
+  return !!f.hasBase && (!!f.currentDeleted || f.current !== f.base);
+}
+
+// changeAllowed — менять текущую версию сейчас можно; иначе duet объясняет или предлагает прервать агента.
+function changeAllowed(title, then) {
+  const t = T();
+  const why = S.review.locked;
+  if (why === 'unviewed-response') { toast({ title, text: t.eUnviewed, short: `✕ ${title}`, ...openRespBtn() }); return false; }
+  if (why === 'stopping') { toast({ title, text: t.errStopping, short: `✕ ${title}` }); return false; }
+  if (why === 'agent-working') { S.overlay = 'editWork'; S.editWork = then; renderOverlays(); renderStatus(); return false; }
+  return true;
+}
+
+function editError(e, title, then) {
+  const t = T();
+  if (e.code === 'unviewed-response' || e.code === 'stopping' || e.code === 'agent-working') {
+    S.review.locked = e.code;
+    changeAllowed(title, then);
+    return;
+  }
+  toast({ title, text: e.code === 'not-found' && S.file && S.file.currentDeleted ? t.eDeletedFile : esc(e.message || t.errNet), short: `✕ ${title}` });
+}
+
+async function startEdit() {
+  const t = T();
+  const f = S.file;
+  if (!S.review || !f || S.resp || S.edit || f.state === 'moved') return;
+  if (f.currentDeleted) { toast({ title: t.eDenied, text: t.eDeletedFile, short: `✕ ${t.eDenied}` }); return; }
+  if (!changeAllowed(t.eDenied, 'edit')) return;
+  try { await act('editing', { on: true }); } catch (e) { editError(e, t.eDenied, 'edit'); return; }
+  // Пока ядро открывало правку, файл могли перечитать (событие изменения) — берём свежий, но тот же.
+  if (!S.file || S.file.path !== f.path || S.resp || S.edit) { act('editing', { on: false }).catch(() => {}); return; }
+  const g = S.file;
+  const a = anchorOf();
+  const cur = g.current || '';
+  const kind = fileKind(f.path);
+  S.edit = {
+    key: f.path + ':' + Date.now(), path: f.path, from: cur, text: cur, kind,
+    lang: kind === 'code' ? langOf(f.path) : kind === 'markdown' ? 'md' : '',
+    line: a ? a.n - 1 : 0, off: a ? a.off : 0,
+    sel: editSelection(S.sel, g.base, cur, S.chunks),
+  };
+  S.sel = null; S.menuSel = false; S.ed = null; S.act = null; S.ask = null;
+  toast(null);
+  renderAll();
+}
+
+// renderEdit — окно правки. Строится один раз на открытие: перерисовки экрана под ним его не трогают.
+function renderEdit() {
+  const w = $('#ewrap');
+  const on = !!(S.edit && S.review && routeId());
+  $('#app').classList.toggle('emode', on);
+  if (!on) { if (w.innerHTML) { w.innerHTML = ''; w.dataset.key = ''; } return; }
+  if (w.dataset.key === S.edit.key) return;
+  const t = T();
+  const ed = S.edit;
+  const rel = relPath(ed.path);
+  w.dataset.key = ed.key;
+  w.innerHTML = `<div class="ewin"><div class="ehead"><span class="ttl"><span class="pt"></span>${t.eTitle} · <span class="fn">${esc(rel)}</span></span><span class="meta">${t.eMeta}</span><span class="sp"></span><button class="ract" data-act="edit-cancel">${t.eCancel} <kbd>esc</kbd></button><button class="ract sv" data-act="edit-save">${t.eSave} <kbd>⌘↵</kbd></button></div>
+<div class="escroll" id="escroll"><div class="ebox"><div class="ehl" id="ehl" aria-hidden="true"></div><textarea class="eta" id="eta" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off"></textarea></div></div>
+<div class="efoot"><span id="epos"></span><span class="sp"></span><span>${t.eUnder} <b>${esc(rel)}</b></span></div></div>`;
+  const ta = $('#eta');
+  ta.value = ed.text;
+  paintEdit();
+  let raf = 0;
+  ta.addEventListener('input', () => {
+    ed.text = ta.value;
+    if (!raf) raf = requestAnimationFrame(() => { raf = 0; paintEdit(); });
+    renderStatus();
+  });
+  // Место: та же строка на том же месте экрана, что была в чтении; выделение — то же.
+  const sc = $('#escroll');
+  const lines = $('#ehl').children;
+  const at = (n) => lines[Math.max(0, Math.min(n, lines.length - 1))];
+  if (ed.sel) ta.setSelectionRange(ed.sel[0], ed.sel[1]);
+  else { const i = ed.text.split('\n').slice(0, ed.line).join('\n').length + (ed.line ? 1 : 0); ta.setSelectionRange(i, i); }
+  if (at(ed.line)) sc.scrollTop = Math.max(0, at(ed.line).offsetTop - ed.off);
+  if (ed.sel) {
+    const el = at(lineOf(ed.text, ed.sel[0]));
+    if (el && (el.offsetTop < sc.scrollTop || el.offsetTop > sc.scrollTop + sc.clientHeight - 60)) sc.scrollTop = Math.max(0, el.offsetTop - sc.clientHeight / 3);
+  }
+  ta.focus({ preventScroll: true });
+  renderStatus();
+}
+
+function paintEdit() {
+  const ehl = $('#ehl');
+  if (ehl && S.edit) ehl.innerHTML = editLinesHTML(S.edit.text, S.edit.lang);
+}
+
+function editPos() {
+  const ta = $('#eta');
+  if (!ta || !S.edit) return '';
+  const i = ta.selectionStart;
+  const before = ta.value.slice(0, i);
+  const line = lineOf(ta.value, i);
+  return T().eLine(line + 1, i - before.lastIndexOf('\n'));
+}
+document.addEventListener('selectionchange', () => { if (S.edit && document.activeElement && document.activeElement.id === 'eta') renderStatus(); });
+
+// editTopLine — какая строка исходника сейчас вверху окна правки и на каком она месте.
+function editTopLine() {
+  const sc = $('#escroll');
+  const lines = $('#ehl') ? [...$('#ehl').children] : [];
+  for (let k = 0; k < lines.length; k++) {
+    if (lines[k].offsetTop + lines[k].offsetHeight > sc.scrollTop) return { n: k + 1, off: lines[k].offsetTop - sc.scrollTop };
+  }
+  return null;
+}
+
+async function ownerSave(force) {
+  const t = T();
+  const ed = S.edit;
+  if (!ed || ed.saving) return;
+  const ta = $('#eta');
+  if (ta) ed.text = ta.value;
+  if (ed.text === ed.from && !force) { await closeEdit(false); return; }
+  ed.saving = true;
+  try {
+    await act('edit', { path: ed.path, content: ed.text, from: ed.from, force: !!force });
+  } catch (e) {
+    ed.saving = false;
+    if (e.code === 'changed-meanwhile') { S.overlay = 'editMeanwhile'; renderOverlays(); renderStatus(); return; }
+    toast({ title: t.eSaveErr, text: esc(e.message || t.errNet), short: `✕ ${t.eSaveErr}` });
+    return;
+  }
+  await closeEdit(true);
+}
+
+function ownerCancel() {
+  const ta = $('#eta');
+  if (S.edit && ta) S.edit.text = ta.value;
+  if (S.edit && S.edit.text !== S.edit.from) { S.overlay = 'editDiscard'; renderOverlays(); renderStatus(); return; }
+  closeEdit(false);
+}
+
+// closeEdit — закрыть окно правки; чтение открывается на той строке, что была вверху окна.
+async function closeEdit(saved) {
+  const ed = S.edit;
+  if (!ed) return;
+  const topAt = editTopLine();
+  S.edit = null;
+  S.overlay = '';
+  renderEdit();
+  try { await act('editing', { on: false }); } catch { /* ядро перезапускается — закроется при входе */ }
+  await loadReview(S.review.id);
+  if (S.review && visibleFiles().some((f) => f.path === ed.path)) await openFile(ed.path, topAt ? { line: topAt.n, off: topAt.off } : { keep: true });
+  else renderAll();
+  if (saved) note(`✓ ${T().eSaved}`);
+}
+
+function backToEdit() {
+  S.overlay = '';
+  renderOverlays();
+  renderStatus();
+  $('#eta')?.focus({ preventScroll: true });
+}
+
+function editIndent(ta, back) {
+  const unit = indentUnit(ta.value, S.edit.kind);
+  const v = ta.value;
+  const a = ta.selectionStart, b = ta.selectionEnd;
+  const ls = v.lastIndexOf('\n', a - 1) + 1;
+  if (a === b && !back) { ta.setRangeText(unit, a, b, 'end'); }
+  else {
+    // Несколько строк (или Shift+Tab): отступ у каждой строки выделения.
+    const le = b > a && v[b - 1] === '\n' ? b - 1 : b;
+    const block = v.slice(ls, le);
+    const out = block.split('\n').map((l) => (back ? (l.startsWith(unit) ? l.slice(unit.length) : l.replace(/^[ \t]/, '')) : unit + l)).join('\n');
+    ta.setRangeText(out, ls, le, 'select');
+  }
+  ta.dispatchEvent(new Event('input'));
+}
+
+async function askRevert() {
+  const t = T();
+  const f = S.file;
+  if (!S.review || !f || S.resp || S.edit || f.state === 'moved') return;
+  const deny = (text) => toast({ title: t.revDenied, text, short: `✕ ${t.revDenied}` });
+  if (!f.hasBase) { deny(t.revNoBase); return; }
+  if (!f.currentDeleted && f.current === f.base) { deny(t.revSame); return; }
+  if (!changeAllowed(t.revDenied, 'revert')) return;
+  S.overlay = 'revert';
+  renderOverlays();
+  renderStatus();
+}
+
+async function revertGo() {
+  const t = T();
+  closeOverlay();
+  try { await act('revert', { path: S.file.path }); } catch (e) { editError(e, t.revDenied, 'revert'); return; }
+  await reloadFile();
+  note(`✓ ${t.revDone}`);
+}
+
+// «Прервать и править»: агент прерван, а когда он остановится — открыть правку или «вернуть к базе».
+async function interruptToEdit() {
+  S.editAfterStop = S.editWork || 'edit';
+  S.editWork = null;
+  closeOverlay();
+  try { await act('interrupt'); } catch (e) { S.editAfterStop = null; commentError(e); return; }
+  await reloadFile();
+}
+
+// Вкладку закрывают с открытой правкой — ядро не должно думать, что редактор ещё открыт.
+window.addEventListener('pagehide', () => {
+  if (S.edit && S.review) navigator.sendBeacon(`/api/reviews/${rid()}/editing`, new Blob([JSON.stringify({ on: false })], { type: 'application/json' }));
+});
+
 // ── окно ответа ──
 // Окно — это тот же основной экран в режиме ответа: справа от дерева, поверх затемнения, со своей
 // шапкой и низом. Под окном остаётся место чтения (S.resp.back), куда возвращаемся после закрытия.
@@ -1247,7 +1520,7 @@ async function acceptResp() {
   const path = S.path;
   try { await act('accept-response'); } catch (e) { commentError(e); return; }
   await closeResp(path);
-  toast({ ok: true, short: `✓ ${t.rAccepted}` });
+  note(`✓ ${t.rAccepted}`);
 }
 
 function askReject() {
@@ -1263,7 +1536,7 @@ async function rejectResp() {
   S.overlay = '';
   try { await act('reject-response'); } catch (e) { commentError(e); renderOverlays(); return; }
   await closeResp();
-  toast({ ok: true, short: `✓ ${t.rRejected}` });
+  note(`✓ ${t.rRejected}`);
 }
 
 // Картинки: из буфера (⌘V) или перетащенные в окно.
@@ -1419,6 +1692,19 @@ document.addEventListener('copy', (e) => {
 
 document.addEventListener('keydown', (e) => {
   const k = e.key;
+  // Окно правки: ⌘Enter — сохранить, Esc — отменить (с вопросом, если текст менялся), Tab — отступ.
+  if (S.edit && S.overlay !== 'help') {
+    if (S.overlay === 'editDiscard' || S.overlay === 'editMeanwhile') {
+      e.preventDefault();
+      if (k === 'Enter') { if (S.overlay === 'editDiscard') closeEdit(false); else { S.overlay = ''; renderOverlays(); ownerSave(true); } }
+      else if (k === 'Escape') backToEdit();
+      return;
+    }
+    if (k === 'Escape') { e.preventDefault(); ownerCancel(); return; }
+    if (k === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); ownerSave(false); return; }
+    if (k === 'Tab' && e.target.id === 'eta') { e.preventDefault(); editIndent(e.target, e.shiftKey); return; }
+    return;
+  }
   // Окно комментария: Esc — закрыть (с вопросом, если что-то написано), ⌘Enter — сохранить.
   if (S.ed && S.overlay !== 'help') {
     if (k === 'Escape') { e.preventDefault(); escEditor(); return; }
@@ -1445,6 +1731,8 @@ document.addEventListener('keydown', (e) => {
     else if (k === 'a') accept();
     else if (k === 'v') toggleCols();
     else if (k === 'm') toggleDoc();
+    else if (k === 'e') startEdit();
+    else if (k === 'b') askRevert();
     else if (k === 'c') openNew();
     else if (k === 's') send();
     else if (k === 'u') askInterrupt();
@@ -1460,6 +1748,12 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     if (k === 'Enter') interrupt();
     else if (k === 'Escape') closeOverlay();
+    return;
+  }
+  if (S.overlay === 'editWork' || S.overlay === 'revert') {
+    e.preventDefault();
+    if (k === 'Enter') (S.overlay === 'revert' ? revertGo : interruptToEdit)();
+    else if (k === 'Escape') { S.editWork = null; closeOverlay(); }
     return;
   }
   if (S.overlay === 'help') {
@@ -1537,6 +1831,12 @@ document.addEventListener('click', (e) => {
   const goEl = t.closest('[data-go]');
   if (goEl && !e.metaKey && !e.ctrlKey) { e.preventDefault(); go(goEl.dataset.go); return; }
   const a = t.closest('[data-act]');
+  if (S.edit) {
+    // Пока открыта правка, другой файл в дереве — то же, что Esc; остальное под окном не нажимается.
+    if (a && a.dataset.act === 'close' && S.overlay && S.overlay !== 'help') { backToEdit(); return; }
+    if (a && !['edit-save', 'edit-cancel', 'edit-discard-go', 'edit-mean-go', 'lang', 'theme', 'help', 'close'].includes(a.dataset.act)) return;
+    if (!a && t.closest('[data-file], [data-block], [data-go]')) { ownerCancel(); return; }
+  }
   if (a) {
     switch (a.dataset.act) {
       case 'accept': accept(); break;
@@ -1558,6 +1858,13 @@ document.addEventListener('click', (e) => {
       case 'resp-reject': askReject(); break;
       case 'resp-close': closeResp(); break;
       case 'reject-go': rejectResp(); break;
+      case 'edit': startEdit(); break;
+      case 'edit-save': ownerSave(false); break;
+      case 'edit-cancel': ownerCancel(); break;
+      case 'edit-discard-go': closeEdit(false); break;
+      case 'edit-mean-go': S.overlay = ''; renderOverlays(); ownerSave(true); break;
+      case 'edit-work-go': interruptToEdit(); break;
+      case 'revert-go': revertGo(); break;
     }
     return;
   }
@@ -1575,6 +1882,8 @@ document.addEventListener('click', (e) => {
     }
     if (k === 'r') openResp();
     else if (k === 'a') accept();
+    else if (k === 'e') startEdit();
+    else if (k === 'b') askRevert();
     else if (k === 'c') openNew();
     else if (k === 's') send();
     else if (k === 'u') askInterrupt();

@@ -195,8 +195,8 @@ func TestChangesReachAllTabs(t *testing.T) {
 	wait(t, tab2, "change", hasReview(id))
 	_, data = e.do("GET", "/api/reviews/"+id, nil, nil)
 	json.Unmarshal(data, &rv)
-	if len(rv.DiskChanged) != 1 {
-		t.Fatalf("нет пометки «изменён на диске»: %+v", rv)
+	if rv.FromDisk == nil || len(rv.FromDisk.Files) != 1 {
+		t.Fatalf("правка с диска не пришла: %+v", rv)
 	}
 }
 
@@ -267,7 +267,7 @@ func TestSyncProgress(t *testing.T) {
 	_, data := e.do("GET", "/api/reviews/"+id, nil, nil)
 	var rv core.ReviewView
 	json.Unmarshal(data, &rv)
-	if !rv.Synced || len(rv.DiskChanged) != 1 || rv.DiskChanged[0] != e.path("b.md") {
+	if !rv.Synced || rv.FromDisk == nil || len(rv.FromDisk.Files) != 1 || rv.FromDisk.Files[0] != e.path("b.md") {
 		t.Fatalf("после сверки: %+v", rv)
 	}
 }
@@ -322,12 +322,12 @@ func TestErrorCodes(t *testing.T) {
 		t.Fatalf("нечего отправлять: %d %v", code, out)
 	}
 	os.WriteFile(a, []byte("мимо duet\n"), 0o644)
-	if code, out := e.post("/api/reviews/"+id+"/edit", map[string]any{"path": a, "content": "моё\n"}); code != 409 || out["error"] != "disk-changed" ||
-		len(out["paths"].([]any)) != 1 {
-		t.Fatalf("изменён на диске: %d %v", code, out)
+	// Правка начата с «раз», а файл поменяли на диске — нужен ответ владельца.
+	if code, out := e.post("/api/reviews/"+id+"/edit", map[string]any{"path": a, "content": "моё\n", "from": "раз\n"}); code != 409 || out["error"] != "changed-meanwhile" {
+		t.Fatalf("поменяли, пока правили: %d %v", code, out)
 	}
-	if code, out := e.post("/api/reviews/"+id+"/take-from-disk", map[string]any{"paths": []string{a}}); code != 200 {
-		t.Fatalf("взять с диска: %d %v", code, out)
+	if code, out := e.post("/api/reviews/"+id+"/edit", map[string]any{"path": a, "content": "моё\n", "from": "раз\n", "force": true}); code != 200 {
+		t.Fatalf("сохранить всё равно: %d %v", code, out)
 	}
 	e.c.AgentStart(id)
 	os.WriteFile(a, []byte("агент\n"), 0o644)

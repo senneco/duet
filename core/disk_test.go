@@ -108,24 +108,55 @@ func TestRevertWritesDisk(t *testing.T) {
 	wantNotices(t, c, r, Notice{Reason: NoticeRevert, Files: []string{a}}, Notice{Reason: NoticeAccepted, Files: []string{a}})
 }
 
-// 23: на диске не то, что ожидается, — duet не пишет и предлагает выбор.
-func TestWriteRefusedWhenDiskChanged(t *testing.T) {
+// 205: файл поменяли на диске, пока открыт редактор, — правка не сохраняется без подтверждения;
+// с подтверждением то, что было на диске, остаётся в истории.
+func TestEditWhileDiskChanged(t *testing.T) {
 	c, p := newProj(t)
 	r, a := newReview(t, c, p, "a.md", "2\n", "1\n")
+	must(t, c.SetEditing(r, true))
 	p.write("a.md", "мимо duet\n")
-	for _, err := range []error{c.Edit(r, a, "3\n"), c.RevertToBase(r, a)} {
-		var de *DiskChangedError
-		if !errors.As(err, &de) || !errors.Is(err, ErrDiskChanged) || de.Paths[0] != a {
-			t.Fatal(err)
-		}
+	c.Poll()
+	if v := fv(t, c, r, a); v.Current != "2\n" || !v.DiskChanged {
+		t.Fatalf("пока открыт редактор, изменение ждёт: %+v", v)
 	}
-	if p.read("a.md") != "мимо duet\n" || fv(t, c, r, a).Current != "2\n" {
-		t.Fatal("ничего не должно поменяться")
+	was := "2\n"
+	if err := c.EditFrom(r, a, "моё\n", &was, false); !errors.Is(err, ErrChangedMeanwhile) {
+		t.Fatal(err)
 	}
-	if v := fv(t, c, r, a); !v.DiskChanged || v.Disk != "мимо duet\n" {
-		t.Fatalf("%+v", v)
+	must(t, c.EditFrom(r, a, "моё\n", &was, true))
+	must(t, c.SetEditing(r, false))
+	if p.read("a.md") != "моё\n" || fv(t, c, r, a).Current != "моё\n" || fv(t, c, r, a).DiskChanged {
+		t.Fatal(p.read("a.md"))
 	}
-	wantNotices(t, c, r)
+	f := c.s.Files[a]
+	if prev := f.Versions[len(f.Versions)-2]; prev.Author != "disk" || prev.Content != "мимо duet\n" {
+		t.Fatalf("%+v", prev)
+	}
+}
+
+// 205: изменение на диске взято, пока владелец правил в другой вкладке, — текущая уже не та.
+func TestEditFromStaleText(t *testing.T) {
+	c, p := newProj(t)
+	r, a := newReview(t, c, p, "a.md", "2\n", "1\n")
+	must(t, c.Edit(r, a, "3\n"))
+	was := "2\n"
+	if err := c.EditFrom(r, a, "4\n", &was, false); !errors.Is(err, ErrChangedMeanwhile) {
+		t.Fatal(err)
+	}
+	if p.read("a.md") != "3\n" {
+		t.Fatal(p.read("a.md"))
+	}
+}
+
+// 209: удалённый файл править нельзя.
+func TestEditDeletedFile(t *testing.T) {
+	c, p := newProj(t)
+	r, a := newReview(t, c, p, "a.md", "2\n", "1\n")
+	p.remove("a.md")
+	must(t, c.Sync(r, nil))
+	if err := c.Edit(r, a, "x"); !errors.Is(err, ErrNotFound) {
+		t.Fatal(err)
+	}
 }
 
 // 7, 90, 41: отклонить ответ — диск к текущей версии: изменённый вернулся,
@@ -165,172 +196,178 @@ func sorted(s ...string) []string {
 	return out
 }
 
-// 23 при отклонении: на диске не версия из ответа — ничего не пишется, ответ остаётся.
-func TestRejectRefusedWhenDiskChanged(t *testing.T) {
+// pendingSetup — агент прислал ответ: a «1» → «2».
+func pendingSetup(t *testing.T) (*Core, *proj, string, string) {
 	c, p := newProj(t)
 	r, a := newReview(t, c, p, "a.md", "1\n", "1\n")
 	must(t, c.AgentStart(r))
 	p.write("a.md", "2\n")
 	_, err := c.AgentFinish(r, []Submission{{Path: a, Content: "2\n"}}, nil)
 	must(t, err)
-	p.write("a.md", "владелец\n")
-	if err := c.RejectResponse(r); !errors.Is(err, ErrDiskChanged) {
-		t.Fatal(err)
-	}
-	if !rv(t, c, r).HasResponse || p.read("a.md") != "владелец\n" {
-		t.Fatal("ответ и диск не тронуты")
-	}
+	must(t, c.Sync(r, nil))
+	return c, p, r, a
 }
 
-// 80, 81: правка мимо duet помечается, «взять с диска» делает её правкой владельца.
-func TestTakeFromDisk(t *testing.T) {
+// 218: при отклонении файл, изменённый на диске, не возвращается, а становится правкой владельца.
+func TestRejectKeepsDiskChange(t *testing.T) {
+	c, p, r, a := pendingSetup(t)
+	p.write("a.md", "владелец\n")
+	notices(t, c, r)
+	must(t, c.RejectResponse(r))
+	v := fv(t, c, r, a)
+	if p.read("a.md") != "владелец\n" || v.Current != "владелец\n" || v.DiskChanged || v.State == StateAccepted {
+		t.Fatalf("%q %+v", p.read("a.md"), v)
+	}
+	if x := rv(t, c, r); x.HasResponse || x.FromDisk == nil || !reflect.DeepEqual(x.FromDisk.Files, []string{a}) {
+		t.Fatalf("%+v", x)
+	}
+	wantNotices(t, c, r, Notice{Reason: NoticeRejected, Files: []string{a}}, Notice{Reason: NoticeOwnerEdit, Files: []string{a}})
+}
+
+// 213, 201: изменение на диске сразу становится правкой владельца; комментарий едет с текстом.
+func TestDiskChangeIsOwnerEdit(t *testing.T) {
 	c, p := newProj(t)
 	r, a := newReview(t, c, p, "a.md", "2\n", "1\n")
 	cm := addC(t, c, r, a, sel("2\n", "2"), "к двойке")
 	p.write("a.md", "0\n2\n")
 	must(t, c.Sync(r, nil))
 	v := fv(t, c, r, a)
-	if !v.DiskChanged || v.Disk != "0\n2\n" || !reflect.DeepEqual(rv(t, c, r).DiskChanged, []string{a}) {
-		t.Fatalf("%+v", v)
-	}
-	if ch, err := c.DiskDiff(r, a); err != nil || len(ch) == 0 {
-		t.Fatal(ch, err)
-	}
-	must(t, c.TakeFromDisk(r, nil))
-	v = fv(t, c, r, a)
-	if v.DiskChanged || v.Current != "0\n2\n" || v.State == StateAccepted || len(rv(t, c, r).DiskChanged) != 0 {
+	if v.DiskChanged || v.Current != "0\n2\n" || v.State == StateAccepted || v.Base != "1\n" {
 		t.Fatalf("%+v", v)
 	}
 	if x := cv(t, c, r, a, cm); x.Range != *sel("0\n2\n", "2") {
 		t.Fatalf("комментарий должен уехать вместе с текстом: %+v", x)
 	}
+	if fd := rv(t, c, r).FromDisk; fd == nil || fd.Seq != 1 || !reflect.DeepEqual(fd.Files, []string{a}) {
+		t.Fatalf("%+v", fd)
+	}
+	if c.s.Files[a].Versions[c.s.Files[a].Current].Author != "owner" {
+		t.Fatal("автор — владелец")
+	}
 	wantNotices(t, c, r, Notice{Reason: NoticeOwnerEdit, Files: []string{a}})
+	// Состояние сохранено: после перезапуска правка на месте.
+	c2, err := Open(p.state)
+	must(t, err)
+	if fv(t, c2, r, a).Current != "0\n2\n" {
+		t.Fatal("правка с диска не сохранена")
+	}
 }
 
-// 80, 81: удаление мимо duet тоже изменение; взятое с диска — файл удалён.
-func TestTakeDeletedFromDisk(t *testing.T) {
+// 213: удаление на диске — файл удалён; появление — снова есть.
+func TestDiskDeleteIsOwnerEdit(t *testing.T) {
 	c, p := newProj(t)
 	r, a := newReview(t, c, p, "a.md", "2\n", "1\n")
 	p.remove("a.md")
 	must(t, c.Sync(r, nil))
-	if v := fv(t, c, r, a); !v.DiskChanged || !v.DiskDeleted {
+	if v := fv(t, c, r, a); v.State != StateDeleted || v.DiskChanged {
 		t.Fatalf("%+v", v)
 	}
-	must(t, c.TakeFromDisk(r, []string{a}))
-	if v := fv(t, c, r, a); v.State != StateDeleted {
+	p.write("a.md", "1\n")
+	c.Poll()
+	if v := fv(t, c, r, a); v.State != StateAccepted {
 		t.Fatalf("%+v", v)
 	}
 }
 
-// 82: «перезаписать» — на диске ожидаемое, прежнее содержимое осталось в истории.
-func TestOverwrite(t *testing.T) {
-	c, p := newProj(t)
-	r, a := newReview(t, c, p, "a.md", "2\n", "1\n")
-	b := p.write("b.md", "b\n")
-	_, err := c.AddFiles(r, []Submission{{Path: b, Content: "b\n"}})
-	must(t, err)
-	p.write("a.md", "мимо\n")
-	p.remove("b.md")
-	must(t, c.Overwrite(r, nil)) // «перезаписать все»
-	if p.read("a.md") != "2\n" || p.read("b.md") != "b\n" || len(rv(t, c, r).DiskChanged) != 0 {
-		t.Fatal(p.read("a.md"), p.read("b.md"))
-	}
-	f := c.s.Files[a]
-	if last := f.Versions[len(f.Versions)-1]; last.Author != "disk" || last.Content != "мимо\n" {
-		t.Fatalf("%+v", last)
-	}
-	wantNotices(t, c, r, Notice{Reason: NoticeOverwritten, Files: []string{a, b}})
-}
-
-// 83: пока есть пометка, файл нельзя принять, комментарии нельзя отправить, ревью не принято целиком.
-func TestDriftBlocks(t *testing.T) {
-	c, p := newProj(t)
-	a, b := p.write("a.md", "2\n"), p.write("b.md", "b\n")
-	r := create(t, c, Submission{Path: a, Content: "2\n", Original: orig("1\n")}, Submission{Path: b, Content: "b\n", Original: orig("b\n")})
-	addC(t, c, r, a, nil, "А")
-	p.write("b.md", "мимо\n") // b принят, но на диске другое
-	p.write("a.md", "мимо\n")
-	if err := c.AcceptFile(r, a); !errors.Is(err, ErrDiskChanged) {
-		t.Fatal(err)
-	}
-	if err := c.Send(r, false); !errors.Is(err, ErrDiskChanged) {
-		t.Fatal(err)
-	}
-	// Владелец вернул a, но b по-прежнему расходится: ревью всё равно не принято целиком.
-	must(t, c.Overwrite(r, []string{a}))
-	must(t, c.AcceptFile(r, a))
-	for _, cm := range fv(t, c, r, a).Comments {
-		must(t, c.DeleteComment(r, cm.ID))
-	}
-	x := rv(t, c, r)
-	if x.Accepted || !reflect.DeepEqual(x.DiskChanged, []string{b}) {
-		t.Fatalf("%+v", x)
-	}
-	must(t, c.Overwrite(r, nil))
-	if x := rv(t, c, r); !x.Accepted {
-		t.Fatalf("%+v", x)
-	}
-}
-
-// 84: на диске снова ожидаемое — пометка снимается сама.
-func TestDriftClearsItself(t *testing.T) {
-	c, p := newProj(t)
-	r, a := newReview(t, c, p, "a.md", "2\n", "1\n")
-	must(t, c.Sync(r, nil))
-	p.write("a.md", "мимо duet\n")
-	c.Poll()
-	if !fv(t, c, r, a).DiskChanged {
-		t.Fatal("пометка")
-	}
-	p.write("a.md", "2\n")
-	c.Poll()
-	if fv(t, c, r, a).DiskChanged {
-		t.Fatal("пометка должна сняться")
-	}
-}
-
-// 85: при непросмотренном ответе ожидается версия из ответа; «взять с диска» — только после ответа.
-func TestDriftWithPendingResponse(t *testing.T) {
+// 215: вернули на диске как было (git checkout туда и обратно) — файл снова как база и принят.
+func TestDiskBackToBase(t *testing.T) {
 	c, p := newProj(t)
 	r, a := newReview(t, c, p, "a.md", "1\n", "1\n")
-	must(t, c.AgentStart(r))
-	p.write("a.md", "2\n")
-	_, err := c.AgentFinish(r, []Submission{{Path: a, Content: "2\n"}}, nil)
+	b := p.write("b.md", "b2\n")
+	_, err := c.AddFiles(r, []Submission{{Path: b, Content: "b2\n", Original: orig("b1\n")}})
 	must(t, err)
 	must(t, c.Sync(r, nil))
+	p.write("a.md", "ветка\n")
+	c.Poll()
+	if fv(t, c, r, a).State == StateAccepted {
+		t.Fatal("не принят")
+	}
+	p.write("a.md", "1\n")
+	c.Poll()
+	if v := fv(t, c, r, a); v.State != StateAccepted || v.Current != "1\n" {
+		t.Fatalf("%+v", v)
+	}
+	// Правки по нескольким файлам подряд — одно сообщение агенту.
+	p.write("b.md", "b3\n")
+	c.Poll()
+	n := notices(t, c, r)
+	if len(n) != 1 || n[0].Reason != NoticeOwnerEdit || !reflect.DeepEqual(n[0].Files, []string{a, b}) {
+		t.Fatalf("%+v", n)
+	}
+}
+
+// Правка с диска не будит свободного агента: он узнает о ней со следующими комментариями.
+func TestDiskEditDoesNotWake(t *testing.T) {
+	c, p := newProj(t)
+	r, a := newReview(t, c, p, "a.md", "2\n", "1\n")
+	connectAgent(t, c, r, "s1")
+	must(t, c.Sync(r, nil))
+	p.write("a.md", "3\n")
+	c.Poll()
+	if c.Pending("s1") {
+		t.Fatal("правка владельца не будит агента")
+	}
+	addC(t, c, r, a, nil, "А")
+	must(t, c.Send(r, false))
+	cms, ns, err := c.Deliver("s1")
+	must(t, err)
+	if len(cms) != 1 || len(ns) != 1 || ns[0].Reason != NoticeOwnerEdit {
+		t.Fatalf("%+v %+v", cms, ns)
+	}
+}
+
+// 216, 217: при непросмотренном ответе изменение на диске ждёт; файл нельзя принять;
+// ответ приняли — то, что на диске, становится правкой поверх ответа.
+func TestDiskChangeWaitsForResponse(t *testing.T) {
+	c, p, r, a := pendingSetup(t)
 	if fv(t, c, r, a).DiskChanged {
 		t.Fatal("на диске ответ — так и должно быть")
 	}
-	p.write("a.md", "мимо\n")
+	p.write("a.md", "2\nмоё\n")
 	c.Poll()
-	if !fv(t, c, r, a).DiskChanged {
-		t.Fatal("пометка")
+	if v := fv(t, c, r, a); !v.DiskChanged || v.Current != "1\n" {
+		t.Fatalf("%+v", v)
 	}
-	if err := c.TakeFromDisk(r, nil); !errors.Is(err, ErrUnviewedResponse) {
+	if x := rv(t, c, r); x.Accepted || !reflect.DeepEqual(x.DiskChanged, []string{a}) {
+		t.Fatalf("%+v", x)
+	}
+	must(t, c.AcceptResponse(r))
+	if err := c.AcceptFile(r, a); err != nil {
 		t.Fatal(err)
 	}
-	must(t, c.Overwrite(r, nil))
-	if p.read("a.md") != "2\n" {
-		t.Fatal(p.read("a.md"))
+	if v := fv(t, c, r, a); v.Current != "2\nмоё\n" || v.DiskChanged {
+		t.Fatalf("%+v", v)
+	}
+	f := c.s.Files[a]
+	if prev := f.Versions[len(f.Versions)-2]; prev.Content != "2\n" || prev.Author == "owner" {
+		t.Fatalf("сначала версия из ответа, потом правка: %+v", prev)
 	}
 }
 
-// 86: пока агент работает, правки на диске не помечаются.
-func TestNoDriftWhileWorking(t *testing.T) {
+// 216: пока открыт редактор, изменение другого файла на диске ждёт, и этот файл нельзя принять;
+// редактор закрыли — изменение стало правкой.
+func TestHeldDiskChangeBlocksAccept(t *testing.T) {
 	c, p := newProj(t)
-	r, a := newReview(t, c, p, "a.md", "2\n", "1\n")
-	addC(t, c, r, a, nil, "А")
-	sendTake(t, c, r)
-	p.write("a.md", "агент пишет\n")
+	a, b := p.write("a.md", "2\n"), p.write("b.md", "b2\n")
+	r := create(t, c, Submission{Path: a, Content: "2\n", Original: orig("1\n")}, Submission{Path: b, Content: "b2\n", Original: orig("b\n")})
+	must(t, c.SetEditing(r, true))
+	p.write("b.md", "мимо\n")
 	must(t, c.Sync(r, nil))
-	c.Poll()
-	if fv(t, c, r, a).DiskChanged {
-		t.Fatal("агент работает")
+	if v := fv(t, c, r, b); !v.DiskChanged || v.Current != "b2\n" {
+		t.Fatalf("%+v", v)
 	}
+	if err := c.AcceptFile(r, b); !errors.Is(err, ErrDiskChanged) {
+		t.Fatal(err)
+	}
+	must(t, c.SetEditing(r, false))
+	if v := fv(t, c, r, b); v.DiskChanged || v.Current != "мимо\n" {
+		t.Fatalf("%+v", v)
+	}
+	must(t, c.AcceptFile(r, b))
 }
 
-// 87, 60: после запуска duet ничего не сверяет; ревью сверяется, когда его открыли
-// или в нём что-то происходит.
+// 220, 87, 60: после запуска duet ничего не сверяет; ревью сверяется, когда его открыли
+// или в нём что-то происходит, и изменения становятся правкой владельца.
 func TestRestartSyncsOnDemand(t *testing.T) {
 	c, p := newProj(t)
 	r, a := newReview(t, c, p, "a.md", "2\n", "1\n")
@@ -340,7 +377,7 @@ func TestRestartSyncsOnDemand(t *testing.T) {
 	c, err := Open(p.state)
 	must(t, err)
 	c.Poll()
-	if x := rv(t, c, r); x.Synced || len(x.DiskChanged) != 0 {
+	if x := rv(t, c, r); x.Synced || fv(t, c, r, a).Current != "2\n" {
 		t.Fatalf("после запуска ничего не сверяется: %+v", x)
 	}
 	var steps [][2]int
@@ -348,17 +385,17 @@ func TestRestartSyncsOnDemand(t *testing.T) {
 	if !reflect.DeepEqual(steps, [][2]int{{1, 1}}) {
 		t.Fatal(steps)
 	}
-	if x := rv(t, c, r); !x.Synced || !reflect.DeepEqual(x.DiskChanged, []string{a}) {
+	if x := rv(t, c, r); !x.Synced || fv(t, c, r, a).Current != "пока duet был выключен\n" {
 		t.Fatalf("%+v", x)
 	}
 	// Во втором ревью что-то происходит — оно тоже сверяется.
 	addC(t, c, r2, b, nil, "Б")
-	if !fv(t, c, r2, b).DiskChanged {
+	if fv(t, c, r2, b).Current != "пока duet был выключен\n" {
 		t.Fatal("ревью сверено по действию")
 	}
 }
 
-// 88: ревью, принятое целиком, за диском не следит; снова не принято — сверяется.
+// 220, 88: ревью, принятое целиком, за диском не следит; снова не принято — сверяется.
 func TestAcceptedReviewNotWatched(t *testing.T) {
 	c, p := newProj(t)
 	r, a := newReview(t, c, p, "a.md", "2\n", "1\n")
@@ -368,11 +405,11 @@ func TestAcceptedReviewNotWatched(t *testing.T) {
 	}
 	p.write("a.md", "другая задача\n")
 	must(t, c.Sync(r, nil))
-	if x := rv(t, c, r); !x.Accepted || len(x.DiskChanged) != 0 {
+	if x := rv(t, c, r); !x.Accepted || fv(t, c, r, a).Current != "2\n" {
 		t.Fatalf("%+v", x)
 	}
 	addC(t, c, r, a, nil, "ещё одно")
-	if x := rv(t, c, r); x.Accepted || !reflect.DeepEqual(x.DiskChanged, []string{a}) {
+	if x := rv(t, c, r); x.Accepted || fv(t, c, r, a).Current != "другая задача\n" {
 		t.Fatalf("%+v", x)
 	}
 }
@@ -481,10 +518,17 @@ func TestWatch(t *testing.T) {
 	stop := c.Watch(5 * time.Millisecond)
 	defer stop()
 	p.write("a.md", "мимо duet\n")
-	for i := 0; i < 200 && !fv(t, c, r, a).DiskChanged; i++ {
+	for i := 0; i < 200 && fv(t, c, r, a).Current != "мимо duet\n"; i++ {
 		time.Sleep(5 * time.Millisecond)
 	}
-	if !fv(t, c, r, a).DiskChanged {
-		t.Fatal("пометка не появилась")
+	if fv(t, c, r, a).Current != "мимо duet\n" {
+		t.Fatal("правка с диска не появилась")
 	}
+}
+
+// connectAgent — подключить сессию агента к ревью; агент свободен.
+func connectAgent(t *testing.T, c *Core, r, id string) {
+	t.Helper()
+	must(t, c.Attach(Session{ID: id, Agent: "claude"}, r))
+	must(t, c.SetBusy(id, false))
 }

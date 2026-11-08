@@ -334,9 +334,6 @@ func (c *Core) Send(reviewID string, inResponse bool) error {
 		return ErrNoAgent
 	}
 	c.touch(r)
-	if d := c.drifted(r); len(d) > 0 {
-		return &DiskChangedError{d}
-	}
 	st := CommentWorking
 	if r.Working || r.Busy {
 		st = CommentWaiting

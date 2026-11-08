@@ -175,6 +175,8 @@ type Core struct {
 	// drift — файлы с пометкой «изменён на диске»: путь → что лежит на диске.
 	drift  map[string]*Version
 	stamps map[string]string
+	// diskTaken — последние изменения, взятые с диска правкой владельца, по ревью (для подсказки).
+	diskTaken map[string]*FromDisk
 	subsState
 }
 
@@ -184,7 +186,8 @@ func Open(dir string) (*Core, error) {
 		return nil, err
 	}
 	c := &Core{path: filepath.Join(dir, "state.json"), now: time.Now, disk: osDisk{},
-		synced: map[string]bool{}, drift: map[string]*Version{}, stamps: map[string]string{}}
+		synced: map[string]bool{}, drift: map[string]*Version{}, stamps: map[string]string{},
+		diskTaken: map[string]*FromDisk{}}
 	c.subs = map[*Subscription]bool{}
 	c.s = state{Reviews: map[string]*Review{}, Files: map[string]*File{}, Sessions: map[string]*Session{}}
 	data, err := os.ReadFile(c.path)
@@ -573,16 +576,19 @@ func (c *Core) closeResponse(reviewID string, st ResponseStatus) error {
 		files = append(files, path)
 	}
 	sort.Strings(files)
-	if st == ResponseRejected {
-		// Диск возвращается к текущей версии, но только если там лежит ответ, как ожидается.
-		var fs []*File
+	if st == ResponseRejected && c.disk != nil {
+		// Диск возвращается к текущей версии. Файл, который поменяли на диске в обход duet,
+		// не трогаем: после отклонения то, что на диске, станет правкой владельца.
 		for _, path := range files {
-			fs = append(fs, c.s.Files[path])
-		}
-		if err := c.diskCheck(r, fs...); err != nil {
-			return err
-		}
-		for _, f := range fs {
+			f := c.s.Files[path]
+			d, err := c.readDisk(path)
+			if err != nil {
+				continue
+			}
+			if !same(d, f.Versions[p.Files[path]]) {
+				c.drift[path] = &d // ревью не станет принятым целиком, пока это не взято правкой
+				continue
+			}
 			want := Version{Deleted: true}
 			if f.Current >= 0 {
 				want = f.Versions[f.Current]
@@ -699,8 +705,18 @@ func (c *Core) AcceptFile(reviewID, path string) error {
 	return c.commit(r)
 }
 
-// Edit — правка владельца.
+// Edit — правка владельца. was — текст, который владелец начал править; если текущая версия
+// с тех пор поменялась (например, файл поменяли на диске), правка не сохраняется — ErrChangedMeanwhile,
+// пока владелец не подтвердит (force). Пустой was — не проверять.
 func (c *Core) Edit(reviewID, path, content string) error {
+	return c.EditFrom(reviewID, path, content, nil, false)
+}
+
+// ErrChangedMeanwhile — файл поменяли, пока владелец его правил.
+var ErrChangedMeanwhile = errors.New("файл поменяли, пока вы его правили")
+
+// EditFrom — правка владельца с проверкой, что файл не поменяли, пока его правили.
+func (c *Core) EditFrom(reviewID, path, content string, was *string, force bool) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	r, err := c.review(reviewID)
@@ -714,12 +730,36 @@ func (c *Core) Edit(reviewID, path, content string) error {
 	if err := c.checkChange(r); err != nil {
 		return err
 	}
-	v := Version{Content: content, Author: "owner"}
-	if f.Current >= 0 && same(f.Versions[f.Current], v) {
-		return nil
+	if f.Current < 0 || f.Versions[f.Current].Deleted {
+		return fmt.Errorf("файл %s удалён: %w", path, ErrNotFound)
 	}
-	if err := c.diskCheck(r, f); err != nil {
-		return err
+	c.touch(r) // изменение на диске, которое ещё не заметили, — сначала правкой, потом сравниваем
+	// На диске может лежать не текущая версия: изменение ждёт (открыт редактор) или ревью
+	// принято целиком и за диском не следим. Молча его не перезаписываем.
+	var onDisk *Version
+	if c.disk != nil {
+		if d, err := c.readDisk(path); err == nil && !same(d, f.Versions[f.Current]) {
+			onDisk = &d
+		}
+	}
+	if !force && (onDisk != nil || (was != nil && f.Versions[f.Current].Content != *was)) {
+		return ErrChangedMeanwhile
+	}
+	if onDisk != nil {
+		// Владелец сохранил правку поверх изменения на диске: то, что было на диске, остаётся в истории.
+		dv := *onDisk
+		dv.Author = "disk"
+		c.addVersion(f, dv)
+	}
+	v := Version{Content: content, Author: "owner"}
+	if same(f.Versions[f.Current], v) {
+		if onDisk != nil {
+			if err := c.writeDisk(path, v); err != nil {
+				return err
+			}
+			return c.commit(r)
+		}
+		return nil
 	}
 	if err := c.writeDisk(path, v); err != nil {
 		return err
@@ -752,11 +792,9 @@ func (c *Core) RevertToBase(reviewID, path string) error {
 	if f.Base < 0 {
 		return fmt.Errorf("у файла %s нет базы", path)
 	}
+	c.touch(r) // изменение на диске сначала становится правкой: «вернуть к базе» выбрасывает и его
 	if f.Current == f.Base {
-		return nil
-	}
-	if err := c.diskCheck(r, f); err != nil {
-		return err
+		return c.commit(r)
 	}
 	if err := c.writeDisk(path, f.Versions[f.Base]); err != nil {
 		return err
@@ -815,7 +853,7 @@ type FileView struct {
 	OriginSource    string        `json:"originSource"`
 	Current         string        `json:"current"`
 	CurrentDeleted  bool          `json:"currentDeleted"`
-	Absent          bool          `json:"absent"` // текущей версии нет: файл есть только в непросмотренном ответе
+	Absent          bool          `json:"absent"`   // текущей версии нет: файл есть только в непросмотренном ответе
 	Response        *string       `json:"response"` // версия из непросмотренного ответа
 	ResponseDeleted bool          `json:"responseDeleted"`
 	Comments        []CommentView `json:"comments"`     // открытые комментарии: без решённых и удалённых
@@ -922,7 +960,7 @@ type ReviewView struct {
 	Created     time.Time  `json:"created"`
 	Working     bool       `json:"working"`
 	HasResponse bool       `json:"hasResponse"`
-	Response    *Pending   `json:"response"` // непросмотренный ответ
+	Response    *Pending   `json:"response"`  // непросмотренный ответ
 	Accepted    bool       `json:"accepted"`  // ревью принято целиком
 	Agent       bool       `json:"agent"`     // агент подключён
 	AgentBusy   bool       `json:"agentBusy"` // подключённый агент занят (в чате или работает)
@@ -935,8 +973,13 @@ type ReviewView struct {
 	NotAdded    []Busy     `json:"notAdded"`
 	Stopping    bool       `json:"stopping"`    // «останавливается…» после «прервать»
 	Restored    []string   `json:"restored"`    // файлы, которые duet перезаписал после последнего «прервать»
-	DiskChanged []string   `json:"diskChanged"` // файлы с пометкой «изменён на диске»
-	Synced      bool       `json:"synced"`      // ревью сверено с диском после запуска duet
+	DiskChanged []string   `json:"diskChanged"` // изменены на диске, станут правкой владельца, когда станет можно
+	FromDisk    *FromDisk  `json:"fromDisk"`    // последние изменения, взятые с диска правкой владельца
+	Editing     bool       `json:"editing"`     // открыт редактор правки
+	// Locked — почему сейчас нельзя менять текущую версию (править, вернуть к базе):
+	// "unviewed-response", "stopping", "agent-working"; "" — можно.
+	Locked string `json:"locked"`
+	Synced bool   `json:"synced"` // ревью сверено с диском после запуска duet
 }
 
 // lastResp — к какому ответу агента относится последнее сообщение ветки.
@@ -985,7 +1028,16 @@ func (c *Core) allDone(r *Review) bool {
 
 func (c *Core) reviewView(r *Review) ReviewView {
 	rv := ReviewView{ID: r.ID, Title: r.Title, Created: r.Created, Working: r.Working, HasResponse: r.pending() != nil, NotAdded: r.NotAdded,
-		Stopping: r.Stopping, Restored: r.Restored, DiskChanged: c.drifted(r), Synced: c.synced[r.ID]}
+		Stopping: r.Stopping, Restored: r.Restored, DiskChanged: c.drifted(r), Synced: c.synced[r.ID],
+		FromDisk: c.diskTaken[r.ID], Editing: r.Editing}
+	switch c.checkChange(r) {
+	case ErrUnviewedResponse:
+		rv.Locked = "unviewed-response"
+	case ErrStopping:
+		rv.Locked = "stopping"
+	case ErrAgentWorking:
+		rv.Locked = "agent-working"
+	}
 	for _, p := range r.Paths {
 		v := c.view(r, p)
 		if v.State != StateMoved && c.s.Files[p].Current < 0 && !v.Ripple {

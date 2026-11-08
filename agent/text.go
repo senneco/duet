@@ -80,11 +80,9 @@ func notice(cwd string, n core.Notice) string {
 	files := rels(cwd, n.Files)
 	switch n.Reason {
 	case core.NoticeOwnerEdit:
-		return "DUET: the owner edited these files in duet. Re-read them from disk before changing them: " + files
+		return "DUET: the owner edited these files (in duet or in their own editor). Re-read them from disk before changing them: " + files
 	case core.NoticeRevert:
 		return "DUET: the owner reverted these files to their accepted base. Re-read them from disk: " + files
-	case core.NoticeOverwritten:
-		return "DUET: these files were changed outside duet and the owner chose to overwrite them with the reviewed version. Re-read them from disk: " + files
 	case core.NoticeRejected, core.NoticeInterrupted:
 		what := "rejected your last response"
 		if n.Reason == core.NoticeInterrupted {

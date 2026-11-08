@@ -555,8 +555,10 @@ func (c *Core) Pending(sessionID string) bool {
 	if err != nil || r.Stopping {
 		return false
 	}
-	if len(r.Notices) > 0 {
-		return true
+	for _, n := range r.Notices {
+		if n.wakes() {
+			return true
+		}
 	}
 	return c.count(r, CommentWaiting) > 0 || len(c.undelivered(r)) > 0
 }

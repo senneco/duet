@@ -237,3 +237,44 @@ test('176, 179: в окне ответа комментарии на места�
   // вне окна написанное в окне не показывается
   assert.deepEqual(shownComments(list, { pending: 3 }).map((c) => c.id), ['c1', 'c3']);
 });
+
+// ── шаг 6d: правка владельца ──
+import { editLinesHTML, editSelection, lineOf, indentUnit } from '../web/js/edit.js';
+
+test('203: исходник по строкам — столько же строк, сколько в textarea, пустые не схлопываются', () => {
+  const html = editLinesHTML('# Заголовок\n\nтекст\n', 'md');
+  assert.equal((html.match(/class="el"/g) || []).length, 4);
+  assert.match(html, /t-/); // подсветка есть
+  assert.equal((editLinesHTML('a\nb', '').match(/class="el"/g) || []).length, 2);
+});
+
+test('199: выделение из окна чтения переносится в исходник', () => {
+  const base = 'один\nдва\n';
+  const cur = 'один\nдва три\n';
+  // В текущей версии выделено «три» (строка 1, символы 4–7).
+  const sel = { a: { side: 'n', line: 1, col: 4 }, b: { side: 'n', line: 1, col: 7 } };
+  const r = editSelection(sel, base, cur, []);
+  assert.deepEqual(r, [9, 12]);
+  assert.equal(cur.slice(r[0], r[1]), 'три');
+  assert.equal(editSelection(null, base, cur, []), null);
+});
+
+test('199: выделение удалённого текста — курсор там, где он был', () => {
+  const base = 'один\nстарое\nтри\n';
+  const cur = 'один\nтри\n';
+  const chunks = [
+    { kind: 'same', old: [{ n: 1, text: 'один' }], new: [{ n: 1, text: 'один' }] },
+    { kind: 'deleted', old: [{ n: 2, text: 'старое' }], new: [] },
+    { kind: 'same', old: [{ n: 3, text: 'три' }], new: [{ n: 2, text: 'три' }] },
+  ];
+  const sel = { a: { side: 'o', line: 1, col: 0 }, b: { side: 'o', line: 1, col: 6 } };
+  assert.deepEqual(editSelection(sel, base, cur, chunks), [5, 5]);
+});
+
+test('отступ Tab — как в файле', () => {
+  assert.equal(indentUnit('a\n\tb\n\tc\n', 'code'), '\t');
+  assert.equal(indentUnit('a\n  b\n    c\n', 'code'), '  ');
+  assert.equal(indentUnit('просто текст\n', 'markdown'), '  ');
+  assert.equal(indentUnit('x\n', 'code'), '    ');
+  assert.equal(lineOf('a\nb\nc', 4), 2);
+});
