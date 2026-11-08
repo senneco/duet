@@ -36,7 +36,7 @@ func TestCommentsWaitWhileAgentChats(t *testing.T) {
 	r, a := agentReview(t, c, p, "a.md", "2\n", "1\n")
 	must(t, c.SetBusy("s1", true))
 	id := comment(t, c, r, a, "поправь")
-	must(t, c.Send(r))
+	must(t, c.Send(r, false))
 	if st := status(t, c, r, a, id); st != CommentWaiting {
 		t.Fatal(st)
 	}
@@ -56,7 +56,7 @@ func TestDoneTakesEditsFromDisk(t *testing.T) {
 	c, p := newProj(t)
 	r, a := agentReview(t, c, p, "a.md", "2\n", "1\n")
 	id := comment(t, c, r, a, "поправь")
-	must(t, c.Send(r))
+	must(t, c.Send(r, false))
 	if st := status(t, c, r, a, id); st != CommentWorking {
 		t.Fatal(st)
 	}
@@ -88,7 +88,7 @@ func TestDoneNeedsEveryAnswer(t *testing.T) {
 	r, a := agentReview(t, c, p, "a.md", "2\n", "1\n")
 	id1 := comment(t, c, r, a, "раз")
 	id2 := comment(t, c, r, a, "два")
-	must(t, c.Send(r))
+	must(t, c.Send(r, false))
 	c.Deliver("s1")
 	_, err := c.Done("s1", []Answer{{CommentID: id1, Text: "ок"}})
 	var ue *UnansweredError
@@ -112,10 +112,10 @@ func TestDoneHandsNewComments(t *testing.T) {
 	c, p := newProj(t)
 	r, a := agentReview(t, c, p, "a.md", "2\n", "1\n")
 	id1 := comment(t, c, r, a, "раз")
-	must(t, c.Send(r))
+	must(t, c.Send(r, false))
 	c.Deliver("s1")
 	id2 := comment(t, c, r, a, "два")
-	must(t, c.Send(r))
+	must(t, c.Send(r, false))
 	if status(t, c, r, a, id2) != CommentWaiting {
 		t.Fatal(status(t, c, r, a, id2))
 	}
@@ -244,7 +244,7 @@ func TestNoTakeOverFromWorkingAgent(t *testing.T) {
 	c, p := newProj(t)
 	r, a := agentReview(t, c, p, "a.md", "2\n", "1\n")
 	comment(t, c, r, a, "x")
-	must(t, c.Send(r))
+	must(t, c.Send(r, false))
 	c.Deliver("s1")
 	if err := c.Attach(Session{ID: "s2"}, r); !errors.Is(err, ErrOtherAgent) {
 		t.Fatal(err)
@@ -268,7 +268,7 @@ func TestDetach(t *testing.T) {
 	r, a := agentReview(t, c, p, "a.md", "2\n", "1\n")
 	must(t, c.SetBusy("s1", true))
 	id := comment(t, c, r, a, "x")
-	must(t, c.Send(r))
+	must(t, c.Send(r, false))
 	must(t, c.Detach("s1"))
 	if rv(t, c, r).Agent || status(t, c, r, a, id) != CommentUnsent {
 		t.Fatal("отключение")
@@ -280,7 +280,7 @@ func TestInterruptBeforeTake(t *testing.T) {
 	c, p := newProj(t)
 	r, a := agentReview(t, c, p, "a.md", "2\n", "1\n")
 	id := comment(t, c, r, a, "x")
-	must(t, c.Send(r))
+	must(t, c.Send(r, false))
 	must(t, c.Interrupt(r))
 	if rv(t, c, r).Stopping || status(t, c, r, a, id) != CommentUnsent {
 		t.Fatal(rv(t, c, r))
@@ -292,7 +292,7 @@ func TestInterruptWhileWorking(t *testing.T) {
 	c, p := newProj(t)
 	r, a := agentReview(t, c, p, "a.md", "2\n", "1\n")
 	id := comment(t, c, r, a, "x")
-	must(t, c.Send(r))
+	must(t, c.Send(r, false))
 	c.Deliver("s1")
 	must(t, c.WriteCheck("s1", a, false))
 	p.write("a.md", "3\n")
@@ -332,7 +332,7 @@ func TestAnswerAnchorText(t *testing.T) {
 	r, a := agentReview(t, c, p, "a.md", "one two three\n", "")
 	id, err := c.AddComment(r, a, &Range{4, 7}, "x", nil, false)
 	must(t, err)
-	must(t, c.Send(r))
+	must(t, c.Send(r, false))
 	c.Deliver("s1")
 	must(t, c.WriteCheck("s1", a, false))
 	p.write("a.md", "zero\nfour five\n")

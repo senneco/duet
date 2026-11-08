@@ -56,7 +56,7 @@ func (f *fixture) sendComment(text string) {
 	if _, err := f.c.AddComment(f.r, f.path, nil, text, nil, false); err != nil {
 		f.t.Fatal(err)
 	}
-	if err := f.c.Send(f.r); err != nil {
+	if err := f.c.Send(f.r, false); err != nil {
 		f.t.Fatal(err)
 	}
 }

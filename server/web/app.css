@@ -506,3 +506,15 @@ body.dark #app.rmode .main { box-shadow: 0 30px 90px rgba(0, 0, 0, .7), 0 4px 14
 .cc .pend kbd { font-size: 10px; padding: 2px 4px }
 .off-card p.strong { color: var(--fg); font-weight: 600; margin-top: -4px }
 .off-card code { font: 12.5px var(--mono); background: var(--bg-seg); color: var(--fg); padding: 2px 6px; border-radius: 4px }
+
+/* 6c: окно ответа, пока агент работает поверх него, и устаревшее окно */
+.rip.still > i { animation: none; opacity: 0 }
+.status .seg.rsp.quiet { font-weight: 500 }
+.status .seg.rsp.quiet::after { display: none }
+.rhead .rwork { color: var(--fg2); font-size: 12px; margin-left: 14px; display: inline-flex; align-items: center; gap: 8px }
+.rhead .rstale { margin-left: 14px; border: 0; border-radius: 6px; padding: 4px 10px; background: var(--rsp-soft); color: var(--rsp); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; position: relative; overflow: hidden }
+.rhead .rstale::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--rsp) 22%, transparent), transparent); transform: translateX(-100%); animation: shim 2.4s ease-in-out infinite; pointer-events: none }
+.rhead .ract.off { opacity: .4 }
+
+.rhead .rstale, .rhead .rwork { flex: none; white-space: nowrap }
+.rhead .meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }

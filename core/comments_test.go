@@ -40,7 +40,7 @@ func status(t *testing.T, c *Core, r, path, id string) CommentStatus {
 // Отправить, агент забирает и отвечает «сделал» по каждому.
 func sendTake(t *testing.T, c *Core, r string) []AgentComment {
 	t.Helper()
-	must(t, c.Send(r))
+	must(t, c.Send(r, false))
 	got, err := c.Take(r)
 	must(t, err)
 	return got
@@ -58,7 +58,7 @@ func setup(t *testing.T) (*Core, string) {
 func TestSendFreeAndBusy(t *testing.T) {
 	c, r := setup(t)
 	a := addC(t, c, r, "/a", sel(doc, "два"), "А")
-	must(t, c.Send(r))
+	must(t, c.Send(r, false))
 	if s := status(t, c, r, "/a", a); s != CommentWorking {
 		t.Fatal(s)
 	}
@@ -67,7 +67,7 @@ func TestSendFreeAndBusy(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 	b := addC(t, c, r, "/a", nil, "Б")
-	must(t, c.Send(r))
+	must(t, c.Send(r, false))
 	if s := status(t, c, r, "/a", b); s != CommentWaiting {
 		t.Fatal(s)
 	}
@@ -250,7 +250,7 @@ func TestCommentsInResponseWindow(t *testing.T) {
 	if !cv(t, c, r, "/a", w).InResponse {
 		t.Fatal("в окне")
 	}
-	if err := c.Send(r); !errors.Is(err, ErrUnviewedResponse) {
+	if err := c.Send(r, false); !errors.Is(err, ErrUnviewedResponse) {
 		t.Fatal(err)
 	}
 	must(t, c.AcceptResponse(r))
@@ -269,14 +269,14 @@ func TestSendWithoutAgent(t *testing.T) {
 	c, r := setup(t)
 	a := addC(t, c, r, "/a", nil, "А")
 	must(t, c.Disconnect(r))
-	if err := c.Send(r); !errors.Is(err, ErrNoAgent) {
+	if err := c.Send(r, false); !errors.Is(err, ErrNoAgent) {
 		t.Fatal(err)
 	}
 	if status(t, c, r, "/a", a) != CommentUnsent {
 		t.Fatal()
 	}
 	must(t, c.Connect(r))
-	must(t, c.Send(r))
+	must(t, c.Send(r, false))
 }
 
 // 35, 22: агент отключился — «ожидает» владельцу, «в работе» остаются; прервать — всё владельцу.
@@ -285,7 +285,7 @@ func TestDisconnectAndInterrupt(t *testing.T) {
 	a := addC(t, c, r, "/a", nil, "А")
 	sendTake(t, c, r)
 	b := addC(t, c, r, "/a", nil, "Б")
-	must(t, c.Send(r))
+	must(t, c.Send(r, false))
 	must(t, c.Disconnect(r))
 	if status(t, c, r, "/a", a) != CommentWorking || status(t, c, r, "/a", b) != CommentUnsent {
 		t.Fatal()
@@ -314,11 +314,11 @@ func TestEditBlocks(t *testing.T) {
 	c2, r2 := setup(t)
 	addC(t, c2, r2, "/a", nil, "А")
 	must(t, c2.SetEditing(r2, true))
-	if err := c2.Send(r2); !errors.Is(err, ErrEditing) {
+	if err := c2.Send(r2, false); !errors.Is(err, ErrEditing) {
 		t.Fatal(err)
 	}
 	must(t, c2.SetEditing(r2, false))
-	must(t, c2.Send(r2))
+	must(t, c2.Send(r2, false))
 }
 
 // Неотправленный можно править и удалять, отправленный — нет.
@@ -621,5 +621,175 @@ func TestCommentPlaceInResponse(t *testing.T) {
 	}
 	if rv, _ := c.Review(r); rv.Response != nil {
 		t.Fatal("ответ просмотрен")
+	}
+}
+
+// windowRound — ответ агента с правкой и ответом на «А», в окне написаны комментарий и ответ в ветке,
+// вне окна — обычный комментарий.
+func windowRound(t *testing.T) (c *Core, r, a, w, o string) {
+	t.Helper()
+	c, r = setup(t)
+	a = addC(t, c, r, "/a", sel(doc, "два"), "А")
+	sendTake(t, c, r)
+	v1 := "один\n2\nтри\nчетыре\n"
+	_, err := c.AgentFinish(r, []Submission{{Path: "/a", Content: v1}}, []Answer{{CommentID: a, Text: "сделал"}})
+	must(t, err)
+	w, err = c.AddComment(r, "/a", sel(v1, "три"), "и тут", nil, true)
+	must(t, err)
+	must(t, c.Reply(r, a, "не так", nil))
+	o = addC(t, c, r, "/a", sel(doc, "один"), "потом")
+	return
+}
+
+// 189, 191, 192, 194: из окна уходит только написанное в окне, ответ остаётся непросмотренным,
+// агент продолжает поверх него; продолжение вливается в ответ «текущая → последнее».
+func TestSendFromResponseWindow(t *testing.T) {
+	c, r, a, w, o := windowRound(t)
+	if rv, _ := c.Review(r); rv.Response.Unsent != 2 || rv.Unsent != 1 {
+		t.Fatalf("неотправленное в окне и вне: %+v %d", rv.Response, rv.Unsent)
+	}
+	if err := c.Send(r, false); !errors.Is(err, ErrUnviewedResponse) {
+		t.Fatalf("вне окна отправлять нельзя: %v", err)
+	}
+	must(t, c.Send(r, true))
+	rv, _ := c.Review(r)
+	if rv.Response == nil || !rv.Working || rv.Response.Unsent != 0 {
+		t.Fatalf("ответ остаётся непросмотренным, агент работает: %+v", rv)
+	}
+	if status(t, c, r, "/a", o) != CommentUnsent {
+		t.Fatal("написанное вне окна не уходит")
+	}
+	got, err := c.Take(r)
+	must(t, err)
+	if len(got) != 2 {
+		t.Fatalf("агент получает только написанное в окне: %+v", got)
+	}
+	v2 := "один раз\n2\n3\nчетыре\n"
+	_, err = c.AgentFinish(r, []Submission{{Path: "/a", Content: v2}}, []Answer{{CommentID: a, Text: "иначе"}, {CommentID: w, Text: "сделал"}})
+	must(t, err)
+	rv, _ = c.Review(r)
+	if rv.Working || rv.Response == nil || rv.Response.Answers != 2 || rv.Response.ID != 1 {
+		t.Fatalf("общий ответ: %+v", rv.Response)
+	}
+	f := fv(t, c, r, "/a")
+	if f.Response == nil || *f.Response != v2 || f.Current != doc {
+		t.Fatalf("общий ответ — текущая → последнее: %+v", f)
+	}
+	x := cv(t, c, r, "/a", a)
+	if len(x.Thread) != 4 || x.Thread[1].Text != "сделал" || x.Thread[3].Text != "иначе" || x.Thread[3].Response != 1 || x.Status != CommentAnswered {
+		t.Fatalf("ветка без повторов: %+v", x.Thread)
+	}
+	must(t, c.AcceptResponse(r))
+	f = fv(t, c, r, "/a")
+	if f.Current != v2 {
+		t.Fatal(f.Current)
+	}
+	y := cv(t, c, r, "/a", w)
+	if y.InResponse || y.Status != CommentAnswered || v2[y.Range.Start:y.Range.End] != "3" {
+		t.Fatalf("комментарий из окна на месте в принятой версии: %+v %q", y, v2[y.Range.Start:y.Range.End])
+	}
+	if status(t, c, r, "/a", o) != CommentUnsent {
+		t.Fatal()
+	}
+}
+
+// 195, 196: пока агент продолжает, ответ можно принять; продолжение станет новым ответом. Отклонить — нельзя.
+func TestAcceptWhileAgentContinues(t *testing.T) {
+	c, r, a, w, _ := windowRound(t)
+	must(t, c.Send(r, true))
+	_, err := c.Take(r)
+	must(t, err)
+	if err := c.RejectResponse(r); !errors.Is(err, ErrAgentWorking) {
+		t.Fatalf("отклонить, пока агент работает поверх ответа, нельзя: %v", err)
+	}
+	must(t, c.AcceptResponse(r))
+	v1 := "один\n2\nтри\nчетыре\n"
+	if f := fv(t, c, r, "/a"); f.Current != v1 || f.Response != nil {
+		t.Fatalf("ответ принят: %+v", f)
+	}
+	if y := cv(t, c, r, "/a", w); y.InResponse || y.Status != CommentWorking {
+		t.Fatalf("комментарий из окна — обычный, в работе: %+v", y)
+	}
+	v2 := "один\n2\n3\nчетыре\n"
+	_, err = c.AgentFinish(r, []Submission{{Path: "/a", Content: v2}}, []Answer{{CommentID: a, Text: "иначе"}, {CommentID: w, Text: "сделал"}})
+	must(t, err)
+	rv, _ := c.Review(r)
+	if rv.Response == nil || rv.Response.ID != 2 || rv.Response.Answers != 2 {
+		t.Fatalf("продолжение — новый ответ: %+v", rv.Response)
+	}
+	if f := fv(t, c, r, "/a"); f.Current != v1 || f.Response == nil || *f.Response != v2 {
+		t.Fatalf("новый ответ поверх принятого: %+v", f)
+	}
+	if x := cv(t, c, r, "/a", a); x.Thread[len(x.Thread)-1].Response != 2 {
+		t.Fatalf("%+v", x.Thread)
+	}
+}
+
+// 192: «отклонить» общий ответ выбрасывает оба раза и написанное в окне.
+func TestRejectAfterWindowSend(t *testing.T) {
+	c, r, a, w, _ := windowRound(t)
+	must(t, c.Send(r, true))
+	_, err := c.Take(r)
+	must(t, err)
+	_, err = c.AgentFinish(r, []Submission{{Path: "/a", Content: "x\n"}}, []Answer{{CommentID: a, Text: "иначе"}, {CommentID: w, Text: "сделал"}})
+	must(t, err)
+	must(t, c.RejectResponse(r))
+	f := fv(t, c, r, "/a")
+	if f.Current != doc || f.Response != nil {
+		t.Fatal(f.Current)
+	}
+	x := cv(t, c, r, "/a", a)
+	if x.Status != CommentUnsent || len(x.Thread) != 1 {
+		t.Fatalf("комментарий вернулся «не отправлен» без ответов обоих раз: %+v", x)
+	}
+	for _, y := range f.Comments {
+		if y.ID == w {
+			t.Fatal("комментарий из окна удалён вместе с ответом")
+		}
+	}
+}
+
+// 193: «прервать» продолжение: ответ остаётся прежним, отправленное из окна снова «не отправлен».
+func TestInterruptWindowSend(t *testing.T) {
+	c, r, a, w, _ := windowRound(t)
+	must(t, c.Send(r, true))
+	_, err := c.Take(r)
+	must(t, err)
+	_, err = c.AgentFinish(r, []Submission{{Path: "/a", Content: "x\n"}}, []Answer{{CommentID: a, Text: "иначе"}})
+	must(t, err) // на «и тут» не ответил: заход продолжается
+	must(t, c.Interrupt(r))
+	rv, _ := c.Review(r)
+	if rv.Response == nil || rv.Response.ID != 1 || rv.Response.Answers != 1 || rv.Response.Unsent != 2 || rv.Working {
+		t.Fatalf("прежний ответ: %+v", rv.Response)
+	}
+	if f := fv(t, c, r, "/a"); f.Response == nil || *f.Response != "один\n2\nтри\nчетыре\n" {
+		t.Fatalf("версия из прежнего ответа: %+v", f.Response)
+	}
+	x := cv(t, c, r, "/a", a)
+	if x.Status != CommentUnsent || len(x.Thread) != 3 {
+		t.Fatalf("%+v", x)
+	}
+	if status(t, c, r, "/a", w) != CommentUnsent {
+		t.Fatal()
+	}
+	must(t, c.AcceptResponse(r))
+	if f := fv(t, c, r, "/a"); f.Current != "один\n2\nтри\nчетыре\n" {
+		t.Fatal(f.Current)
+	}
+}
+
+// 190: в окне нечего отправлять; без ответа «из окна» не отправить.
+func TestNothingToSendInWindow(t *testing.T) {
+	c, r := setup(t)
+	if err := c.Send(r, true); !errors.Is(err, ErrNoResponse) {
+		t.Fatal(err)
+	}
+	a := addC(t, c, r, "/a", nil, "А")
+	sendTake(t, c, r)
+	_, err := c.AgentFinish(r, nil, []Answer{{CommentID: a, Text: "сделал"}})
+	must(t, err)
+	addC(t, c, r, "/a", nil, "вне окна")
+	if err := c.Send(r, true); !errors.Is(err, ErrNothingToSend) {
+		t.Fatal(err)
 	}
 }

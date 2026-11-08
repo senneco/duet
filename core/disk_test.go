@@ -253,7 +253,7 @@ func TestDriftBlocks(t *testing.T) {
 	if err := c.AcceptFile(r, a); !errors.Is(err, ErrDiskChanged) {
 		t.Fatal(err)
 	}
-	if err := c.Send(r); !errors.Is(err, ErrDiskChanged) {
+	if err := c.Send(r, false); !errors.Is(err, ErrDiskChanged) {
 		t.Fatal(err)
 	}
 	// Владелец вернул a, но b по-прежнему расходится: ревью всё равно не принято целиком.
@@ -410,7 +410,7 @@ func interruptSetup(t *testing.T) (*Core, *proj, string, string, string, string)
 	cm := addC(t, c, r, a, nil, "А")
 	sendTake(t, c, r)
 	addC(t, c, r, a, nil, "Б")
-	must(t, c.Send(r)) // «ожидает»: заход продолжится
+	must(t, c.Send(r, false)) // «ожидает»: заход продолжится
 	p.write("a.md", "наполовину\n")
 	x := p.write("x.md", "черновик\n")
 	_, err := c.AgentFinish(r, []Submission{{Path: a, Content: "наполовину\n"}, {Path: x, Content: "черновик\n"}}, []Answer{{CommentID: cm, Text: "сделал"}})
@@ -426,7 +426,7 @@ func TestInterruptWaitsForStop(t *testing.T) {
 	if !rv(t, c, r).Stopping || p.read("a.md") != "наполовину\n" {
 		t.Fatal("пока агент не остановился, диск не трогаем")
 	}
-	if err := c.Send(r); !errors.Is(err, ErrStopping) {
+	if err := c.Send(r, false); !errors.Is(err, ErrStopping) {
 		t.Fatal(err)
 	}
 	if err := c.Edit(r, a, "z"); !errors.Is(err, ErrStopping) {

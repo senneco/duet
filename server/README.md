@@ -24,7 +24,7 @@
 Чтение:
 
 - `GET /api/reviews` — все ревью, новые сверху. Файлы без содержимого (только пути и состояния).
-- `GET /api/reviews/{id}` — ревью, так же без содержимого. `response` — непросмотренный ответ: номер, время, файлы, которых он касается, сколько ответов и вопросов, сколько написано в окне ответа (`mine`). У файла `absent` — текущей версии нет, файл есть только в ответе.
+- `GET /api/reviews/{id}` — ревью, так же без содержимого. `response` — непросмотренный ответ: номер, время, файлы, которых он касается, сколько ответов и вопросов, сколько написано в окне ответа (`mine`) и сколько из этого не отправлено (`unsent`). У файла `absent` — текущей версии нет, файл есть только в ответе.
 - `GET /api/reviews/{id}/file?path=` — файл целиком (`core.FileView`): база, текущая, ответ, диск, комментарии. Пока есть непросмотренный ответ, у комментариев файлов ответа есть `resp` — место в версии из ответа (для окна ответа).
 - `GET /api/reviews/{id}/diff?path=&mode=base|response|disk` — готовые куски отличий (`core.Chunk`): «база → текущая», «текущая → ответ», «ожидаемое → на диске».
 - `GET /api/reviews/{id}/responses` — история ответов.
@@ -32,7 +32,7 @@
 
 Команды и хуки агентов — `POST /api/agent/...`, см. `agent/README.md`.
 
-Действия — `POST /api/reviews/{id}/{action}` с JSON-телом: `sync`, `opened {path}`, `accept-file {path}`, `edit {path, content}`, `editing {on}`, `revert {path}`, `accept-response`, `reject-response`, `take-from-disk {paths}`, `overwrite {paths}`, `interrupt`, `restore-anyway`, `send`, `comment {path, range?, text, images, inResponse, was?}` → `{id}` (`was` — комментарий к удалённому тексту: что было; `range` — точка, где это было), `comment-edit {id, text, images}`, `comment-delete {id}`, `reply {id, text, images}`, `dismiss {id}`. `POST /api/shutdown` — остановить ядро.
+Действия — `POST /api/reviews/{id}/{action}` с JSON-телом: `sync`, `opened {path}`, `accept-file {path}`, `edit {path, content}`, `editing {on}`, `revert {path}`, `accept-response`, `reject-response`, `take-from-disk {paths}`, `overwrite {paths}`, `interrupt`, `restore-anyway`, `send {inResponse}` (`inResponse` — из окна ответа: уходит только написанное в окне, агент продолжает поверх непринятого ответа), `comment {path, range?, text, images, inResponse, was?}` → `{id}` (`was` — комментарий к удалённому тексту: что было; `range` — точка, где это было), `comment-edit {id, text, images}`, `comment-delete {id}`, `reply {id, text, images}`, `dismiss {id}`. `POST /api/shutdown` — остановить ядро.
 
 Картинки в комментариях — `POST /api/images {data: "data:image/png;base64,…"}` → `{path, url}`: файл в папке данных (`images/`, имя по содержимому), `path` уходит в `images` комментария — его открывает агент, `url` (`GET /api/images/{имя}`) — для клиента.
 

@@ -307,14 +307,21 @@ func (c *Core) DismissQuestion(reviewID, id string) error {
 
 // Send — `␣s`: отправить все неотправленные комментарии ревью.
 // Агент свободен — комментарии сразу «в работе», занят — «ожидают».
-func (c *Core) Send(reviewID string) error {
+// inResponse — `␣s` из окна ответа: уходит только написанное в окне, ответ остаётся непросмотренным,
+// агент продолжает поверх него. Когда агент закончит, продолжение вольётся в ответ
+// («текущая → последнее»), а если ответ к тому времени приняли — станет новым ответом.
+func (c *Core) Send(reviewID string, inResponse bool) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	r, err := c.review(reviewID)
 	if err != nil {
 		return err
 	}
-	if r.pending() != nil {
+	p := r.pending()
+	if p == nil && inResponse {
+		return ErrNoResponse
+	}
+	if p != nil && !inResponse {
 		return ErrUnviewedResponse
 	}
 	if r.Editing {
@@ -336,7 +343,7 @@ func (c *Core) Send(reviewID string) error {
 	}
 	n := 0
 	c.eachComment(r, func(_ *File, cm *Comment) {
-		if cm.Status == CommentUnsent && cm.InResponse == 0 {
+		if p != nil && windowUnsent(cm, p) || p == nil && cm.Status == CommentUnsent && cm.InResponse == 0 {
 			cm.Status, cm.Prev, cm.Delivered = st, "", false
 			n++
 		}
@@ -447,9 +454,15 @@ func (c *Core) Interrupt(reviewID string) error {
 	if !r.Working {
 		return ErrNothingRunning
 	}
-	if r.Draft != nil {
-		r.Draft.Status = ResponseInterrupted
-		r.Responses = append(r.Responses, r.Draft)
+	if d := r.Draft; d != nil {
+		d.Status = ResponseInterrupted
+		if p := r.pending(); p != nil {
+			// Агент продолжал поверх непросмотренного ответа: тот остаётся последним.
+			n := len(r.Responses)
+			r.Responses = append(append(append([]*Response{}, r.Responses[:n-1]...), d), p)
+		} else {
+			r.Responses = append(r.Responses, d)
+		}
 		r.Draft = nil
 	}
 	var returned []string

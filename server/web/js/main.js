@@ -252,6 +252,12 @@ function refresh(ids) {
     await loadReview(id);
     if (!S.review) { renderAll(); return; }
     if (S.resp && !pendingResp()) { await closeResp(); return; } // ответ приняли или отклонили в другой вкладке
+    if (respStale()) {
+      // Агент закончил: под руками ничего не меняется, только сигнал и «открыть заново».
+      if (!S.resp.stale) { S.resp.stale = true; toast({ ok: true, short: `✓ ${T().rStaleToast}` }); }
+      rebuildTree(); renderTree(); renderFrame(); renderStatus();
+      return;
+    }
     if (S.path && visibleFiles().some((f) => f.path === S.path)) await openFile(S.path, { keep: true });
     else renderAll();
   }, 60);
@@ -295,7 +301,7 @@ function renderAll() {
 }
 
 const SNAKE = '<span class="dots"><i></i><i></i><i></i><i></i><i></i><i></i></span>';
-const RIPPLE = (seen) => `<span class="rip${seen ? ' seen' : ''}"><i></i><i></i><i></i><b></b></span>`;
+const RIPPLE = (seen, still = !!(S.review && S.review.working)) => `<span class="rip${seen ? ' seen' : ''}${still ? ' still' : ''}"><i></i><i></i><i></i><b></b></span>`;
 
 function renderHeader() {
   const t = T();
@@ -496,7 +502,7 @@ function listHTML() {
   const rows = list.map((r, i) => {
     const c = counts(shown(r.files));
     const mk = r.accepted ? `<span class="mk okc"><span class="d-ok">✓</span> ${t.acceptedAll}</span>`
-      : r.hasResponse ? `<span class="mk rpl">${RIPPLE(false)} ${t.unviewed}</span>` : '';
+      : r.hasResponse ? `<span class="mk rpl">${RIPPLE(false, r.working)} ${t.unviewed}</span>` : '';
     return `<div class="lr${i === S.listSel ? ' on' : ''}" data-go="/r/${encodeURIComponent(r.id)}" data-i="${i}"><span class="cur">›</span><span class="nm">${esc(r.title || r.id)}</span><span>${esc(fmtDate(r.created, S.lang))}</span><span class="pr"><span><b>${c.done}</b>/${c.total}</span><span class="pbar"><i style="width:${c.total ? (c.done / c.total) * 100 : 0}%"></i></span></span><span class="ag">${agentText(r)}</span>${mk || '<span></span>'}</div>`;
   }).join('');
   return `<div class="list"><div class="lh"><b>${t.reviews}</b> ${list.length} · ${t.newestFirst}</div><div class="cols"><span></span><span>${t.colTitle}</span><span>${t.colCreated}</span><span>${t.colAccepted}</span><span>${t.colAgent}</span><span></span></div>${rows}</div>`;
@@ -529,10 +535,14 @@ function renderStatus() {
   if (S.sync) h += seg(`<span class="spin"></span> ${t.syncing} <b>${S.sync.done}</b>/${S.sync.total}`);
   if (S.toast && S.toast.short) h += seg(`<span class="${S.toast.ok ? 'ok' : 'err'}">${esc(S.toast.short)}</span>`);
   h += '<span class="sp"></span>';
-  if (S.review && pendingResp() && !S.resp) h += `<span class="seg rsp" data-act="response">${RIPPLE(false)} ${t.rHint} · ␣r</span>`;
+  if (S.review && pendingResp() && respStale()) h += `<span class="seg rsp" data-act="response">${RIPPLE(false)} ${t.rStaleShort} · ␣r</span>`;
+  else if (S.review && pendingResp() && !S.resp) h += S.review.working
+    ? `<span class="seg rsp quiet" data-act="response">${RIPPLE(false)} ${t.rHintQuiet} · ␣r</span>`
+    : `<span class="seg rsp" data-act="response">${RIPPLE(false)} ${t.rHint} · ␣r</span>`;
   if (S.review) {
     const c = counts(shown(S.review.files));
-    if (S.review.unsent) h += `<span class="seg uns" data-act="send">${t.unsentN} <b>${S.review.unsent}</b> · ␣s</span>`;
+    const uns = S.resp ? (pendingResp() || {}).unsent : S.review.unsent; // в окне — написанное в окне
+    if (uns) h += `<span class="seg uns" data-act="send">${t.unsentN} <b>${uns}</b> · ␣s</span>`;
     h += seg(`${S.lang === 'ru' ? 'принято' : 'accepted'} <b>${c.done}</b>/${c.total} <span class="pbar"><i style="width:${c.total ? (c.done / c.total) * 100 : 0}%"></i></span>`);
     h += seg(agentText(S.review) + (canInterrupt() ? `<button class="kb int" data-act="interrupt">${t.interrupt} <kbd>␣u</kbd></button>` : ''));
   }
@@ -571,7 +581,7 @@ function renderOverlays() {
   if (S.overlay === 'menu' && S.resp) {
     const it = (k, ds, now, later) => `<div class="it${later ? ' later' : ''}" ${later ? '' : `data-key="${k}"`}><span class="key">${k}</span><span class="ar">→</span><span class="ds">${ds}</span>${now ? `<span class="now">${now}</span>` : ''}</div>`;
     h += `<div class="wk"><div class="top"><span class="crumb">␣</span><span>${t.rTitle}${S.file ? ' · ' + esc(relPath(S.file.path)) : ''}</span><span class="sp"></span><kbd>esc</kbd> ${t.close}</div>
-<div class="grid"><div><div class="grp">${t.menuResp}</div>${it('a', t.rAccept)}${it('x', t.rReject)}${it('r', t.rClose)}</div>
+<div class="grid"><div><div class="grp">${t.menuResp}</div>${it('a', t.rAccept)}${it('x', t.rReject)}${it('r', t.rClose)}${it('s', t.menuSend, (pendingResp() || {}).unsent ? t.menuSendNow(pendingResp().unsent) : '', !(pendingResp() || {}).unsent)}</div>
 <div><div class="grp">${t.menuFile}</div>${it('c', t.menuComment, t.menuCommentNow, !canComment())}</div></div></div>`;
   } else if (S.overlay === 'menu') {
     const it = (k, ds, now, later) => `<div class="it${later ? ' later' : ''}" ${later ? '' : `data-key="${k}"`}><span class="key">${k}</span><span class="ar">→</span><span class="ds">${ds}</span>${now ? `<span class="now">${now}</span>` : ''}</div>`;
@@ -580,7 +590,7 @@ function renderOverlays() {
     h += `<div class="wk"><div class="top"><span class="crumb">␣</span><span>${t.menuTitle}${S.file ? ' · ' + esc(relPath(S.file.path)) : ''}</span><span class="sp"></span><kbd>esc</kbd> ${t.close}</div>
 <div class="grid" style="grid-template-columns:repeat(3,max-content)"><div><div class="grp">${t.menuFile}</div>${file || `<div class="it later"><span class="key">a</span><span class="ar">→</span><span class="ds">${t.menuAccept}</span><span class="now">${S.file && isAccepted(S.file) ? '✓ ' + t.accepted : ''}</span></div>`}${it('c', t.menuComment, t.menuCommentNow, !canComment())}</div>
 <div><div class="grp">${t.menuAgent}</div>${it('s', t.menuSend, r.unsent ? t.menuSendNow(r.unsent) : '', !r.unsent)}${it('u', t.menuInterrupt, t.menuInterruptNow, !canInterrupt())}</div>
-<div><div class="grp">${t.menuResp}</div>${it('r', t.menuRespOpen, '', !(pendingResp() && !r.working))}<div class="grp" style="margin-top:12px">${t.menuLater}</div>${it('e', t.menuEdit, '', 1)}</div></div></div>`;
+<div><div class="grp">${t.menuResp}</div>${it('r', t.menuRespOpen, '', !pendingResp())}<div class="grp" style="margin-top:12px">${t.menuLater}</div>${it('e', t.menuEdit, '', 1)}</div></div></div>`;
   }
   if (S.overlay === 'help') {
     const k = (keys, ds) => `<div class="k"><span class="ks">${keys.map((x) => `<kbd>${x}</kbd>`).join('')}</span><span class="ds">${ds}</span></div>`;
@@ -588,7 +598,7 @@ function renderOverlays() {
 <div><div class="grp">${t.reading}</div>${k(['j', 'k'], t.kScroll)}${k(['↓', '↑'], t.kScroll)}${k(['gg', 'G'], t.kTopBottom)}</div>
 <div><div class="grp">${t.navigation}</div>${k([']c', '[c'], t.kChange)}${k([']f', '[f'], t.kFile)}${k([']b', '[b'], t.kBlock)}</div>
 <div><div class="grp">${t.actions}</div>${k(['␣'], t.kMenu)}${k(['␣a'], t.kAccept)}${k(['?'], t.kHelp)}${k(['esc'], t.kEsc)}</div>
-<div><div class="grp">${t.rHint}</div>${k(['␣r'], t.kResp)}${k(['␣a'], t.kRespAccept)}${k(['␣x'], t.kRespReject)}${k([']f', '[f'], t.kRespFile)}</div>
+<div><div class="grp">${t.rHint}</div>${k(['␣r'], t.kResp)}${k(['␣a'], t.kRespAccept)}${k(['␣x'], t.kRespReject)}${k([']f', '[f'], t.kRespFile)}${k(['␣s'], t.kRespSend)}</div>
 <div><div class="grp">${t.view}</div>${k(['␣v'], t.kCols)}${k(['␣m'], t.kDoc)}</div>
 <div><div class="grp">${t.comments}</div>${k(['gc'], t.kComment)}${k(['␣c'], t.kCommentAny)}${k(['␣s'], t.kSend)}${k(['␣u'], t.kInterrupt)}${k([']n', '[n'], t.kNextComment)}</div>
 <div><div class="grp">${t.selected}</div>${k(['↵'], t.kCardEnter)}${k(['x'], t.kCardX)}${k(['1', '2', '3'], t.kCardNum)}</div>
@@ -928,7 +938,7 @@ function renderComments() {
 
 // Окно нового комментария: к выделенному или, без выделения, ко всему файлу.
 function openNew() {
-  if (!canComment()) return;
+  if (!canComment() || staleDenied()) return;
   const f = S.file;
   if (S.ed) { document.querySelector('#ced textarea')?.focus(); return; }
   if (!S.sel) {
@@ -1028,6 +1038,7 @@ function commentError(e) {
 }
 
 async function cardAction(kind, c, i) {
+  if (kind !== 'delete-no' && staleDenied()) return;
   const { fresh, draft, ask } = threadState(c);
   try {
     switch (kind) {
@@ -1087,9 +1098,11 @@ async function send() {
   const t = T();
   const r = S.review;
   if (!r) return;
-  const n = r.unsent;
+  if (staleDenied()) return;
+  const inResp = !!S.resp;
+  const n = inResp ? (pendingResp() || {}).unsent || 0 : r.unsent;
   try {
-    await act('send');
+    await act('send', inResp ? { inResponse: true } : {});
   } catch (e) {
     if (e.code === 'no-agent') {
       const link = `${location.origin}/r/${encodeURIComponent(r.id)}`;
@@ -1097,6 +1110,12 @@ async function send() {
     } else if (e.code === 'nothing-to-send') {
       toast({ ok: true, short: t.nothingToSend });
     } else commentError(e);
+    return;
+  }
+  if (inResp) {
+    // Ответ остаётся непросмотренным, окно — открытым: агент работает поверх него.
+    await reloadFile();
+    toast({ ok: true, title: t.sent(n), text: t.sentResp, short: `✓ ${t.sent(n)}` });
     return;
   }
   await loadReview(r.id);
@@ -1126,12 +1145,17 @@ function renderFrame() {
   $('#app').classList.toggle('rmode', on);
   if (!on) { $('#rhead').innerHTML = ''; $('#rfoot').innerHTML = ''; return; }
   const t = T();
-  const p = pendingResp() || { files: [] };
+  const p = (respStale() ? S.resp.shown : pendingResp()) || { files: [] }; // устаревшее окно — как было открыто
   const kind = { claude: 'Claude Code', codex: 'Codex' }[S.review.agentKind] || S.review.agentKind || '';
   const time = p.at ? new Date(p.at).toLocaleTimeString(S.lang, { hour: '2-digit', minute: '2-digit' }) : '';
   const meta = [kind, time, t.rFiles(p.files.length), p.answers ? t.rAnswers(p.answers, p.questions) : ''].filter(Boolean).join(' · ');
-  $('#rhead').innerHTML = `<span class="ttl"><span class="pt"></span>${t.rTitle}</span><span class="meta">${esc(meta)}</span><span class="sp"></span>
-<button class="ract no" data-act="resp-reject">${t.rReject} <kbd>␣x</kbd></button><button class="ract" data-act="resp-close">${t.rClose} <kbd>esc</kbd></button><button class="ract ok" data-act="resp-accept">${t.rAccept} <kbd>␣a</kbd></button>`;
+  const stale = respStale();
+  const state = stale
+    ? `<button class="rstale" data-act="response">${t.rStale} · ${t.rReopen} <kbd>␣r</kbd></button>`
+    : S.review.working ? `<span class="rwork">${SNAKE} ${t.rWorkingWin}</span>` : '';
+  const off = (x) => (x ? ' off' : '');
+  $('#rhead').innerHTML = `<span class="ttl"><span class="pt"></span>${t.rTitle}</span><span class="meta">${esc(meta)}</span>${state}<span class="sp"></span>
+<button class="ract no${off(stale || S.review.working)}" data-act="resp-reject">${t.rReject} <kbd>␣x</kbd></button><button class="ract" data-act="resp-close">${t.rClose} <kbd>esc</kbd></button><button class="ract ok${off(stale)}" data-act="resp-accept">${t.rAccept} <kbd>␣a</kbd></button>`;
   const list = respFiles();
   const i = list.findIndex((f) => f.path === S.path) + 1;
   const back = S.resp.back.path && S.review.files.some((f) => f.path === S.resp.back.path) ? relPath(S.resp.back.path) : '';
@@ -1147,7 +1171,7 @@ async function openResp() {
   if (!S.review || S.resp) return;
   toast(null);
   if (!pendingResp()) { toast({ ok: true, short: S.review.working ? t.rWorking : t.rNone }); return; }
-  S.resp = { back: { path: S.path, anchor: S.path ? anchorOf() : null } };
+  S.resp = { back: { path: S.path, anchor: S.path ? anchorOf() : null }, ...respStamp() };
   S.overlay = '';
   rebuildTree();
   const list = respFiles();
@@ -1175,8 +1199,34 @@ async function closeResp(path) {
 }
 
 function toggleResp() {
-  if (S.resp) closeResp();
+  if (respStale()) reopenResp();
+  else if (S.resp) closeResp();
   else openResp();
+}
+
+// Какой ответ открыт в окне: если агент закончил и ответ обновился, окно не меняется само.
+const respStamp = () => ({ id: (pendingResp() || {}).id, at: (pendingResp() || {}).at, shown: pendingResp() });
+const respStale = () => !!(S.resp && pendingResp() && (pendingResp().id !== S.resp.id || pendingResp().at !== S.resp.at));
+
+// Устаревшее окно: читать можно, менять — нет, сначала открыть заново.
+function staleDenied() {
+  if (!respStale()) return false;
+  toast({ title: T().rStale, text: '', short: `✕ ${T().rStaleDenied}` });
+  return true;
+}
+
+// reopenResp — открыть окно заново на том же файле (или на другом файле ответа — path).
+async function reopenResp(path = S.path) {
+  if (!S.resp) return;
+  toast(null);
+  Object.assign(S.resp, respStamp());
+  rebuildTree();
+  const list = respFiles();
+  const p = list.some((f) => f.path === path) ? path : (list[0] || {}).path;
+  S.path = null;
+  renderFrame();
+  if (p) await openFile(p);
+  else renderAll();
 }
 
 function jumpRespFile(dir) {
@@ -1184,14 +1234,15 @@ function jumpRespFile(dir) {
   if (!list.length) return;
   const i = list.findIndex((f) => f.path === S.path);
   const n = list[(i + dir + list.length * 2) % list.length];
-  if (n.path !== S.path) openFile(n.path);
+  if (respStale()) reopenResp(n.path);
+  else if (n.path !== S.path) openFile(n.path);
 }
 
 // respMine — сколько написано в окне ответа: комментарии к версии из ответа и ответы в ветках.
 const respMine = () => (pendingResp() || {}).mine || 0;
 
 async function acceptResp() {
-  if (!S.resp) return;
+  if (!S.resp || staleDenied()) return;
   const t = T();
   const path = S.path;
   try { await act('accept-response'); } catch (e) { commentError(e); return; }
@@ -1200,7 +1251,8 @@ async function acceptResp() {
 }
 
 function askReject() {
-  if (!S.resp) return;
+  if (!S.resp || staleDenied()) return;
+  if (S.review.working) { toast({ ok: true, short: T().rRejWorking }); return; }
   S.overlay = 'reject';
   renderOverlays();
   renderStatus();
@@ -1382,7 +1434,7 @@ document.addEventListener('keydown', (e) => {
     if (S.resp) {
       if (k === 'a') acceptResp();
       else if (k === 'x') askReject();
-      else if (k === 'r') closeResp();
+      else if (k === 'r') toggleResp();
       else if (k === 'c') openNew();
       else if (k === 'v') toggleCols();
       else if (k === 'm') toggleDoc();
@@ -1516,8 +1568,9 @@ document.addEventListener('click', (e) => {
     if (S.resp) {
       if (k === 'a') acceptResp();
       else if (k === 'x') askReject();
-      else if (k === 'r') closeResp();
+      else if (k === 'r') toggleResp();
       else if (k === 'c') openNew();
+      else if (k === 's') send();
       return;
     }
     if (k === 'r') openResp();

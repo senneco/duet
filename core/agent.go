@@ -213,7 +213,7 @@ func (c *Core) WriteCheck(sessionID, path string, track bool) error {
 	if ok && !mine && c.busy(f) {
 		return &BusyError{Busy{path, f.ReviewID}}
 	}
-	if r.pending() != nil {
+	if r.pending() != nil && !r.Working { // после отправки из окна агент работает поверх ответа
 		return ErrUnviewedResponse
 	}
 	if r.Editing {
@@ -355,10 +355,11 @@ func (c *Core) fromDisk(r *Review) ([]Submission, error) {
 		if err != nil {
 			return nil, err
 		}
-		if f.Current < 0 && d.Deleted {
+		b, ok := c.expected(r, f) // текущая или версия из ответа, поверх которого агент продолжает
+		if !ok && d.Deleted {
 			continue
 		}
-		if f.Current >= 0 && same(f.Versions[f.Current], d) {
+		if ok && same(b, d) {
 			if r.Draft != nil {
 				if _, ok := r.Draft.Files[f.Path]; ok {
 					out = append(out, Submission{Path: f.Path, Content: d.Content, Deleted: d.Deleted})
@@ -602,7 +603,7 @@ func (c *Core) ForAgent(reviewID string) (ReviewForAgent, error) {
 		}
 	}
 	c.eachComment(r, func(f *File, cm *Comment) {
-		if cm.Status == CommentResolved || cm.InResponse != 0 {
+		if cm.Status == CommentResolved || cm.InResponse != 0 && cm.Status == CommentUnsent {
 			return
 		}
 		out.Comments = append(out.Comments, c.agentComment(f, cm))
@@ -618,6 +619,9 @@ func (c *Core) findAnchor(r *Review, d *Response, a Answer) *Range {
 		return nil
 	}
 	n, ok := d.Files[f.Path]
+	if p := r.pending(); !ok && p != nil {
+		n, ok = p.Files[f.Path]
+	}
 	if !ok {
 		return nil
 	}
@@ -639,7 +643,7 @@ func (c *Core) Violations(sessionID string) ([]string, error) {
 	}
 	why := ErrUnviewedResponse
 	switch {
-	case r.pending() != nil:
+	case r.pending() != nil && !r.Working:
 	case r.Editing:
 		why = ErrEditing
 	default:

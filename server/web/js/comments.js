@@ -207,12 +207,18 @@ export function paintAnchors(ranges, comments, active) {
 export function placeCards(sc, list, current) {
   sc.querySelectorAll('.cc-slot').forEach((e) => e.remove());
   sc.querySelectorAll('.cc-in-hatch').forEach((e) => e.classList.remove('cc-in-hatch'));
+  unsplit(sc);
   if (!list.length) return;
   const box = sc.querySelector('.doc, .code, .two, .code2');
   if (!box) return;
   const kind = box.classList.contains('two') ? 'two' : box.classList.contains('code2') ? 'code2' : box.classList.contains('code') ? 'code' : 'doc';
-  const rows = [...box.children].filter((e) => e.hasAttribute('data-n') || e.hasAttribute('data-o') || e.classList.contains('fold'));
   const starts = lineStarts(current);
+  const lineOf = (c) => charToPos(starts, byteToChar(current, Math.max(c.range.start, c.range.end - 1))).line + 1;
+  // Большой новый кусок документа режется после блока с комментарием: карточка — прямо под текстом.
+  if (kind === 'doc' || kind === 'two') {
+    for (const { c } of list) if (!c.whole && c.range.start !== c.range.end) splitAt(box, kind, lineOf(c));
+  }
+  const rows = [...box.children].filter((e) => e.hasAttribute('data-n') || e.hasAttribute('data-o') || e.classList.contains('fold'));
   const slot = (html) => {
     const d = document.createElement('div');
     if (kind === 'two') { d.className = 'r cc-slot'; d.innerHTML = `<div class="c"></div><div class="c">${html}</div>`; }
@@ -273,6 +279,49 @@ export function placeCards(sc, list, current) {
     row.before(slot(hs.join('')));
   }
   if (end.length) box.append(slot(end.join('')));
+}
+
+// splitAt — кусок с новым текстом, в котором несколько блоков, режется после блока со строкой line:
+// продолжение — такой же кусок без подписи и без отметки правки (]c считает кусок один раз).
+// Режутся только куски, где нет старого текста рядом: одна колонка — «добавлено», две — слева штриховка.
+function splitAt(box, kind, line) {
+  let row = null;
+  for (const r of box.children) { if (r.hasAttribute('data-n') && +r.dataset.n <= line) row = r; else if (r.hasAttribute('data-n') && +r.dataset.n > line) break; }
+  if (!row) return;
+  let holder;
+  if (kind === 'doc') {
+    if (!row.classList.contains('chg') || !row.classList.contains('add')) return;
+    holder = row;
+  } else {
+    if (!row.classList.contains('r') || !row.querySelector(':scope > .c:first-child > .b.hatch')) return;
+    holder = row.querySelector(':scope > .c:last-child > .b.add');
+    if (!holder) return;
+  }
+  const us = [...holder.children].filter((e) => e.classList.contains('u') && e.hasAttribute('data-n'));
+  let i = -1;
+  us.forEach((u, k) => { if (+u.dataset.n <= line) i = k; });
+  if (i < 0 || i === us.length - 1) return;
+  const rest = us.slice(i + 1);
+  const cont = row.cloneNode(true);
+  cont.classList.add('cc-cont');
+  cont.classList.remove('cg');
+  cont.removeAttribute('data-s');
+  cont.removeAttribute('data-o');
+  cont.dataset.n = rest[0].dataset.n;
+  const ch = kind === 'doc' ? cont : cont.querySelector(':scope > .c:last-child > .b.add');
+  ch.replaceChildren(...rest);
+  row.after(cont);
+}
+
+// unsplit — вернуть разрезанные куски как были.
+function unsplit(sc) {
+  [...sc.querySelectorAll('.cc-cont')].reverse().forEach((c) => {
+    const prev = c.previousElementSibling;
+    const from = c.classList.contains('r') ? c.querySelector(':scope > .c:last-child > .b.add') : c;
+    const to = prev && (prev.classList.contains('r') ? prev.querySelector(':scope > .c:last-child > .b.add') : prev);
+    if (to && from) to.append(...from.childNodes);
+    c.remove();
+  });
 }
 
 // ── фигуры: выделение и правки в несколько строк ──

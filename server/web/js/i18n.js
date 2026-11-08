@@ -56,14 +56,15 @@ const RU = {
   sent: (n) => `Отправлено: ${n}`, sentWait: 'Агент занят — комментарии ожидают своей очереди и уйдут к нему, как только он сможет их взять.', sentWork: 'Агент взял комментарии в работу.',
   noAgentTitle: 'Нет агента — ничего не отправлено', noAgentText: 'Комментарии остались «не отправлен». Попросите агента подхватить ревью — скопируйте ему ссылку:',
   copyLink: 'Копировать ссылку', copied: 'Ссылка скопирована',
-  sendDenied: 'Отправить нельзя', unviewedTitle: 'Есть непросмотренный ответ агента', errUnviewedSend: 'Пока ответ не просмотрен, ничего нельзя отправить агенту и ответить в ветке.',
+  sendDenied: 'Отправить нельзя', unviewedTitle: 'Есть непросмотренный ответ агента', errUnviewedSend: 'Пока ответ не просмотрен, отправить агенту можно только из окна ответа: то, что написано в окне.',
   errStopping: 'Агент ещё останавливается.', errEditing: 'Сейчас открыта правка файла.', errDiskSend: 'Есть файлы, изменённые на диске в обход duet.',
   nothingToSend: 'Нечего отправлять', errSave: 'Не получилось сохранить', errStatus: 'С комментарием в этом статусе так нельзя.',
   kComment: 'комментарий к выделенному', kCommentAny: 'комментарий к выделенному или ко всему файлу', kSend: 'отправить агенту всё неотправленное',
   kInterrupt: 'прервать агента', kNextComment: 'следующий / предыдущий комментарий', kCardEnter: 'править или ответить',
   kCardX: 'удалить своё неотправленное · убрать вопрос', kCardNum: 'выбрать вариант в вопросе агента', comments: 'комментарии', selected: 'у выбранного комментария',
   // шаг 6c: окно ответа
-  modeResp: 'ОТВЕТ', rTitle: 'Ответ агента', rHint: 'ответ агента', rTouches: 'ответ агента касается файла',
+  modeResp: 'ОТВЕТ', rTitle: 'Ответ агента', rHint: 'ответ агента', rHintQuiet: 'ответ',
+  rWorkingWin: 'агент работает над вашими комментариями', rRejWorking: 'Отклонить можно, когда агент закончит', rStale: 'Агент закончил — ответ обновился', rStaleShort: 'ответ обновился', rReopen: 'открыть заново', rStaleDenied: 'Ответ обновился — откройте его заново (␣r)', rStaleToast: 'Агент закончил — получен ответ', rTouches: 'ответ агента касается файла',
   rFiles: (n) => `${n} ${plRu(n, 'файл', 'файла', 'файлов')}`,
   rAnswers: (n, q) => `ответил на ${n} ${plRu(n, 'комментарий', 'комментария', 'комментариев')}` + (q ? `, ${q} ${plRu(q, 'вопрос', 'вопроса', 'вопросов')}` : ''),
   rAccept: 'принять ответ', rReject: 'отклонить', rClose: 'закрыть', rCurrent: 'текущая', rResp: 'ответ', rNew: 'новый',
@@ -76,7 +77,8 @@ const RU = {
   rRejMine: (n) => `${n} ${plRu(n, 'комментарий или ответ, написанный', 'комментария или ответа, написанных', 'комментариев или ответов, написанных')} в окне ответа, удалятся — версии, к которой они относятся, больше не будет.`,
   rRejGo: 'Отклонить', rRejNo: 'не отклонять', rWorking: 'Агент работает — ответ появится, когда он закончит.', rNone: 'Непросмотренного ответа нет.',
   rAccepted: 'Ответ принят', rRejected: 'Ответ отклонён',
-  kResp: 'открыть / закрыть ответ агента', kRespAccept: 'в окне ответа: принять ответ', kRespReject: 'в окне ответа: отклонить', kRespFile: 'в окне ответа: следующий / предыдущий файл ответа',
+  kResp: 'открыть / закрыть ответ агента', kRespAccept: 'в окне ответа: принять ответ', kRespReject: 'в окне ответа: отклонить', kRespFile: 'в окне ответа: следующий / предыдущий файл ответа', kRespSend: 'в окне ответа: отправить написанное в окне',
+  sentResp: 'Агент продолжает поверх ответа. Ответ можно читать и принять; когда агент закончит, придёт обновлённый ответ.',
 };
 
 const EN = {
@@ -130,14 +132,15 @@ const EN = {
   sent: (n) => `Sent: ${n}`, sentWait: 'The agent is busy — comments wait in line and go to it as soon as it can take them.', sentWork: 'The agent took the comments.',
   noAgentTitle: 'No agent — nothing was sent', noAgentText: 'The comments stay unsent. Ask an agent to pick up the review — copy it this link:',
   copyLink: 'Copy link', copied: 'Link copied',
-  sendDenied: 'Can’t send', unviewedTitle: 'There is an unviewed agent response', errUnviewedSend: 'Nothing can be sent to the agent or replied in a thread until the response is viewed.',
+  sendDenied: 'Can’t send', unviewedTitle: 'There is an unviewed agent response', errUnviewedSend: 'Until the response is viewed, you can send to the agent only from the response window: what you wrote there.',
   errStopping: 'The agent is still stopping.', errEditing: 'A file is being edited right now.', errDiskSend: 'Some files were changed on disk outside duet.',
   nothingToSend: 'Nothing to send', errSave: 'Couldn’t save', errStatus: 'Not possible for a comment in this state.',
   kComment: 'comment on the selection', kCommentAny: 'comment on the selection or the whole file', kSend: 'send everything unsent to the agent',
   kInterrupt: 'interrupt the agent', kNextComment: 'next / previous comment', kCardEnter: 'edit or reply',
   kCardX: 'delete your unsent text · drop the question', kCardNum: 'pick an option in the agent’s question', comments: 'comments', selected: 'on the selected comment',
   // step 6c: response window
-  modeResp: 'RESPONSE', rTitle: 'Agent response', rHint: 'agent response', rTouches: 'the agent response touches this file',
+  modeResp: 'RESPONSE', rTitle: 'Agent response', rHint: 'agent response', rHintQuiet: 'response',
+  rWorkingWin: 'the agent is working on your comments', rRejWorking: 'You can reject once the agent finishes', rStale: 'The agent finished — the response was updated', rStaleShort: 'response updated', rReopen: 'reopen', rStaleDenied: 'The response was updated — reopen it (␣r)', rStaleToast: 'The agent finished — response received', rTouches: 'the agent response touches this file',
   rFiles: (n) => `${n} ${n === 1 ? 'file' : 'files'}`,
   rAnswers: (n, q) => `answered ${n} ${n === 1 ? 'comment' : 'comments'}` + (q ? `, ${q} ${q === 1 ? 'question' : 'questions'}` : ''),
   rAccept: 'accept response', rReject: 'reject', rClose: 'close', rCurrent: 'current', rResp: 'response', rNew: 'new',
@@ -150,7 +153,8 @@ const EN = {
   rRejMine: (n) => `${n} ${n === 1 ? 'comment or reply' : 'comments or replies'} written in the response window will be deleted — the version they refer to will be gone.`,
   rRejGo: 'Reject', rRejNo: 'don’t reject', rWorking: 'The agent is working — the response appears when it finishes.', rNone: 'There is no unviewed response.',
   rAccepted: 'Response accepted', rRejected: 'Response rejected',
-  kResp: 'open / close the agent response', kRespAccept: 'in the response: accept it', kRespReject: 'in the response: reject it', kRespFile: 'in the response: next / previous response file',
+  kResp: 'open / close the agent response', kRespAccept: 'in the response: accept it', kRespReject: 'in the response: reject it', kRespFile: 'in the response: next / previous response file', kRespSend: 'in the response: send what you wrote there',
+  sentResp: 'The agent continues on top of the response. You can read and accept it; when the agent finishes, an updated response arrives.',
 };
 
 export function defaultLang() {

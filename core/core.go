@@ -362,7 +362,7 @@ func (c *Core) AgentStart(reviewID string) error {
 	if err != nil {
 		return err
 	}
-	if r.pending() != nil {
+	if r.pending() != nil && !r.Working {
 		return ErrUnviewedResponse
 	}
 	if r.Stopping {
@@ -394,6 +394,8 @@ func (c *Core) finish(r *Review, files []Submission, answers []Answer) (bool, er
 	if !r.Working {
 		return false, ErrAgentNotWorking
 	}
+	// p — непросмотренный ответ, поверх которого агент продолжает (владелец отправил из окна ответа).
+	p := r.pending()
 	d := r.Draft
 	if d == nil {
 		d = &Response{ID: len(r.Responses) + 1, Files: map[string]int{}, Answers: map[string]Answer{}, Status: ResponsePending}
@@ -424,7 +426,7 @@ func (c *Core) finish(r *Review, files []Submission, answers []Answer) (bool, er
 			r.addPath(f.Path)
 		}
 		v := Version{Content: sub.Content, Deleted: sub.Deleted, Author: "agent"}
-		if f.Current >= 0 && same(f.Versions[f.Current], v) {
+		if b, ok := c.expected(r, f); ok && same(b, v) {
 			delete(d.Files, f.Path)
 			continue
 		}
@@ -454,20 +456,92 @@ func (c *Core) finish(r *Review, files []Submission, answers []Answer) (bool, er
 	r.Working = false
 	r.Turn = false
 	r.Draft = nil
+	// Пока агент работал, ответ, поверх которого он продолжал, могли принять: правки,
+	// совпавшие с тем, что теперь ожидается, — не правки.
+	for path, n := range d.Files {
+		if b, ok := c.expected(r, c.s.Files[path]); ok && same(b, c.s.Files[path].Versions[n]) {
+			delete(d.Files, path)
+		}
+	}
 	if len(d.Files) == 0 && len(d.Answers) == 0 {
 		return false, c.commit(r)
 	}
+	target := d
+	if p != nil {
+		c.mergeInto(r, p, d)
+		target = p
+	}
 	for id, a := range d.Answers {
 		_, cm, _ := c.comment(r, id)
-		cm.Thread = append(cm.Thread, Message{Author: "agent", Text: a.Text, Question: a.Question, Options: a.Options, Response: d.ID, At: c.stamp()})
+		cm.Thread = append(cm.Thread, Message{Author: "agent", Text: a.Text, Question: a.Question, Options: a.Options, Response: target.ID, At: c.stamp()})
 		cm.Status = CommentAnswered
 		if a.Question {
 			cm.Status = CommentQuestion
 		}
 		cm.Delivered = false
 	}
-	r.Responses = append(r.Responses, d)
+	if p == nil {
+		r.Responses = append(r.Responses, d)
+	}
 	return true, c.commit(r)
+}
+
+// mergeInto — агент закончил продолжение поверх непросмотренного ответа p: продолжение вливается
+// в p, и ответ один — «текущая → последнее». Написанное в окне и места, указанные агентом раньше,
+// переносятся на новые версии.
+func (c *Core) mergeInto(r *Review, p, d *Response) {
+	for path, v := range d.Files {
+		f := c.s.Files[path]
+		from := f.Current
+		if n, ok := p.Files[path]; ok {
+			from = n
+		}
+		to := v
+		if f.Current >= 0 && same(f.Versions[f.Current], f.Versions[v]) || f.Current < 0 && f.Versions[v].Deleted {
+			to = f.Current // агент вернул файл к текущей версии (или удалил созданный в ответе)
+			delete(p.Files, path)
+		} else {
+			p.Files[path] = v
+		}
+		if from == to {
+			continue
+		}
+		for _, cm := range f.Comments {
+			if a, ok := p.Answers[cm.ID]; ok && a.Anchor != nil {
+				a.Anchor = c.moveRange(f, from, to, *a.Anchor)
+				p.Answers[cm.ID] = a
+			}
+			// Комментарии на текущей версии перенесутся при принятии вместе с остальными.
+			if from == f.Current || cm.InResponse != p.ID || cm.Version != from || cm.Status == CommentDeleted {
+				continue
+			}
+			cm.Version = to
+			if cm.Whole || to < 0 || f.Versions[to].Deleted {
+				continue
+			}
+			rg, changed, removed := remap(f.Versions[from].Content, f.Versions[to].Content, cm.Range)
+			cm.Range = rg
+			cm.Changed = cm.Changed || changed
+			cm.Removed = cm.Removed || removed
+		}
+	}
+	for id, a := range d.Answers {
+		p.Answers[id] = a
+	}
+	p.At = d.At
+}
+
+// moveRange — место из версии from в версии to; nil, если в версии to текста нет.
+func (c *Core) moveRange(f *File, from, to int, rg Range) *Range {
+	if to < 0 || f.Versions[to].Deleted {
+		return nil
+	}
+	old := ""
+	if from >= 0 {
+		old = f.Versions[from].Content
+	}
+	nr, _, _ := remap(old, f.Versions[to].Content, rg)
+	return &nr
 }
 
 // AcceptResponse — владелец просмотрел ответ: версии из него становятся текущими.
@@ -491,8 +565,8 @@ func (c *Core) closeResponse(reviewID string, st ResponseStatus) error {
 	if p == nil {
 		return ErrNoResponse
 	}
-	if r.Working {
-		return ErrAgentWorking
+	if r.Working && st == ResponseRejected {
+		return ErrAgentWorking // агент продолжает поверх ответа: отклонить можно, когда он закончит
 	}
 	var files []string
 	for path := range p.Files {
@@ -529,6 +603,13 @@ func (c *Core) closeResponse(reviewID string, st ResponseStatus) error {
 				}
 			}
 			c.reanchor(f, f.Current, v, anchors)
+			// Комментарии из окна уже на версии из ответа: место, указанное агентом, ставим сразу.
+			for _, cm := range f.Comments {
+				if a, ok := anchors[cm.ID]; ok && cm.InResponse == p.ID && cm.Version == v && !cm.Whole &&
+					a.Start >= 0 && a.Start <= a.End && a.End <= len(f.Versions[v].Content) {
+					cm.Range, cm.Changed = a, true
+				}
+			}
 			f.Current = v
 		}
 	}
@@ -538,6 +619,7 @@ func (c *Core) closeResponse(reviewID string, st ResponseStatus) error {
 				cm.InResponse = 0
 			} else {
 				cm.Status = CommentDeleted // написанные в окне комментарии уходят вместе с ответом
+				return
 			}
 		}
 		if _, ok := p.Answers[cm.ID]; ok && st == ResponseRejected {
@@ -865,6 +947,11 @@ func lastResp(cm *Comment) int {
 	return 0
 }
 
+// windowUnsent — неотправленное, написанное в окне ответа p: комментарий к версии из ответа или ответ в ветке.
+func windowUnsent(cm *Comment, p *Response) bool {
+	return cm.Status == CommentUnsent && (cm.InResponse == p.ID || lastResp(cm) == p.ID)
+}
+
 // Pending — непросмотренный ответ агента для окна ответа.
 type Pending struct {
 	ID        int       `json:"id"`
@@ -873,6 +960,7 @@ type Pending struct {
 	Answers   int       `json:"answers"`   // на сколько комментариев ответил агент
 	Questions int       `json:"questions"` // из них вопросов
 	Mine      int       `json:"mine"`      // написано в окне ответа: комментарии к версии из ответа и ответы в ветках
+	Unsent    int       `json:"unsent"`    // из написанного в окне не отправлено: уходит по `␣s` из окна
 }
 
 // allDone — ревью принято целиком, если не считать расхождений с диском.
@@ -930,6 +1018,9 @@ func (c *Core) reviewView(r *Review) ReviewView {
 		c.eachComment(r, func(_ *File, cm *Comment) {
 			if cm.Status == CommentDeleted || cm.Status == CommentResolved {
 				return
+			}
+			if windowUnsent(cm, p) {
+				pv.Unsent++
 			}
 			if cm.InResponse == p.ID {
 				pv.Mine++

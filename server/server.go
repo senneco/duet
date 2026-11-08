@@ -232,7 +232,7 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 	case "restore-anyway":
 		err = c.RestoreAnyway(id)
 	case "send":
-		err = c.Send(id)
+		err = c.Send(id, b.InResponse)
 	case "comment":
 		var cid string
 		if b.Was != "" && b.Range != nil {

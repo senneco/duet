@@ -504,8 +504,8 @@ func (c *Core) restore(r *Review) error {
 	if c.disk != nil {
 		for _, f := range c.files(r) {
 			want := Version{Deleted: true}
-			if f.Current >= 0 {
-				want = f.Versions[f.Current]
+			if v, ok := c.expected(r, f); ok {
+				want = v
 			}
 			d, err := c.readDisk(f.Path)
 			if err == nil && same(d, want) {
