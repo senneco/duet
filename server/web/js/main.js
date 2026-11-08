@@ -62,6 +62,10 @@ const S = {
   edit: null,
   editAfterStop: null, // «прервать и править»: что сделать, когда агент остановится — edit | revert
   diskSeq: {}, // последняя показанная правка с диска по ревью
+  // вид (шаг 7b)
+  opened: new Set(), // у каких блоков раскрыто «как было» (data-o старой версии)
+  focusBlk: null, // фокус по блокам: какой блок агента читаем (-1 — до первого блока)
+  focusHold: 0, // до этого времени прокрутка — наша, фокус за ней не следует
 };
 S.theme = S.look.theme;
 S.lang = S.look.lang;
@@ -211,7 +215,7 @@ function act0(id, action) {
 async function openFile(path, { line = 0, off, keep = false } = {}) {
   const changed = path !== S.path;
   if (changed) {
-    S.expanded = new Set(); S.blocksHidden = false; if (S.toast && !S.toast.ok) { S.toast = null; renderOverlays(); }
+    S.expanded = new Set(); S.opened = new Set(); S.focusBlk = null; S.blocksHidden = false; if (S.toast && !S.toast.ok) { S.toast = null; renderOverlays(); }
     S.sel = null; S.menuSel = false; S.act = null; S.ask = null;
     if (S.ed) S.ed = null;
   }
@@ -318,6 +322,7 @@ function setLook(name, value) {
   if (!isOption(name, value) || S.look[name] === value) return;
   S.look[name] = value;
   store.set(name, value);
+  if (name === 'focus') S.focusBlk = null;
   lookChanged([name]);
 }
 function lookChanged(names) {
@@ -332,6 +337,7 @@ addEventListener('storage', (e) => {
   const was = { ...S.look };
   S.look = loadLook((k, d) => store.get(k, d), defaultLang());
   const changed = Object.keys(S.look).filter((k) => S.look[k] !== was[k]);
+  if (changed.includes('focus')) S.focusBlk = null;
   if (changed.length) lookChanged(changed);
 });
 function toggleLook() {
@@ -433,7 +439,7 @@ function renderTree() {
     const tag = S.resp ? (f.absent ? `<span class="tag rnew">${T().rNew}</span>` : f.diskChanged ? `<span class="tag own">${T().stDiskShort}</span>` : '') : fileTag(f);
     h += `<div class="tr${open ? ' open' : ''}${gone}${off}" data-file="${esc(f.path)}" title="${esc(f.path)}"><span class="pad"></span>${ind(r.depth)}<span class="ic">${fileIcon(f)}</span><span class="nm">${esc(f.name)}</span>${f.open && !S.resp ? `<span class="cmk${f.questions ? ' q' : ''}">${f.open}</span>` : ''}<span class="fill"></span>${tag}</div>`;
     if (open && !S.resp && !S.blocksHidden && S.file && S.file.path === f.path) {
-      const cur = currentBlock();
+      const cur = activeBlock();
       for (const [k, b] of (S.file.blocks || []).entries()) {
         const imp = { top: ['⇈', 'i3'], high: ['↑', 'i2'], low: ['↓', 'i1'] }[b.level] || ['·', 'i1'];
         h += `<div class="tr blk${cur === k ? ' cur' : ''}" data-block="${k}"><span class="pad"></span>${ind(r.depth + 1)}<span class="imp ${imp[1]}">${imp[0]}</span><span class="nm">${esc(b.title)}</span></div>`;
@@ -497,7 +503,7 @@ function contentHTML() {
   const kind = fileKind(f.path);
   const lang = kind === 'code' ? langOf(f.path) : kind === 'markdown' ? 'md' : '';
   const docMode = kind === 'markdown' && S.doc;
-  const words = { was: t.was, now: t.now, added: t.added, removed: t.removed, more: t.more, changed: t.changed, blankAdded: t.blankAdded, blankRemoved: t.blankRemoved };
+  const words = { was: t.was, now: t.now, added: t.added, removed: t.removed, more: t.more, changed: t.changed, blankAdded: t.blankAdded, blankRemoved: t.blankRemoved, gone: t.gone };
   if (S.resp) return respContentHTML(words);
   if (f.state === 'moved') {
     const r = (S.reviews || []).find((x) => x.id === f.movedTo);
@@ -512,7 +518,7 @@ function contentHTML() {
   const origin = f.baseIsOriginal ? ` <b>${t.beforeTask}</b>${f.originSource ? ' · ' + esc(f.originSource) : ''}` : '';
   const labels = { base: `<span class="pill">${t.base}</span>${origin}`, current: `<span class="pill">${t.current}</span>` };
   const bar = S.cols === 1 && f.baseIsOriginal ? `<div class="basebar"><span class="pill">${t.base}</span>${origin}</div>` : '';
-  if (docMode) return bar + renderDoc(S.chunks, f.base, f.current, { cols: S.cols, labels, words });
+  if (docMode) return bar + renderDoc(S.chunks, f.base, f.current, { cols: S.cols, labels, words, open: S.opened });
   return bar.replace('basebar', 'basebar code-bar') + renderCode(S.chunks, { cols: S.cols, lang, oldText: f.base, newText: f.current, fold: kind === 'code', expanded: S.expanded, labels, foldText: t.fold });
 }
 
@@ -533,7 +539,7 @@ function respContentHTML(words) {
   if (f.absent && !f.hasBase) return `<div class="notice add">${t.rCreated}</div>${plain(f.response)}`;
   const labels = { base: `<span class="pill">${f.absent ? t.beforeTask : t.rCurrent}</span>`, current: `<span class="pill rs">${t.rResp}</span>` };
   const bar = f.absent ? `<div class="notice">${t.rUnseen}</div>` : '';
-  if (docMode) return bar + renderDoc(S.chunks, old, f.response, { cols: S.cols, labels, words });
+  if (docMode) return bar + renderDoc(S.chunks, old, f.response, { cols: S.cols, labels, words, open: S.opened });
   return bar + renderCode(S.chunks, { cols: S.cols, lang, oldText: old, newText: f.response, fold: kind === 'code', expanded: S.expanded, labels, foldText: t.fold });
 }
 
@@ -636,12 +642,12 @@ function position() {
   if (!S.file || !sc) return '';
   const t = T();
   const parts = [];
-  const b = currentBlock();
+  const b = activeBlock();
   if (b >= 0) {
     const bl = S.file.blocks[b];
     parts.push(`${{ top: '⇈', high: '↑', low: '↓' }[bl.level] || '·'} ${esc(bl.title)}`);
   }
-  const cg = [...sc.querySelectorAll('.cg')];
+  const cg = changeEls();
   if (cg.length) {
     const y = sc.scrollTop + sc.clientHeight / 3;
     const i = cg.filter((e) => top(e) <= y).length;
@@ -675,11 +681,11 @@ function renderOverlays() {
   if (S.overlay === 'help') {
     const k = (keys, ds) => `<div class="k"><span class="ks">${keys.map((x) => `<kbd>${x}</kbd>`).join('')}</span><span class="ds">${ds}</span></div>`;
     h += `<div class="dimmer" data-act="close"></div><div class="keys"><div class="h"><b>${t.allKeys}</b><span class="sp"></span><kbd>esc</kbd> ${t.close}</div><div class="g">
-<div><div class="grp">${t.reading}</div>${k(['j', 'k'], t.kScroll)}${k(['↓', '↑'], t.kScroll)}${k(['gg', 'G'], t.kTopBottom)}</div>
+<div><div class="grp">${t.reading}</div>${k(['j', 'k'], t.kScroll)}${k(['↓', '↑'], t.kScroll)}${k(['gg', 'G'], t.kTopBottom)}${k(['j', 'k'], t.kFocus)}</div>
 <div><div class="grp">${t.navigation}</div>${k([']c', '[c'], t.kChange)}${k([']f', '[f'], t.kFile)}${k([']b', '[b'], t.kBlock)}</div>
 <div><div class="grp">${t.actions}</div>${k(['␣'], t.kMenu)}${k(['␣a'], t.kAccept)}${k(['␣e'], t.kEdit)}${k(['␣b'], t.kRevert)}${k(['?'], t.kHelp)}${k(['esc'], t.kEsc)}</div>
 <div><div class="grp">${t.rHint}</div>${k(['␣r'], t.kResp)}${k(['␣a'], t.kRespAccept)}${k(['␣x'], t.kRespReject)}${k([']f', '[f'], t.kRespFile)}${k(['␣s'], t.kRespSend)}</div>
-<div><div class="grp">${t.view}</div>${k(['␣v'], t.kCols)}${k(['␣m'], t.kDoc)}${k([','], t.kLook)}</div>
+<div><div class="grp">${t.view}</div>${k(['␣v'], t.kCols)}${k(['␣m'], t.kDoc)}${k([','], t.kLook)}${k(['za'], t.kOld)}${k(['zR', 'zM'], t.kOldAll)}</div>
 <div><div class="grp">${t.comments}</div>${k(['gc'], t.kComment)}${k(['␣c'], t.kCommentAny)}${k(['␣s'], t.kSend)}${k(['␣u'], t.kInterrupt)}${k([']n', '[n'], t.kNextComment)}</div>
 <div><div class="grp">${t.selected}</div>${k(['↵'], t.kCardEnter)}${k(['x'], t.kCardX)}${k(['1', '2', '3'], t.kCardNum)}</div>
 <div><div class="grp">${t.reviews.toLowerCase()}</div>${k(['j', 'k', '↵'], t.kList)}</div>
@@ -784,9 +790,16 @@ function scrollBy(dy) {
   $('#sc').scrollTop += dy;
 }
 
+// changeEls — начала изменений на экране. У переписанного блока «как было» может быть спрятано —
+// тогда изменение начинается с нового текста.
+const seen = (el) => el.getClientRects().length > 0 && !el.closest('.was.old:not(.open), .was:not(.open) > .gx');
+function changeEls() {
+  return [...$('#sc').querySelectorAll('.cg')].map((e) => (seen(e) ? e : e.nextElementSibling)).filter((e) => e && seen(e));
+}
+
 function jumpChange(dir) {
   const sc = $('#sc');
-  const cg = [...sc.querySelectorAll('.cg')].map(top);
+  const cg = changeEls().map(top);
   const y = sc.scrollTop + 61;
   const target = dir > 0 ? cg.find((v) => v > y + 1) : [...cg].reverse().find((v) => v < y - 1);
   if (target !== undefined) sc.scrollTop = Math.max(0, target - 60);
@@ -816,14 +829,19 @@ function currentBlock() {
 
 function jumpBlock(dir) {
   if (!S.blockLines.length) return;
-  const cur = currentBlock();
+  const cur = activeBlock();
   const next = Math.min(Math.max(cur + dir, 0), S.blockLines.length - 1);
   goBlock(next);
 }
 
 function goBlock(k) {
-  const n = S.blockLines[k];
-  if (n > 0) scrollToLine(n);
+  const n = k < 0 ? 1 : S.blockLines[k];
+  if (!(n > 0)) return;
+  if (!focusable()) { scrollToLine(n); return; }
+  S.focusBlk = k;
+  paintFocus();
+  const el = elAtLine(n);
+  focusScroll(k < 0 || !el ? 0 : Math.max(0, top(el) - 60));
 }
 
 function jumpFile(dir) {
@@ -841,8 +859,9 @@ function renderMap() {
   const H = sc.scrollHeight;
   if (!S.file || H <= 0) { map.innerHTML = ''; return; }
   const segs = [];
-  for (const el of sc.querySelectorAll('.chg.del, .chg.add, .chg.mix, .ln.del, .ln.add, .rr .tx.del, .rr .tx.add, .r .b.del, .r .b.add')) {
-    const c = el.matches('.del, .del *') || el.classList.contains('del') ? 'd' : 'a';
+  for (const el of sc.querySelectorAll('.chg.del, .chg.add, .chg.mix, .was.gone:not(.open), .ln.del, .ln.add, .rr .tx.del, .rr .tx.add, .r .b.del, .r .b.add')) {
+    if (!seen(el)) continue;
+    const c = el.matches('.del, .del *, .was') ? 'd' : 'a';
     const y = top(el);
     const last = segs[segs.length - 1];
     if (last && last.c === c && y - (last.y + last.h) < 4) last.h = Math.max(last.h, y + el.offsetHeight - last.y);
@@ -859,6 +878,232 @@ function mapViewport() {
   const H = sc.scrollHeight;
   vp.style.top = (sc.scrollTop / H) * 100 + '%';
   vp.style.height = (sc.clientHeight / H) * 100 + '%';
+}
+
+// ── «как было» (шаг 7b) ──
+// Только документ в одну колонку. Старая версия переписанного блока (.was.old) спрятана над новой
+// (.hasold), удалённое без замены (.was.gone) свёрнуто в черту. Клик или za раскрывает и сворачивает,
+// zR / zM — всё сразу. «До», к которому есть комментарий, раскрыто всегда (.pin).
+// Движение целиком в CSS (переходы по классу .open): высота, отступы, прозрачность едут вместе, а
+// повторный клик посреди движения плавно разворачивает его назад.
+
+const OLD_MS = 320; // длительность перехода в app.css
+const oldEls = () => [...$('#sc').querySelectorAll('.doc > .was')];
+const oldOf = (el) => (el && el.matches('.hasold') ? el.previousElementSibling : el);
+
+// instant — поменять раскрытое без движения (zR / zM, открытие файла): переходы выключены, новое
+// состояние применено сразу.
+function instant(fn) {
+  const sc = $('#sc');
+  sc.classList.add('noanim');
+  fn();
+  void sc.offsetHeight;
+  sc.classList.remove('noanim');
+}
+
+// После того как «как было» раскрыли или свернули: карта правок, карточки и выделение — на новых местах.
+let oldDone = 0;
+function oldMoved() {
+  clearTimeout(oldDone);
+  oldDone = setTimeout(() => { renderMap(); renderComments(); }, OLD_MS + 20);
+}
+
+// oldClick — клик по блоку документа row (или za у места чтения). Открытым бывает одно «до»: всё
+// раскрытое сворачивается, а если у этого блока есть «до» и оно было свёрнуто — раскрывается. Блок под
+// курсором стоит на месте (у раскрытого «до» — его новый блок). «До» с комментарием не трогаем.
+function oldClick(row) {
+  if (!row || !row.matches) return;
+  const target = row.matches('.chg.hasold') ? row.previousElementSibling : row.matches('.was') ? row : null;
+  const open = (el, v) => {
+    if (v) S.opened.add(+el.dataset.o); else S.opened.delete(+el.dataset.o);
+    el.classList.toggle('open', v);
+  };
+  const closing = oldEls().filter((el) => el !== target && el.classList.contains('open') && !el.classList.contains('pin'));
+  const flip = target && !target.classList.contains('pin');
+  if (!flip && !closing.length) return;
+  keepPlace(row.matches('.was.old') ? row.nextElementSibling : row);
+  for (const el of closing) open(el, false);
+  if (flip) open(target, !target.classList.contains('open'));
+  oldMoved();
+}
+
+// keepPlace — пока «до» движется, элемент el не сдвигается на экране: прокрутка каждый кадр уходит на
+// столько же, на сколько вырос или сжался текст над ним. Своя подстройка прокрутки браузера на это время
+// выключена, чтобы не прибавлялась к нашей.
+let keepRaf = 0;
+function keepPlace(el) {
+  const sc = $('#sc');
+  const y0 = el.getBoundingClientRect().top;
+  const end = performance.now() + OLD_MS + 80;
+  S.focusHold = end + 100;
+  cancelAnimationFrame(keepRaf);
+  sc.classList.add('keep');
+  const f = () => {
+    const d = el.getBoundingClientRect().top - y0;
+    if (Math.abs(d) >= 0.5) sc.scrollTop += d;
+    if (performance.now() < end) keepRaf = requestAnimationFrame(f);
+    else sc.classList.remove('keep');
+  };
+  keepRaf = requestAnimationFrame(f);
+}
+
+// allOld — zR / zM: всё сразу, без движения; место чтения не сдвигается.
+function allOld(on) {
+  const els = oldEls().filter((el) => !el.classList.contains('pin') && el.classList.contains('open') !== on);
+  if (!els.length) return;
+  const a = anchorOf();
+  instant(() => {
+    for (const el of els) {
+      if (on) S.opened.add(+el.dataset.o); else S.opened.delete(+el.dataset.o);
+      el.classList.toggle('open', on);
+    }
+  });
+  if (a) restoreAnchor(a);
+  renderMap();
+  renderComments();
+}
+
+// oldAtReading — блок с «как было» у места чтения (треть экрана сверху) — для za.
+function oldAtReading() {
+  const sc = $('#sc');
+  const r = sc.getBoundingClientRect();
+  const line = r.top + sc.clientHeight * 0.3;
+  const els = [...sc.querySelectorAll('.doc > .chg.hasold, .doc > .was.gone')].filter((e) => {
+    const b = e.getBoundingClientRect();
+    return b.height && b.bottom > r.top && b.top < r.bottom;
+  });
+  let cur = els[0] || null;
+  for (const e of els) if (e.getBoundingClientRect().top <= line) cur = e;
+  return cur;
+}
+
+// applyPins — «до», к которому есть комментарий, раскрыто сразу: иначе карточка висела бы под спрятанным
+// текстом. Карточка комментария к удалённому стоит сразу после своего «до» (у пары — после «стало»).
+function applyPins(sc) {
+  const pins = new Set();
+  for (const slot of sc.querySelectorAll('.doc > .cc-slot')) {
+    if (!slot.querySelector('.cc[data-pt]')) continue;
+    const el = oldOf(slot.previousElementSibling);
+    if (el && el.matches('.was')) pins.add(el);
+  }
+  const change = oldEls().filter((el) => {
+    const on = pins.has(el) || S.opened.has(+el.dataset.o);
+    return pins.has(el) !== el.classList.contains('pin') || on !== el.classList.contains('open');
+  });
+  if (!change.length) return;
+  instant(() => {
+    for (const el of change) {
+      el.classList.toggle('pin', pins.has(el));
+      el.classList.toggle('open', pins.has(el) || S.opened.has(+el.dataset.o));
+    }
+  });
+  renderMap();
+}
+
+// Клик по тексту блока срабатывает чуть позже: если это двойной клик (выделить слово), ничего не делаем.
+// Клик мимо текста (точка, поля блока, черта «удалено») — сразу.
+let oldTimer = 0;
+function clickOld(row, onText) {
+  clearTimeout(oldTimer);
+  if (!onText) { oldClick(row); return; }
+  oldTimer = setTimeout(() => oldClick(row), 180);
+}
+
+// ── фокус по блокам (шаг 7b) ──
+// Когда включён и у файла есть блоки агента: блок, который читаешь, обычной яркости, остальное приглушено.
+// Каждый кусок текста на экране помечен блоком (data-blk); кусок, задевающий несколько блоков, —
+// по своим абзацам.
+
+const focusable = () => S.look.focus === 'on' && !S.resp && !!S.file && S.blockLines.some((l) => l > 0);
+const activeBlock = () => (focusable() && S.focusBlk !== null ? S.focusBlk : currentBlock());
+
+// blockAt — блок агента, в котором строка n текущей версии (-1 — до первого блока).
+function blockAt(n) {
+  let k = -1, best = 0;
+  S.blockLines.forEach((l, i) => { if (l > 0 && l <= n && l >= best) { best = l; k = i; } });
+  return k;
+}
+
+function markBlocks() {
+  const sc = $('#sc');
+  sc.querySelectorAll('[data-blk]').forEach((e) => { e.removeAttribute('data-blk'); e.classList.remove('fcur'); });
+  if (!focusable()) return;
+  const box = sc.querySelector('.doc, .two, .code, .code2');
+  if (!box) return;
+  let cur = -1;
+  for (const el of box.children) {
+    if (el.matches('.hd, svg')) continue;
+    const us = el.matches('.u') ? [el] : [...el.querySelectorAll('.u[data-n]')];
+    let ks = us.map((u) => blockAt(+u.dataset.n));
+    if (!us.length && el.dataset.n && !el.matches('.cc-slot')) ks = [blockAt(+el.dataset.n)];
+    if (new Set(ks).size <= 1) {
+      el.dataset.blk = ks.length ? ks[0] : cur;
+      if (ks.length) cur = ks[0];
+      continue;
+    }
+    // Кусок задевает несколько блоков: каждый абзац своим блоком, старый текст — с первым.
+    let k = ks[0];
+    for (const u of el.querySelectorAll('.u')) {
+      if (u.dataset.n) k = blockAt(+u.dataset.n);
+      u.dataset.blk = u.dataset.n ? k : ks[0];
+    }
+    cur = ks[ks.length - 1];
+  }
+}
+
+function paintFocus() {
+  const on = focusable();
+  if (on && S.focusBlk === null) S.focusBlk = readingBlock();
+  if (on) for (const el of $('#sc').querySelectorAll('[data-blk]')) el.classList.toggle('fcur', +el.dataset.blk === S.focusBlk);
+  const cur = activeBlock();
+  document.querySelectorAll('#tree .tr.blk').forEach((el) => el.classList.toggle('cur', +el.dataset.block === cur));
+}
+
+// readingBlock — блок у места чтения. Внизу файла последние блоки до верха экрана не доедут —
+// тогда это последний блок, начало которого видно.
+function readingBlock() {
+  const sc = $('#sc');
+  let k = currentBlock();
+  if (sc.scrollTop > 0 && sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 4) {
+    const bottom = sc.getBoundingClientRect().bottom;
+    S.blockLines.forEach((l, i) => {
+      if (!(l > 0) || i <= k) return;
+      const el = elAtLine(l);
+      if (el && el.getBoundingClientRect().top < bottom - 40) k = i;
+    });
+  }
+  return k;
+}
+
+// focusScroll — прокрутка, за которой фокус не следует (её сделали мы).
+function focusScroll(y) {
+  S.focusHold = Date.now() + 700;
+  $('#sc').scrollTo({ top: y, behavior: 'smooth' });
+}
+
+// moveFocus — j / k при фокусе: длинный блок сначала долистывается, потом — следующий блок.
+function moveFocus(dir) {
+  const sc = $('#sc');
+  const r = sc.getBoundingClientRect();
+  const els = [...sc.querySelectorAll(`[data-blk="${S.focusBlk}"]`)].filter(seen);
+  if (els.length) {
+    const b = els[els.length - 1].getBoundingClientRect().bottom;
+    const t = els[0].getBoundingClientRect().top;
+    if (dir > 0 && b > r.bottom - 30 && sc.scrollTop + sc.clientHeight < sc.scrollHeight - 2) {
+      focusScroll(sc.scrollTop + Math.min(sc.clientHeight * 0.6, b - r.bottom + 60));
+      return;
+    }
+    if (dir < 0 && t < r.top - 10) {
+      focusScroll(sc.scrollTop - Math.min(sc.clientHeight * 0.6, r.top - t + 60));
+      return;
+    }
+  }
+  // Следующий блок, который нашёлся в тексте; «до первого блока» — если там что-то есть.
+  const ks = S.blockLines.map((l, i) => (l > 0 ? i : -2)).filter((i) => i >= 0);
+  if (sc.querySelector('[data-blk="-1"]')) ks.unshift(-1);
+  const i = ks.indexOf(S.focusBlk);
+  const next = ks[Math.max(0, Math.min(ks.length - 1, (i < 0 ? 0 : i) + dir))];
+  if (next !== undefined && next !== S.focusBlk) goBlock(next);
 }
 
 // ── действия ──
@@ -1001,6 +1246,7 @@ function renderComments() {
   });
   const current = S.resp ? respNew(S.file) : S.file.current || '';
   placeCards(sc, items, current);
+  applyPins(sc);
   S.ranges = anchorRanges(sc, list, current);
   paintAnchors(S.ranges, list, S.act);
   sc.querySelectorAll(':scope > .ced, :scope > .smenu').forEach((e) => e.remove());
@@ -1032,6 +1278,8 @@ function renderComments() {
     m.style.top = last.b + 6 + 'px';
   }
   restoreEditor();
+  markBlocks();
+  paintFocus();
 }
 
 // Окно нового комментария: к выделенному или, без выделения, ко всему файлу.
@@ -1664,10 +1912,11 @@ $('#sc').addEventListener('mousedown', (e) => {
   if (e.button !== 0 || e.target.closest('.cc, .ced, .smenu, .fold, a, button, .notice')) return;
   if (!e.target.closest('.doc, .two, .code, .code2')) return;
   e.preventDefault();
+  if (e.detail > 1) clearTimeout(oldTimer); // двойной клик — выделить слово, а не раскрыть «как было»
   if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
   window.getSelection().removeAllRanges();
   const c = caretAt(e.clientX, e.clientY);
-  drag = { a: c && inText(c[0]) ? c : null, b: null, x: e.clientX, y: e.clientY };
+  drag = { a: c && inText(c[0]) ? c : null, b: null, x: e.clientX, y: e.clientY, el: e.target, single: e.detail <= 1 };
 });
 
 document.addEventListener('mousemove', (e) => {
@@ -1689,17 +1938,34 @@ document.addEventListener('mouseup', (e) => {
     const r = rangeOf(d.a, d.b);
     if (!r.collapsed && setSelection(r)) return;
   }
-  // Просто клик: по тексту с комментарием — выбрать комментарий.
-  if (d.a) {
+  // Просто клик: по тексту с комментарием — выбрать комментарий. Клик по полям блока правки (и по точке
+  // «как было») — не по тексту.
+  if (d.a && !(d.el && d.el.matches && d.el.matches('.doc > .chg, .was .chg, .gonebar'))) {
     for (const [id, r] of S.ranges) {
       try { if (r.isPointInRange(d.a[0], d.a[1])) { S.sel = null; S.menuSel = false; selectComment(id); return; } } catch { /* другой документ */ }
     }
   }
+  const hadSel = !!S.sel;
   if (S.sel && !S.ed) clearSelection();
   else if (S.sel && S.ed && S.ed.kind !== 'new') clearSelection();
   else drawSelection($('#sc'), S.sel ? S.sel.range : null);
   if (S.act && !S.ed) { S.act = null; S.ask = null; renderComments(); }
+  if (!hadSel && d.single) plainClick(d.el);
 });
+
+// plainClick — клик по тексту файла: при фокусе по блокам — перевести фокус на блок; по блоку
+// с «как было» — раскрыть или свернуть его.
+function plainClick(t) {
+  if (!t || !t.closest || t.closest('.cc-slot')) return;
+  const blk = focusable() && t.closest('#sc [data-blk]');
+  if (blk && +blk.dataset.blk !== S.focusBlk) { S.focusBlk = +blk.dataset.blk; paintFocus(); }
+  // Блок документа под курсором — непосредственный кусок .doc.
+  const doc = t.closest('#sc .doc');
+  if (!doc || t === doc) return;
+  let row = t;
+  while (row.parentElement !== doc) row = row.parentElement;
+  clickOld(row, !!t.closest('[data-p]'));
+}
 
 $('#sc').addEventListener('dblclick', (e) => {
   const c = caretAt(e.clientX, e.clientY);
@@ -1850,6 +2116,9 @@ document.addEventListener('keydown', (e) => {
     else if (seq === ']n') jumpComment(1);
     else if (seq === '[n') jumpComment(-1);
     else if (seq === 'gc' && S.sel) openNew();
+    else if (seq === 'za') oldClick(oldAtReading());
+    else if (seq === 'zR') allOld(true);
+    else if (seq === 'zM') allOld(false);
     return;
   }
   if (k === '?') { e.preventDefault(); S.overlay = 'help'; renderOverlays(); renderStatus(); return; }
@@ -1863,10 +2132,10 @@ document.addEventListener('keydown', (e) => {
   const sc = $('#sc');
   switch (k) {
     case ' ': e.preventDefault(); if (S.review) { S.overlay = 'menu'; renderOverlays(); renderStatus(); } break;
-    case 'g': case ']': case '[': e.preventDefault(); S.pending = k; break;
+    case 'g': case ']': case '[': case 'z': e.preventDefault(); S.pending = k; break;
     case 'G': e.preventDefault(); sc.scrollTop = sc.scrollHeight; break;
-    case 'j': case 'ArrowDown': e.preventDefault(); scrollBy(56); break;
-    case 'k': case 'ArrowUp': e.preventDefault(); scrollBy(-56); break;
+    case 'j': case 'ArrowDown': e.preventDefault(); if (focusable()) moveFocus(1); else scrollBy(56); break;
+    case 'k': case 'ArrowUp': e.preventDefault(); if (focusable()) moveFocus(-1); else scrollBy(-56); break;
     case 'PageDown': e.preventDefault(); scrollBy(sc.clientHeight * 0.9); break;
     case 'PageUp': e.preventDefault(); scrollBy(-sc.clientHeight * 0.9); break;
     case 'Home': e.preventDefault(); sc.scrollTop = 0; break;
@@ -1999,8 +2268,12 @@ $('#sc').addEventListener('scroll', () => {
     scrollRaf = 0;
     mapViewport();
     renderStatus();
+    if (focusable() && Date.now() > S.focusHold) {
+      const k = readingBlock();
+      if (k !== S.focusBlk) { S.focusBlk = k; paintFocus(); }
+    }
     if (S.file && S.file.blocks && S.file.blocks.length && !S.blocksHidden) {
-      const cur = currentBlock();
+      const cur = activeBlock();
       document.querySelectorAll('#tree .tr.blk').forEach((el) => el.classList.toggle('cur', +el.dataset.block === cur));
     }
     savePos();

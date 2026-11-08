@@ -194,10 +194,18 @@ export function docUnits(chunks, oldText, newText) {
   return { units: list, ol, nl, maps };
 }
 
-// renderDoc — документ с правками. opts: cols, labels {base, current}, words {was, now, added, removed, more, blank}.
+// renderDoc — документ с правками. opts: cols, labels {base, current}, words {was, now, added, removed,
+// more, blank, gone(n)}, open — Set строк базы (data-o), у которых «как было» раскрыто.
+//
+// Одна колонка: видно только новое. Старая версия переписанного блока (.was.old) спрятана над ним,
+// у нового блока (.chg.hasold) — отметка; удалённое без замены (.was.gone) свёрнуто в черту
+// «удалено: N», соседние удалённые куски — одна черта. Раскрытое — .was.open. Подряд идущие новые куски — один блок: jn — слит со следующим,
+// jp — с предыдущим. Блоки с «до» и удалённое ни с чем не сливаются.
+// Две колонки: так же по каждой колонке (.c.jn / .c.jp), кроме строк «слева старое, справа новое».
 export function renderDoc(chunks, oldText, newText, opts = {}) {
   const { cols = 1 } = opts;
   const w = opts.words || {};
+  const open = opts.open || new Set();
   const { units, ol, nl, maps } = docUnits(chunks, oldText, newText);
   const oR = (i) => maps.o.get(i + 1)?.rs || [];
   const nR = (i) => maps.n.get(i + 1)?.rs || [];
@@ -225,46 +233,77 @@ export function renderDoc(chunks, oldText, newText, opts = {}) {
   };
   const isCodeDiff = (u) => u.old.length === 1 && u.new.length === 1 && u.old[0].type === 'code' && u.new[0].type === 'code' && u.new[0].inner[1] - u.new[0].inner[0] > 6;
 
-  let h = '';
+  // Сначала куски по порядку, потом слияние соседних и HTML.
+  // Одна колонка: {k: plain | add | gone | old | hasold | other, at, n0, o0, html, s, gone}.
+  // Две колонки: {at, l, r, cg} — l и r: вид подложки колонки (del | add | hatch | '') и HTML.
+  const items = [];
   for (const u of units) {
     const n0 = u.new.length ? u.new[0].start + 1 : 0;
     const o0 = u.old.length ? u.old[0].start + 1 : 0;
     const at = `${n0 ? ` data-n="${n0}"` : ''}${o0 ? ` data-o="${o0}"` : ''}`;
     if (!u.dirty) {
-      if (cols === 2) h += `<div class="r"${at}><div class="c">${blocks(u.old, ol, oR, '', 'o')}</div><div class="c">${blocks(u.new, nl, nR, '', 'n')}</div></div>`;
-      else h += blocks(u.new, nl, nR, '', 'n');
+      if (cols === 2) items.push({ at, l: ['', blocks(u.old, ol, oR, '', 'o')], r: ['', blocks(u.new, nl, nR, '', 'n')] });
+      else items.push({ k: 'plain', html: blocks(u.new, nl, nR, '', 'n') });
       continue;
     }
     if (u.blank) {
       const t = u.blank.added ? w.blankAdded : w.blankRemoved;
       const cls = u.blank.added ? 'add' : 'del';
-      if (cols === 2) h += `<div class="r cg"${at}><div class="c">${u.blank.added ? '<div class="b hatch ws"></div>' : `<div class="b del ws">${t}</div>`}</div><div class="c">${u.blank.added ? `<div class="b add ws">${t}</div>` : '<div class="b hatch ws"></div>'}</div></div>`;
-      else h += `<div class="chg ${cls} ws cg"${at}>${t}</div>`;
+      if (cols === 2) items.push({ at, cg: true, l: ['', u.blank.added ? '<div class="b hatch ws"></div>' : `<div class="b del ws">${t}</div>`], r: ['', u.blank.added ? `<div class="b add ws">${t}</div>` : '<div class="b hatch ws"></div>'] });
+      else items.push({ k: 'other', html: `<div class="chg ${cls} ws cg"${at}>${t}</div>` });
       continue;
     }
     const oldH = blocks(u.old, ol, oR, 'wd', 'o');
     const newH = blocks(u.new, nl, nR, 'wa', 'n');
     if (cols === 2) {
-      const left = u.old.length ? `<div class="b del">${oldH}</div>` : '<div class="b hatch"></div>';
-      const right = u.new.length ? `<div class="b add">${newH}</div>` : '<div class="b hatch"></div>';
-      h += `<div class="r cg"${at}><div class="c">${left}</div><div class="c">${right}</div></div>`;
+      items.push({ at, cg: true, l: u.old.length ? ['del', oldH] : ['hatch', ''], r: u.new.length ? ['add', newH] : ['hatch', ''] });
       continue;
     }
     if (isCodeDiff(u)) {
-      h += `<div class="chg mix cg"${at} data-s="${esc(w.changed || '')}">${codeDiff(u)}</div>`;
+      items.push({ k: 'other', html: `<div class="chg mix cg"${at} data-s="${esc(w.changed || '')}">${codeDiff(u)}</div>` });
     } else if (!u.old.length) {
-      h += `<div class="chg add cg"${at} data-s="${esc(w.added || '')}">${newH}</div>`;
+      items.push({ k: 'add', at, html: newH, s: w.added });
     } else if (!u.new.length) {
-      h += `<div class="chg del cg"${at} data-s="${esc(w.removed || '')}">${oldH}</div>`;
+      const last = items[items.length - 1];
+      if (last && last.k === 'gone') { last.html += oldH; last.gone += u.old.length; }
+      else items.push({ k: 'gone', at, o0, html: oldH, s: w.removed, gone: u.old.length });
     } else if (!oldMarked(u)) {
-      h += `<div class="chg add cg"${at} data-s="${esc(w.more || '')}">${newH}</div>`;
+      items.push({ k: 'add', at, html: newH, s: w.more });
     } else {
-      h += `<div class="chg del cg"${at} data-s="${esc(w.was || '')}">${oldH}</div><div class="chg add"${n0 ? ` data-n="${n0}"` : ''} data-s="${esc(w.now || '')}">${newH}</div>`;
+      items.push({ k: 'old', at, o0, html: oldH, s: w.was });
+      items.push({ k: 'hasold', at: n0 ? ` data-n="${n0}"` : '', html: newH, s: w.now });
     }
   }
+
+  let h = '';
   if (cols === 2) {
+    const pair = (x) => x && x.l[0] === 'del' && x.r[0] === 'add';
+    const joins = (x, y, side) => !!(x && y && x[side][0] && x[side][0] === y[side][0] && !pair(x) && !pair(y));
+    items.forEach((x, i) => {
+      const col = (side) => {
+        const [k, html] = x[side];
+        const j = (joins(x, items[i + 1], side) ? ' jn' : '') + (joins(items[i - 1], x, side) ? ' jp' : '');
+        return `<div class="c${j}">${k ? `<div class="b ${k}">${html}</div>` : html}</div>`;
+      };
+      h += `<div class="r${x.cg ? ' cg' : ''}"${x.at}>${col('l')}${col('r')}</div>`;
+    });
     return `<div class="two"><div class="hd"><div>${opts.labels?.base || ''}</div><div>${opts.labels?.current || ''}</div></div>${h}</div>`;
   }
+  const joins = (x, y) => !!(x && y && x.k === 'add' && y.k === 'add');
+  items.forEach((x, i) => {
+    if (x.k === 'plain' || x.k === 'other') { h += x.html; return; }
+    if (x.k === 'old' || x.k === 'gone') {
+      // «Как было»: .was сворачивается целиком — .gx (сетка 0fr ↔ 1fr) прячет блок правки по высоте.
+      const bar = x.k === 'gone' ? `<div class="gonebar">${esc(w.gone ? w.gone(x.gone) : String(x.gone))}</div>` : '';
+      h += `<div class="was ${x.k} cg${open.has(x.o0) ? ' open' : ''}"${x.at} data-s="${esc(x.s || '')}">${bar}<div class="gx"><div class="gi"><div class="chg del">${x.html}</div></div></div></div>`;
+      return;
+    }
+    const cls = ['chg', 'add'];
+    if (x.k === 'hasold') cls.push('hasold'); else cls.push('cg');
+    if (joins(x, items[i + 1])) cls.push('jn');
+    if (joins(items[i - 1], x)) cls.push('jp');
+    h += `<div class="${cls.join(' ')}"${x.at} data-s="${esc(x.s || '')}">${x.html}</div>`;
+  });
   return `<article class="doc">${h}</article>`;
 }
 

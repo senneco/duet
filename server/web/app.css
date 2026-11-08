@@ -215,7 +215,6 @@ pre.diff .cadd > .cl { background: var(--add-bg); margin: 0 -16px; padding: 0 16
 .chg.del { background: var(--del-bg) }
 .chg.add { background: var(--add-bg) }
 .chg.mix { background: none; padding: 0 14px }
-.chg.del:has(+ .chg.add) { margin-bottom: 4px }
 .chg.ws { font: 12px/1.4 var(--mono); padding: 4px 14px }
 .chg.ws.del { color: var(--del-fg) }
 .chg.ws.add { color: var(--add-fg) }
@@ -638,3 +637,36 @@ body.dark .vp .sg button.on { background: var(--line2) }
 .vp .pal button.on { background: var(--bg-seg); color: var(--fg); font-weight: 600 }
 .vp .pal i { width: 34px; height: 9px; border-radius: 5px; display: block }
 .vp .vf { padding-top: 9px; border-top: 1px solid var(--line); color: var(--fg3); font: 11px/1.5 var(--mono) }
+
+/* ── шаг 7b: «как было» по клику, черта «удалено», соседние правки одним блоком, фокус по блокам ── */
+/* «как было»: .was прячет блок правки по высоте (сетка 0fr ↔ 1fr), отступы и прозрачность едут вместе;
+   переход по классу .open, поэтому повторный клик посреди движения плавно разворачивает его */
+.doc { --old-t: .32s cubic-bezier(.45, 0, .2, 1) }
+.doc > .was { position: relative }
+.was > .gx { display: grid; grid-template-rows: 0fr; opacity: 0; visibility: hidden; transition: grid-template-rows var(--old-t), opacity .2s ease, visibility 0s linear .32s }
+.was.open > .gx { grid-template-rows: 1fr; opacity: 1; visibility: visible; transition: grid-template-rows var(--old-t), opacity .3s ease .05s, visibility 0s }
+.was > .gx > .gi { display: flow-root; min-height: 0; overflow-x: visible; overflow-y: clip }
+#sc.keep { overflow-anchor: none }
+#sc.noanim .was, #sc.noanim .was *, #sc.noanim .chg, #sc.noanim .chg::before { transition: none !important }
+/* старая версия переписанного блока стоит вплотную над новой; у новой — красная точка на полях */
+.was.old .chg { margin-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0 }
+.doc > .chg.hasold { transition: border-radius .2s }
+.doc > .was.old.open + .chg.hasold { border-top-left-radius: 0; border-top-right-radius: 0 }
+.doc > .chg.hasold::before { content: ""; position: absolute; left: -12px; top: calc(6px + .85em - 3px); width: 6px; height: 6px; border-radius: 50%; background: var(--del-fg); opacity: .85; transition: transform .2s, opacity .2s }
+.doc > .chg.hasold:hover::before { transform: scale(1.35); opacity: 1 }
+.doc > .was.old.open + .chg.hasold::before { opacity: 0; transform: scale(.3) }
+body:is(.edge-leaf, .edge-frame) .page .doc > .chg.hasold::before { left: 18px }
+/* удалено без замены: тонкая черта «удалено: N абзацев» уходит, удалённый текст выезжает */
+.gonebar { display: flex; align-items: center; gap: 10px; height: 22px; margin-bottom: 14px; overflow: hidden; font: 11px/22px var(--mono); color: var(--del-fg); cursor: pointer; user-select: none; transition: height var(--old-t), margin var(--old-t), opacity .2s }
+.gonebar::before { content: ""; flex: none; width: 26px; border-top: 2px solid var(--del-fg); border-radius: 1px }
+.gonebar:hover { text-decoration: underline }
+.was.gone.open > .gonebar { height: 0; margin-bottom: 0; opacity: 0 }
+/* соседние правки одним блоком: jn — слит со следующим, jp — с предыдущим; карточка между ними разрывает */
+.doc > .chg.jn:not(:has(+ .cc-slot)) { margin-bottom: 0; padding-bottom: 10px; border-bottom-left-radius: 0; border-bottom-right-radius: 0 }
+.doc > :not(.cc-slot) + .chg.jp { border-top-left-radius: 0; border-top-right-radius: 0 }
+.r:not(:has(+ .cc-slot)) > .c.jn { padding-bottom: 0 }
+.r:not(:has(+ .cc-slot)) > .c.jn > .b { border-bottom-left-radius: 0; border-bottom-right-radius: 0; padding-bottom: 14px }
+.r:not(.cc-slot) + .r > .c.jp > .b { border-top-left-radius: 0; border-top-right-radius: 0 }
+/* фокус по блокам: блок, который читаешь, обычной яркости, остальное приглушено */
+#sc [data-blk] { transition: opacity .25s }
+body.focus #sc [data-blk]:not(.fcur) { opacity: .3 }

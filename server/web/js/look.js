@@ -26,6 +26,7 @@ export const OPTIONS = [
   { name: 'font', key: 'f', values: ['serif', 'sans'] },
   { name: 'size', key: 's', values: ['s', 'm', 'l'], def: 'm' },
   { name: 'edge', key: 'e', values: ['none', 'leaf', 'frame'] },
+  { name: 'focus', key: 'b', values: ['off', 'on'] },
   { name: 'keys', key: 'p', values: ['on', 'off'] },
   { name: 'lang', key: 'l', values: ['ru', 'en'] },
 ];
@@ -75,13 +76,14 @@ export function paint(look, scheme) {
   const classes = [`ch-${look.char}`, `sz-${look.size}`, `edge-${look.edge}`];
   if (look.font === 'sans') classes.push('sans');
   if (look.keys === 'off') classes.push('nokeys');
+  if (look.focus === 'on') classes.push('focus');
   return { props, classes };
 }
 
 // Все классы, которые ставит paint: их снимают перед тем, как поставить новые.
 export const LOOK_CLASSES = [
   ...OPTIONS[0].values.map((v) => `ch-${v}`), ...byName.size.values.map((v) => `sz-${v}`),
-  ...byName.edge.values.map((v) => `edge-${v}`), 'sans', 'nokeys',
+  ...byName.edge.values.map((v) => `edge-${v}`), 'sans', 'nokeys', 'focus',
 ];
 
 // swatch — образец палитры: половина «новое», половина «убранное».
@@ -103,6 +105,6 @@ export function panelHTML(look, t, scheme) {
 <div class="tl">${byName.char.values.map((v, i) => `<span class="${i === ci ? 'on' : ''}">${L.v.char[v]}</span>`).join('')}</div></div>`;
   const pal = `<div class="vr pr"><span class="lk">c</span><span class="vl">${L.n.pal}</span></div><div class="pal">${byName.pal.values.map((k) => `<button data-look="pal=${k}" class="${look.pal === k ? 'on' : ''}"><i style="${swatch(k, scheme)}"></i>${L.v.pal[k]}</button>`).join('')}</div>`;
   return `<div class="vp"><div class="vh">${L.title}<span class="sp"></span><span class="x" data-act="look">${L.close}</span></div>
-${char}${pal}${['theme', 'font', 'size', 'edge', 'keys', 'lang'].map(row).join('')}
+${char}${pal}${['theme', 'font', 'size', 'edge', 'focus', 'keys', 'lang'].map(row).join('')}
 <div class="vf">${L.foot}</div></div>`;
 }

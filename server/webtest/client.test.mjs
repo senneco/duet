@@ -284,7 +284,7 @@ import { loadLook, next, optionByKey, isOption, paint, panelHTML, OPTIONS, PALET
 
 test('вид: по умолчанию — обычный характер, классика, как macOS, с засечками, средний, без краёв, клавиши видны', () => {
   const look = loadLook((k, d) => d, 'ru');
-  assert.deepEqual(look, { char: 'normal', pal: 'gh', theme: 'system', font: 'serif', size: 'm', edge: 'none', keys: 'on', lang: 'ru' });
+  assert.deepEqual(look, { char: 'normal', pal: 'gh', theme: 'system', font: 'serif', size: 'm', edge: 'none', focus: 'off', keys: 'on', lang: 'ru' });
 });
 
 test('вид: выбор читается из хранилища, неизвестное значение — как по умолчанию', () => {
@@ -299,7 +299,7 @@ test('вид: выбор читается из хранилища, неизве�
 });
 
 test('вид: буква переключает настройку на следующее значение по кругу', () => {
-  assert.deepEqual(OPTIONS.map((o) => o.key).join(''), 'hctfsepl');
+  assert.deepEqual(OPTIONS.map((o) => o.key).join(''), 'hctfsebpl');
   const look = loadLook((k, d) => d, 'ru');
   assert.equal(optionByKey('h').name, 'char');
   assert.equal(next(look, 'char'), 'juicy');
@@ -318,9 +318,9 @@ test('вид: цвета правок из палитры и силы харак
   assert.equal(p.props['--add-fg'], PALETTES.gh.dark.a);
   assert.equal(p.props['--add-bg'], `color-mix(in srgb, ${PALETTES.gh.dark.a} 20%, var(--bg))`);
   assert.deepEqual(p.classes, ['ch-normal', 'sz-m', 'edge-none']);
-  const q = paint({ ...look, char: 'quiet', font: 'sans', keys: 'off' }, 'light');
+  const q = paint({ ...look, char: 'quiet', font: 'sans', keys: 'off', focus: 'on' }, 'light');
   assert.equal(q.props['--del-w'], `color-mix(in srgb, ${PALETTES.gh.light.d} 17%, var(--bg))`);
-  assert.ok(q.classes.includes('sans') && q.classes.includes('nokeys'));
+  assert.ok(q.classes.includes('sans') && q.classes.includes('nokeys') && q.classes.includes('focus'));
 });
 
 test('вид: карточка показывает все настройки и отмечает выбранные', () => {
@@ -330,4 +330,60 @@ test('вид: карточка показывает все настройки и
   assert.match(h, /data-look="pal=gh" class="on"/);
   assert.match(h, /<div class="cv">Обычный<\/div>/);
   assert.match(h, /data-look="edge=none" class="on">без краёв/);
+});
+
+// ── шаг 7b: «как было» по клику, черта «удалено», соседние правки одним блоком ──
+
+const W7 = { was: 'было', now: 'стало', added: 'новое', removed: 'удалено', gone: (n) => `удалено: ${n}` };
+const chgs = (h) => [...h.matchAll(/<div class="((?:chg|was) [^"]*)"/g)].map((m) => m[1]);
+
+test('227: переписанный абзац — старая версия спрятана над новой, у новой отметка; раскрытая — open', () => {
+  const o = '# T\n\nСтарый абзац.\n';
+  const n = '# T\n\nНовый абзац.\n';
+  const chunks = [
+    { kind: 'same', old: [L(1, '# T'), L(2, '')], new: [L(1, '# T'), L(2, '')] },
+    { kind: 'deleted', old: [L(3, 'Старый абзац.')] },
+    { kind: 'added', new: [L(3, 'Новый абзац.')] },
+  ];
+  assert.deepEqual(chgs(renderDoc(chunks, o, n, { words: W7 })), ['was old cg', 'chg del', 'chg add hasold']);
+  assert.deepEqual(chgs(renderDoc(chunks, o, n, { words: W7, open: new Set([3]) })), ['was old cg open', 'chg del', 'chg add hasold']);
+});
+
+test('230: удалённое без замены — черта «удалено: N»; соседние удалённые куски — одна черта', () => {
+  const o = 'Первый.\n\nВторой.\nи ещё строка.\n\nОстался.\n';
+  const n = '\nОстался.\n';
+  const chunks = [
+    { kind: 'deleted', old: [L(1, 'Первый.')] },
+    { kind: 'same', old: [L(2, '')], new: [L(1, '')] },
+    { kind: 'deleted', old: [L(3, 'Второй.'), L(4, 'и ещё строка.'), L(5, '')] },
+    { kind: 'same', old: [L(6, 'Остался.')], new: [L(2, 'Остался.')] },
+  ];
+  const h = renderDoc(chunks, o, n, { words: W7 });
+  assert.deepEqual(chgs(h), ['was gone cg', 'chg del']);
+  assert.match(h, /<div class="was gone cg" data-o="1" data-s="удалено"><div class="gonebar">удалено: 2<\/div>/);
+  assert.deepEqual(marks(plain(h), 'wd'), ['Первый.', 'Второй.', 'и ещё строка.']);
+  assert.deepEqual(chgs(renderDoc(chunks, o, n, { words: W7, open: new Set([1]) })), ['was gone cg open', 'chg del']);
+});
+
+test('232: подряд новые куски — один блок, блок с «до» отдельно; в двух колонках так же по колонкам', () => {
+  const o = '# T\n\n# U\nБ.\n\n';
+  const n = '# T\nН1\n\nН2\n# U\nБ2.\n\nН3\n';
+  const chunks = [
+    { kind: 'same', old: [L(1, '# T')], new: [L(1, '# T')] },
+    { kind: 'added', new: [L(2, 'Н1')] },
+    { kind: 'same', old: [L(2, '')], new: [L(3, '')] },
+    { kind: 'added', new: [L(4, 'Н2')] },
+    { kind: 'same', old: [L(3, '# U')], new: [L(5, '# U')] },
+    { kind: 'deleted', old: [L(4, 'Б.')] },
+    { kind: 'added', new: [L(6, 'Б2.')] },
+    { kind: 'same', old: [L(5, '')], new: [L(7, '')] },
+    { kind: 'added', new: [L(8, 'Н3')] },
+  ];
+  const h = renderDoc(chunks, o, n, { words: W7 });
+  assert.deepEqual(chgs(h), ['chg add cg jn', 'chg add cg jp', 'was old cg', 'chg del', 'chg add hasold', 'chg add cg']);
+  const two = renderDoc(chunks, o, n, { cols: 2, words: W7 });
+  const cols = [...two.matchAll(/<div class="r[^"]*"[^>]*><div class="(c[^"]*)">/g)].map((m) => m[1]);
+  const right = [...two.matchAll(/<\/div><div class="(c[^"]*)"><div class="b (\w+)"/g)].map((m) => `${m[1]} ${m[2]}`);
+  assert.deepEqual(cols, ['c', 'c jn', 'c jp', 'c', 'c', 'c']);
+  assert.deepEqual(right, ['c jn add', 'c jp add', 'c add', 'c add']);
 });

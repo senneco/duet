@@ -42,7 +42,7 @@ export function cardHTML(c, o) {
   const point = !c.whole && c.range && c.range.start === c.range.end && c.was;
   const where = c.whole ? t.cWhole : point ? t.cRemoved : '';
   const inr = c.inResponse && o.inResp ? `<span class="inr">· ${t.rInResp}</span>` : '';
-  let h = `<div class="cc${o.on ? ' on' : ''} st-${c.status}" data-cid="${esc(c.id)}"><div class="ch"><span class="no">${o.n || ''}</span>${stt}${inr}<span class="sp"></span>${where ? `<span class="wh">${where}</span>` : ''}</div>`;
+  let h = `<div class="cc${o.on ? ' on' : ''} st-${c.status}" data-cid="${esc(c.id)}"${point ? ' data-pt="1"' : ''}><div class="ch"><span class="no">${o.n || ''}</span>${stt}${inr}<span class="sp"></span>${where ? `<span class="wh">${where}</span>` : ''}</div>`;
   if (c.was) h += `<div class="was"><b>${t.cWas}</b>«${esc(c.was)}»${c.changed && !point ? `<i>${t.cChanged}</i>` : ''}</div>`;
   const th = c.thread || [];
   th.forEach((m, i) => {
@@ -243,6 +243,8 @@ export function placeCards(sc, list, current) {
       if (own && kind !== 'code' && (own.classList.contains('del') || own.querySelector('.b.del, .tx.del'))) { push(after, own, html); continue; }
       const next = rows.find((r) => r.hasAttribute('data-n') && +r.dataset.n >= line);
       if (!next) { end.push(html); continue; }
+      // Одна колонка: «было» спрятано над «стало» — карточка после пары, «было» раскроется.
+      if (next.matches('.was.old') && next.nextElementSibling && next.nextElementSibling.matches('.chg.hasold')) { push(after, next.nextElementSibling, html); continue; }
       push(before, next, html);
     } else {
       let row = null;
