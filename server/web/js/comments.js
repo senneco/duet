@@ -418,25 +418,25 @@ export function shapeMarks(root) {
   }
   const out = [];
   for (const [host, { hr, list }] of hosts) {
-    let wa = '', wd = '';
+    // Каждая правка — своим контуром: градиент («сочный», «яркий») ложится на фигуру правки, а не на весь абзац.
+    let paths = '';
     const marks = [];
     for (const [r, rects] of list) {
       const ls = lines(rects, hr);
       if (!ls.length) continue;
       marks.push(...r.marks);
-      const d = shapePath(ls, 4, 30);
-      if (r.cls === 'wa') wa += d; else wd += d;
+      paths += `<path class="${r.cls}" d="${shapePath(ls, 4, 30)}"/>`;
     }
-    if (wa || wd) out.push({ host, hr, wa, wd, marks });
+    if (paths) out.push({ host, hr, paths, marks });
   }
-  for (const { host, hr, wa, wd, marks } of out) {
+  for (const { host, hr, paths, marks } of out) {
     marks.forEach((m) => m.classList.add('shaped'));
     host.classList.add('mhost');
     const svg = document.createElementNS(SVG, 'svg');
     svg.setAttribute('class', 'mshape');
     svg.setAttribute('width', Math.ceil(hr.width));
     svg.setAttribute('height', Math.ceil(hr.height));
-    svg.innerHTML = (wa ? `<path class="wa" d="${wa}"/>` : '') + (wd ? `<path class="wd" d="${wd}"/>` : '');
+    svg.innerHTML = paths;
     host.prepend(svg);
   }
 }

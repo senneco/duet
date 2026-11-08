@@ -94,6 +94,7 @@ body.is-list .tree, body.is-list .winbar, body.is-list .map { display: none }
 .tr.blk.cur .nm { font-weight: 600 }
 .tag { flex: none; margin-left: 8px; font: 10.5px/1 var(--mono); padding: 3px 5px; border-radius: 4px; color: var(--fg3) }
 .tag.warn { color: var(--warn); background: var(--warn-soft) }
+.tag.own { color: var(--own); background: var(--own-soft) }
 .tag.rpl { color: var(--dot) }
 
 /* значки */
@@ -167,21 +168,23 @@ button.kb:hover { background: var(--acc-soft); color: var(--acc-fg) }
 .map:empty { display: none }
 
 /* ── пометки над файлом ── */
-.notice { margin: 28px 0 8px 100px; max-width: 660px; font: 15px/1.5 var(--sans); color: var(--fg2) }
+.notice { margin: 28px 0 8px var(--left); max-width: 660px; font: 15px/1.5 var(--sans); color: var(--fg2) }
 .notice.del { color: var(--del-fg) }
 .notice.add { color: var(--add-fg) }
 .gone-body { opacity: .65 }
-.basebar { display: flex; gap: 8px; align-items: center; padding: 14px 0 0 100px; font: 11.5px/1 var(--mono); color: var(--fg3) }
+.basebar { display: flex; gap: 8px; align-items: center; padding: 14px 0 0 var(--left); font: 11.5px/1 var(--mono); color: var(--fg3) }
 .basebar b, .hd b { color: var(--fg2); font-weight: 600 }
 .pill { color: var(--fg2); background: var(--bg-seg); padding: 3px 7px; border-radius: 4px }
 
 /* ── документ ── */
-.doc { font-family: var(--serif); font-size: 18px; line-height: 1.7; color: var(--fg); padding: 30px 40px 140px 100px }
+.page { --left: max(100px, calc((100% - 660px) / 2)) }
+.page:not(:has(> .doc)) { --left: 100px }
+.doc { font-family: var(--serif); font-size: var(--fs); line-height: 1.7; color: var(--fg); padding: 30px 40px 140px var(--left) }
 .doc > * { max-width: 660px }
-.doc h1 { font-size: 34px; line-height: 1.2; font-weight: 700; margin: 6px 0 22px; letter-spacing: -.01em }
-.doc h2 { font-size: 23px; line-height: 1.3; font-weight: 700; margin: 34px 0 12px }
-.doc h3 { font-size: 19.5px; line-height: 1.35; font-weight: 700; margin: 26px 0 10px }
-.doc h4, .doc h5, .doc h6 { font-size: 18px; font-weight: 700; margin: 20px 0 8px }
+.doc h1 { font-size: 1.89em; line-height: 1.2; font-weight: 700; margin: 6px 0 22px; letter-spacing: -.01em }
+.doc h2 { font-size: 1.28em; line-height: 1.3; font-weight: 700; margin: 34px 0 12px }
+.doc h3 { font-size: 1.08em; line-height: 1.35; font-weight: 700; margin: 26px 0 10px }
+.doc h4, .doc h5, .doc h6 { font-size: 1em; font-weight: 700; margin: 20px 0 8px }
 .doc .u > :first-child, .doc .chg .u:first-child > :first-child { margin-top: 0 }
 .doc p { margin: 0 0 16px }
 .doc blockquote { border-left: 3px solid var(--line2); padding-left: 16px; color: var(--fg2); margin: 0 0 16px }
@@ -194,12 +197,12 @@ button.kb:hover { background: var(--acc-soft); color: var(--acc-fg) }
 .li .lm:not(.n)::before { content: ""; position: absolute; left: 7px; top: .72em; width: 5px; height: 5px; border-radius: 50%; background: var(--fg3) }
 .li .lm.n { color: var(--fg3); font-variant-numeric: tabular-nums; text-align: left }
 .li .box { margin-right: 6px; color: var(--fg2) }
-.doc pre, .two pre { font: 13.5px/1.6 var(--mono); background: var(--code-bg); border-radius: 7px; padding: 12px 16px; margin: 0 0 16px; white-space: pre-wrap; word-break: break-word }
+.doc pre, .two pre { font: .75em/1.6 var(--mono); background: var(--code-bg); border-radius: 7px; padding: 12px 16px; margin: 0 0 16px; white-space: pre-wrap; word-break: break-word }
 .cl { display: block; min-height: 1.6em }
 .doc .chg pre, .two .b pre { background: var(--pre-in) }
 pre.diff .cdel > .cl { background: var(--del-bg); margin: 0 -16px; padding: 0 16px }
 pre.diff .cadd > .cl { background: var(--add-bg); margin: 0 -16px; padding: 0 16px }
-.doc table, .two table { border-collapse: collapse; font-size: 16px; line-height: 1.45; margin: 2px 0 16px; width: 100% }
+.doc table, .two table { border-collapse: collapse; font-size: .89em; line-height: 1.45; margin: 2px 0 16px; width: 100% }
 .doc th, .two th { text-align: left; font-weight: 700; padding: 6px 14px 6px 0; border-bottom: 1.5px solid var(--line2) }
 .doc td, .two td { padding: 6px 14px 6px 0; border-bottom: 1px solid var(--line2) }
 .doc tr:last-child td, .two tr:last-child td { border-bottom: 0 }
@@ -216,16 +219,12 @@ pre.diff .cadd > .cl { background: var(--add-bg); margin: 0 -16px; padding: 0 16
 .chg.ws { font: 12px/1.4 var(--mono); padding: 4px 14px }
 .chg.ws.del { color: var(--del-fg) }
 .chg.ws.add { color: var(--add-fg) }
-[data-s]::after { content: attr(data-s); position: absolute; right: calc(100% + 12px); top: 12px; font: 500 10.5px/1 var(--mono); white-space: nowrap; letter-spacing: .02em }
-.chg.del[data-s]::after { color: var(--del-fg) }
-.chg.add[data-s]::after { color: var(--add-fg) }
-.chg.mix[data-s]::after { color: var(--acc-fg) }
 mark { color: inherit; border-radius: 3px; padding: .06em 1px; -webkit-box-decoration-break: clone; box-decoration-break: clone }
 mark.wd { background: var(--del-w) }
 mark.wa { background: var(--add-w) }
 
 /* ── две колонки: документ ── */
-.two { font-family: var(--serif); font-size: 16.5px; line-height: 1.68; padding: 0 0 140px }
+.two { font-family: var(--serif); font-size: calc(var(--fs) - 1.5px); line-height: 1.68; padding: 0 0 140px }
 .hd { position: sticky; top: 0; z-index: 2; display: grid; grid-template-columns: 1fr 1fr; background: var(--bg); border-bottom: 1px solid var(--line); font: 11.5px/1 var(--mono); color: var(--fg3) }
 .hd > div { padding: 11px 34px 10px; display: flex; gap: 8px; align-items: center }
 .hd > div + div { border-left: 1px solid var(--line) }
@@ -238,16 +237,16 @@ mark.wa { background: var(--add-w) }
 .r > .c > .b.add { background: var(--add-bg) }
 .r > .c > .b.ws { font: 12px/1.4 var(--mono); min-height: 24px }
 .hatch { background-image: repeating-linear-gradient(135deg, var(--hatch) 0 1.2px, transparent 1.2px 7px) }
-.two h1 { font-size: 29px; line-height: 1.25; font-weight: 700 }
-.two h2 { font-size: 20.5px; line-height: 1.3; font-weight: 700; padding-top: 10px }
-.two h3, .two h4, .two h5, .two h6 { font-size: 17.5px; font-weight: 700; padding-top: 6px }
+.two h1 { font-size: 1.76em; line-height: 1.25; font-weight: 700 }
+.two h2 { font-size: 1.24em; line-height: 1.3; font-weight: 700; padding-top: 10px }
+.two h3, .two h4, .two h5, .two h6 { font-size: 1.06em; font-weight: 700; padding-top: 6px }
 .two p { margin: 0 }
 .two .u + .u { margin-top: 10px }
 .two .u:has(.li) + .u:has(.li) { margin-top: 4px }
 .two blockquote { border-left: 3px solid var(--line2); padding-left: 14px; color: var(--fg2) }
 .two hr { border: 0; border-top: 1px solid var(--line2); margin: 12px 0 }
-.two pre { font-size: 12.5px; margin: 4px 0; padding: 10px 12px }
-.two table { font-size: 15px; margin: 2px 0 }
+.two pre { font-size: .76em; margin: 4px 0; padding: 10px 12px }
+.two table { font-size: .91em; margin: 2px 0 }
 
 /* ── код ── */
 .code { font: 13px/21px var(--mono); padding: 8px 0 140px; color: var(--fg) }
@@ -551,3 +550,91 @@ body.dark .ewin { box-shadow: 0 30px 90px rgba(0, 0, 0, .7), 0 4px 14px rgba(0, 
 .off-card .h .pt.w { background: var(--warn) }
 .toast .x.o { background: var(--own-soft); color: var(--own) }
 .winbar .dnote { font: 11px/1 var(--mono); color: var(--own); background: var(--own-soft); padding: 4px 7px; border-radius: 4px; margin-left: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+
+/* ── вид (шаг 7a): настройки — js/look.js, макет — docs/changes/07-look/mockups/look.html ── */
+body { --fs: 18px }
+body.sz-s { --fs: 16px }
+body.sz-l { --fs: 20px }
+body.sans { --serif: var(--sans) }
+body.sans .doc { line-height: 1.62 }
+svg.defs { position: absolute; width: 0; height: 0 }
+.winbar, .banner, #app.rmode .rhead { position: relative }
+
+/* комментарии в коде на подсветке правки — читаются */
+:is(mark, .cadd, .cdel) .t-c, .code .ln:is(.add, .del) .t-c, .code2 .tx:is(.add, .del) .t-c { color: var(--fg2) }
+
+/* лист и рамка: текст на листе; в одну колонку правки идут от края до края листа */
+body.light { --sheet: #fffefc; --bg-out: #f0eee9 }
+body.dark { --sheet: #1c1a26; --bg-out: #121019 }
+body.edge-leaf .main { background: var(--bg-out) }
+body:is(.edge-leaf, .edge-frame) .page { margin: 16px 18px 0; border: 1px solid transparent; border-radius: 12px; overflow: clip }
+body.edge-leaf .page { background: var(--sheet); box-shadow: 0 1px 2px rgba(30, 20, 50, .06), 0 8px 28px rgba(30, 20, 50, .07) }
+body.dark.edge-leaf .page { box-shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 10px 34px rgba(0, 0, 0, .28) }
+body.edge-frame .page { border-color: var(--line2) }
+body:is(.edge-leaf, .edge-frame) .page > :last-child { padding-bottom: 60px }
+body:is(.edge-leaf, .edge-frame) #sc::after { content: ""; display: block; height: 120px }
+body:is(.edge-leaf, .edge-frame) .page:has(> .doc) { --left: 40px; width: min(740px, calc(100% - 40px)); margin: 18px auto 0; padding-top: 8px }
+body:is(.edge-leaf, .edge-frame) .page:has(> .doc) .doc { padding-right: 40px }
+body:is(.edge-leaf, .edge-frame) .page .doc .chg { margin-left: -40px; margin-right: -40px; padding-left: 40px; padding-right: 40px; border-radius: 0; max-width: 740px }
+body.edge-leaf .page .hd { background: var(--sheet) }
+body:is(.edge-leaf, .edge-frame) .page .two .hd > div { padding-left: 24px; padding-right: 24px }
+body:is(.edge-leaf, .edge-frame) .page .r > .c { padding-left: 24px; padding-right: 24px }
+body:is(.edge-leaf, .edge-frame) .page .r > .c > .b { margin: 0 -24px; padding-left: 24px; padding-right: 24px; border-radius: 0 }
+
+/* характер: сочный и яркий — подложка тает вправо, прямая полоса у края, градиент слов, дымка */
+.haze { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .3s;
+  background: radial-gradient(640px 420px at 18% 8%, color-mix(in srgb, var(--acc) 14%, transparent), transparent 70%),
+              radial-gradient(760px 520px at 88% 85%, color-mix(in srgb, var(--add-fg) 11%, transparent), transparent 70%),
+              radial-gradient(520px 380px at 70% 30%, color-mix(in srgb, var(--del-fg) 7%, transparent), transparent 70%) }
+body.ch-juicy .haze { opacity: .6 }
+body.ch-bright .haze { opacity: 1 }
+body:is(.ch-juicy, .ch-bright) :is(.chg, .b).add:not(.ws) { background: linear-gradient(90deg, var(--add-bg), var(--add-bg) 40%, color-mix(in srgb, var(--add-bg) 30%, transparent)); box-shadow: inset 3px 0 0 var(--add-fg); border-top-left-radius: 0; border-bottom-left-radius: 0 }
+body:is(.ch-juicy, .ch-bright) :is(.chg, .b).del:not(.ws) { background: linear-gradient(90deg, var(--del-bg), var(--del-bg) 40%, color-mix(in srgb, var(--del-bg) 30%, transparent)); box-shadow: inset 3px 0 0 var(--del-fg); border-top-left-radius: 0; border-bottom-left-radius: 0 }
+body.ch-bright :is(.chg, .b).add:not(.ws) { box-shadow: inset 3px 0 0 var(--add-fg), inset 16px 0 18px -12px color-mix(in srgb, var(--add-fg) 55%, transparent) }
+body.ch-bright :is(.chg, .b).del:not(.ws) { box-shadow: inset 3px 0 0 var(--del-fg), inset 16px 0 18px -12px color-mix(in srgb, var(--del-fg) 55%, transparent) }
+body:is(.ch-juicy, .ch-bright) mark.wa:not(.shaped) { background: linear-gradient(90deg, var(--add-w2), var(--add-w) 65%, color-mix(in srgb, var(--add-w) 55%, transparent)) }
+body:is(.ch-juicy, .ch-bright) mark.wd:not(.shaped) { background: linear-gradient(90deg, var(--del-w2), var(--del-w) 65%, color-mix(in srgb, var(--del-w) 55%, transparent)) }
+body:is(.ch-juicy, .ch-bright) svg.mshape path.wa { fill: url(#gwa) }
+body:is(.ch-juicy, .ch-bright) svg.mshape path.wd { fill: url(#gwd) }
+body.ch-bright mark.wa:not(.shaped) { box-shadow: 0 0 7px color-mix(in srgb, var(--add-fg) 35%, transparent) }
+body.ch-bright mark.wd:not(.shaped) { box-shadow: 0 0 7px color-mix(in srgb, var(--del-fg) 35%, transparent) }
+body.ch-bright svg.mshape path.wa { filter: drop-shadow(0 0 4px color-mix(in srgb, var(--add-fg) 40%, transparent)) }
+body.ch-bright svg.mshape path.wd { filter: drop-shadow(0 0 4px color-mix(in srgb, var(--del-fg) 40%, transparent)) }
+body:is(.ch-juicy, .ch-bright) .status .seg.mode:not(.lead, .off, .help, .edm, .rspm) { background: linear-gradient(90deg, var(--acc), var(--add-fg)) }
+
+/* клавиши на кнопках: «нет» прячет подписи */
+body.nokeys :is(.tabline, .winbar, .rhead) kbd { display: none }
+
+/* ── карточка «Вид» ── */
+.tabline .tb.on { background: var(--acc-soft); color: var(--acc-fg) }
+#over .vp { position: absolute; top: 34px; right: 10px; width: 392px; max-height: calc(100% - 70px); overflow: auto; background: var(--bg-pop); border: 1px solid var(--line2); border-radius: 12px; box-shadow: var(--shadow); padding: 14px 18px 12px; font: 13px/1.35 var(--sans); color: var(--fg) }
+.vp .vh { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font: 600 10.5px/1 var(--mono); letter-spacing: .08em; color: var(--fg3); text-transform: uppercase }
+.vp .vh .sp { flex: 1 }
+.vp .vh .x { text-transform: none; letter-spacing: 0; font-weight: 400; cursor: pointer }
+.vp .vh .x:hover { color: var(--fg) }
+.vr { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line) }
+.vr.pr { padding-bottom: 0 }
+.vr .vl { flex: 1; min-width: 0 }
+.vp .lk { flex: none; font: 600 10.5px/1 var(--mono); color: var(--fg3); width: 14px; text-align: center }
+.vp .sg { display: inline-flex; background: var(--bg-seg); border-radius: 7px; padding: 2px; flex: none }
+.vp .sg button { padding: 4px 9px; border-radius: 5px; font: 12px/1.2 var(--sans); color: var(--fg2) }
+.vp .sg button:hover { color: var(--fg) }
+.vp .sg button.on { background: var(--bg-pop); color: var(--fg); font-weight: 600; box-shadow: 0 1px 2px rgba(20, 10, 40, .14) }
+body.dark .vp .sg button.on { background: var(--line2) }
+.vp .ch { padding: 4px 0 14px }
+.vp .ch .cn { display: flex; align-items: baseline; gap: 8px }
+.vp .ch .cl { color: var(--fg2) }
+.vp .ch .cv { font-size: 17px; font-weight: 700; margin-top: 4px }
+.vp .ch .cd { color: var(--fg2); font-size: 12.5px; margin: 4px 0 14px; min-height: 34px }
+.vp .trk { position: relative; height: 18px; margin: 0 10px }
+.vp .trk::before { content: ""; position: absolute; left: 0; right: 0; top: 8px; height: 2px; border-radius: 1px; background: linear-gradient(90deg, var(--fg4), var(--acc), var(--add-fg)) }
+.vp .trk button { position: absolute; top: 2px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: var(--bg-pop); border: 2px solid var(--fg4) }
+.vp .trk button.on { border-color: var(--acc); background: var(--acc); box-shadow: 0 0 0 4px var(--acc-soft) }
+.vp .tl { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--fg3); margin-top: 6px }
+.vp .tl span.on { color: var(--fg); font-weight: 600 }
+.vp .pal { display: flex; gap: 4px; padding: 10px 0 12px }
+.vp .pal button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 7px 0 6px; border-radius: 8px; font-size: 11.5px; color: var(--fg2) }
+.vp .pal button:hover { background: var(--sel) }
+.vp .pal button.on { background: var(--bg-seg); color: var(--fg); font-weight: 600 }
+.vp .pal i { width: 34px; height: 9px; border-radius: 5px; display: block }
+.vp .vf { padding-top: 9px; border-top: 1px solid var(--line); color: var(--fg3); font: 11px/1.5 var(--mono) }

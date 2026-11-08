@@ -11,7 +11,7 @@ const RU = {
   noReview: 'Такого ревью нет.', noFiles: 'В ревью нет файлов.',
   unviewed: 'непросмотренный ответ', acceptedAll: 'принято целиком',
   agentNone: 'не подключён', agentWaits: 'ждёт', agentBusy: 'занят', agentWorks: 'работает', agentStopping: 'останавливается…', agentLost: 'пропал посреди работы',
-  modeRead: 'ЧТЕНИЕ', modeList: 'СПИСОК', modeMenu: 'МЕНЮ', modeHelp: 'СПРАВКА', modeOff: 'НЕТ СВЯЗИ',
+  modeRead: 'ЧТЕНИЕ', modeList: 'СПИСОК', modeMenu: 'МЕНЮ', modeHelp: 'СПРАВКА', modeLook: 'ВИД', modeOff: 'НЕТ СВЯЗИ',
   stNew: 'не открывали', stOpened: 'открывали', stAccepted: 'принят', stDeleted: 'удалён', stMoved: 'перешёл в другое ревью',
   stWorking: 'агент работает по комментариям', stRipple: 'непросмотренный ответ', stDisk: 'изменён на диске', stDiskShort: 'изм. на диске', stNewFile: 'новый файл',
   doc: 'документ', source: 'исходник', one: 'одна колонка', two: 'две колонки',
@@ -96,6 +96,27 @@ const RU = {
   diskHeld: 'изменён на диске — станет вашей правкой, когда ответ примут или отклонят',
   rRejDisk: (files) => `Изменённые на диске файлы (${files}) не вернутся: то, что на диске, станет вашей правкой.`,
   kEdit: 'править файл', kRevert: 'вернуть файл к базе',
+  lookBtn: 'вид', kLook: 'панель «Вид»',
+  look: {
+    title: 'Вид', close: ', или Esc — закрыть', foot: 'буква — следующее значение · выбор запоминается в браузере',
+    n: { char: 'Характер', pal: 'Цвета правок', theme: 'Схема', font: 'Шрифт', size: 'Размер', edge: 'Края текста', keys: 'Клавиши на кнопках', lang: 'Язык' },
+    v: {
+      char: { quiet: 'Тихий', normal: 'Обычный', juicy: 'Сочный', bright: 'Яркий' },
+      pal: { sian: 'Сияние', sea: 'Море', forest: 'Лес', sunset: 'Закат', gh: 'Классика' },
+      theme: { system: 'как macOS', dark: 'тёмная', light: 'светлая' },
+      font: { serif: 'с засечками', sans: 'без засечек' },
+      size: { s: 'мельче', m: 'средний', l: 'крупнее' },
+      edge: { none: 'без краёв', leaf: 'лист', frame: 'рамка' },
+      keys: { on: 'да', off: 'нет' },
+      lang: { ru: 'RU', en: 'EN' },
+    },
+    charText: {
+      quiet: 'Бледнее обычного: блоки правок чуть тонированы, слова заметнее блока.',
+      normal: 'Ровные подложки без переходов, изменённые слова ярче блока.',
+      juicy: 'Насыщеннее; подложка тает к правому краю, полоса у края блока, лёгкая дымка за текстом.',
+      bright: 'Самый насыщенный: дымка сильнее, полосы и изменённые слова светятся.',
+    },
+  },
 };
 
 const EN = {
@@ -104,7 +125,7 @@ const EN = {
   noReview: 'No such review.', noFiles: 'No files in this review.',
   unviewed: 'unviewed response', acceptedAll: 'fully accepted',
   agentNone: 'not connected', agentWaits: 'waiting', agentBusy: 'busy', agentWorks: 'working', agentStopping: 'stopping…', agentLost: 'lost mid-work',
-  modeRead: 'READ', modeList: 'LIST', modeMenu: 'MENU', modeHelp: 'HELP', modeOff: 'OFFLINE',
+  modeRead: 'READ', modeList: 'LIST', modeMenu: 'MENU', modeHelp: 'HELP', modeLook: 'VIEW', modeOff: 'OFFLINE',
   stNew: 'not opened', stOpened: 'opened', stAccepted: 'accepted', stDeleted: 'deleted', stMoved: 'moved to another review',
   stWorking: 'agent is working on comments', stRipple: 'unviewed response', stDisk: 'changed on disk', stDiskShort: 'changed on disk', stNewFile: 'new file',
   doc: 'document', source: 'source', one: 'one column', two: 'two columns',
@@ -189,6 +210,27 @@ const EN = {
   diskHeld: 'changed on disk — becomes your edit when the response is accepted or rejected',
   rRejDisk: (files) => `Files changed on disk (${files}) won’t be restored: what’s on disk becomes your edit.`,
   kEdit: 'edit the file', kRevert: 'revert the file to base',
+  lookBtn: 'view', kLook: 'the View panel',
+  look: {
+    title: 'View', close: ', or Esc — close', foot: 'a letter switches to the next value · remembered in the browser',
+    n: { char: 'Character', pal: 'Change colors', theme: 'Scheme', font: 'Font', size: 'Size', edge: 'Text edges', keys: 'Keys on buttons', lang: 'Language' },
+    v: {
+      char: { quiet: 'Quiet', normal: 'Normal', juicy: 'Juicy', bright: 'Bright' },
+      pal: { sian: 'Glow', sea: 'Sea', forest: 'Forest', sunset: 'Sunset', gh: 'Classic' },
+      theme: { system: 'like macOS', dark: 'dark', light: 'light' },
+      font: { serif: 'serif', sans: 'sans' },
+      size: { s: 'smaller', m: 'medium', l: 'larger' },
+      edge: { none: 'no edges', leaf: 'sheet', frame: 'frame' },
+      keys: { on: 'yes', off: 'no' },
+      lang: { ru: 'RU', en: 'EN' },
+    },
+    charText: {
+      quiet: 'Paler than normal: change blocks are lightly tinted, words stand out from the block.',
+      normal: 'Flat backgrounds without fades, changed words brighter than the block.',
+      juicy: 'Richer; the background fades to the right, a bar at the block edge, a light haze behind the text.',
+      bright: 'The richest: stronger haze, bars and changed words glow.',
+    },
+  },
 };
 
 export function defaultLang() {

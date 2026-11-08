@@ -1,0 +1,1065 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>duet — шаг 7: вид (макет)</title>
+<style>
+/* duet — вид по макету D «Клавиатура» (docs/changes/06a-reading/mockups/d-keyboard.html). */
+:root {
+  --mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+  --serif: Charter, "Iowan Old Style", Georgia, serif;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+}
+body.light {
+  --bg: #faf9f7; --bg-side: #f3f1ed; --bg-bar: #eeebe6; --bg-seg: #e5e1db; --bg-pop: #fffefc;
+  --line: #e3dfd8; --line2: #d6d1c9;
+  --fg: #25222d; --fg2: #5e5968; --fg3: #9b95a4; --fg4: #bdb7c4;
+  --acc: #7b6cf6; --acc-fg: #5b4ce0; --acc-soft: #ebe8fd; --acc-ink: #fff;
+  --sel: #e8e5f6;
+  --del-bg: #fcebec; --del-w: #f5c3c9; --del-fg: #c4364a;
+  --add-bg: #e7effd; --add-w: #c3d6f8; --add-fg: #2d62c9;
+  --dot: #3d7bf0; --warn: #b97c0a; --warn-soft: #fbf0d9; --err: #d0384c; --err-soft: #fbe7ea; --ok: #2f8a5b; --ok-soft: #e1f3e8;
+  --hatch: rgba(110, 100, 130, .17);
+  --code-bg: #f1eee9; --pre-in: rgba(255, 255, 255, .55);
+  --t-k: #7a3fc4; --t-s: #287a5c; --t-c: #9b95a4; --t-f: #a5521c; --t-t: #0e7a88; --t-n: #a5521c; --t-p: #8a4a8e;
+  --shadow: 0 10px 30px rgba(40, 30, 60, .13), 0 2px 6px rgba(40, 30, 60, .06);
+  --dim: rgba(250, 249, 247, .74);
+  color-scheme: light;
+}
+body.dark {
+  --bg: #17151f; --bg-side: #1b1925; --bg-bar: #1f1c2b; --bg-seg: #2a2639; --bg-pop: #211e2e;
+  --line: #2b2839; --line2: #383447;
+  --fg: #dcd8e6; --fg2: #a5a0b3; --fg3: #6f6a82; --fg4: #4d4960;
+  --acc: #8b7cf8; --acc-fg: #a99dfb; --acc-soft: #2a2547; --acc-ink: #fff;
+  --sel: #262238;
+  --del-bg: #43212a; --del-w: #7a3540; --del-fg: #f08a98;
+  --add-bg: #22344a; --add-w: #3d4f8a; --add-fg: #86aef5;
+  --dot: #6a9cf7; --warn: #e5ad45; --warn-soft: #3a2f1a; --err: #f07487; --err-soft: #3e1f28; --ok: #6fd19b; --ok-soft: #1d3428;
+  --hatch: rgba(170, 160, 200, .13);
+  --code-bg: #1f1c2a; --pre-in: rgba(0, 0, 0, .18);
+  --t-k: #c4a3ff; --t-s: #9fd6a7; --t-c: #6f6a82; --t-f: #f0b37a; --t-t: #7fd1d8; --t-n: #f0b37a; --t-p: #e3a3d6;
+  --shadow: 0 14px 40px rgba(0, 0, 0, .45), 0 2px 8px rgba(0, 0, 0, .3);
+  --dim: rgba(23, 21, 31, .74);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; margin: 0; padding: 0 }
+html, body { height: 100% }
+body { font-family: var(--sans); background: var(--bg); color: var(--fg); overflow: hidden; -webkit-font-smoothing: antialiased }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer }
+a { color: var(--acc-fg); text-decoration: none }
+a:hover { text-decoration: underline }
+kbd { font: 600 11px/1 var(--mono); padding: 3px 5px; border-radius: 4px; background: var(--bg-seg); color: var(--fg); box-shadow: inset 0 -1px 0 var(--line2); white-space: nowrap }
+.dim { color: var(--fg3) }
+.err { color: var(--err) }
+.ok { color: var(--ok) }
+.warn { color: var(--warn) }
+
+/* ── каркас ── */
+#app { height: 100%; display: flex; flex-direction: column; position: relative }
+.tabline { flex: none; height: 30px; display: flex; align-items: center; gap: 10px; padding: 0 10px 0 14px; background: var(--bg-bar); border-bottom: 1px solid var(--line); font: 12px/1 var(--mono); color: var(--fg2); white-space: nowrap }
+.tabline .logo { font-weight: 700; color: var(--acc-fg); letter-spacing: .02em }
+.tabline .sep { color: var(--fg4) }
+.tabline .ttl { color: var(--fg); font-family: var(--sans); font-size: 12.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis }
+.tabline .ttl.dim { color: var(--fg3); font-family: var(--mono); font-size: 12px; font-weight: 400 }
+.tabline .sp { flex: 1 }
+.tabline .tb { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 5px; color: var(--fg2); white-space: nowrap }
+.tabline .tb:hover { background: var(--bg-seg); color: var(--fg) }
+.tabline .tb b { color: var(--fg); font-weight: 600 }
+.tabline .tb s { text-decoration: none; color: var(--fg3) }
+.tabline .tsep { width: 1px; height: 14px; background: var(--line2); margin: 0 6px }
+.body { flex: 1; display: flex; min-height: 0; position: relative }
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; background: var(--bg) }
+.scroll { flex: 1; overflow: auto; position: relative; scrollbar-width: none }
+.scroll::-webkit-scrollbar { display: none }
+body.is-list .tree, body.is-list .winbar, body.is-list .map { display: none }
+
+/* ── дерево ── */
+.tree { width: 260px; flex: none; background: var(--bg-side); border-right: 1px solid var(--line); overflow: auto; padding: 8px 0 12px; font: 12.5px/1 var(--mono); color: var(--fg); scrollbar-width: thin }
+.tree .empty { padding: 12px 18px; color: var(--fg3); font-family: var(--sans) }
+.tr { position: relative; min-height: 25px; display: flex; align-items: center; padding-right: 10px; cursor: pointer; white-space: nowrap }
+.tr:hover { background: color-mix(in srgb, var(--sel) 55%, transparent) }
+.tr .ind { flex: none; align-self: stretch; width: 14px; position: relative }
+.tr .ind::before { content: ""; position: absolute; left: 6px; top: 0; bottom: 0; border-left: 1px solid var(--line2) }
+.tr .pad { flex: none; width: 10px }
+.tr .ic { flex: none; width: 20px; display: flex; align-items: center; justify-content: center; position: relative }
+.tr .nm { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis }
+.tr .fill { flex: 1 }
+.tr.dir { color: var(--fg2) }
+.tr.dir .ic { color: var(--fg3); font-size: 9px }
+.tr.open { background: var(--sel) }
+.tr.open::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--acc) }
+.tr.open .nm { font-weight: 600 }
+.tr.gone .nm { color: var(--fg3) }
+.tr.blk { min-height: 23px; color: var(--fg2); font-size: 12px }
+.tr.blk .imp { flex: none; width: 20px; text-align: center; font: 700 14px/1 var(--sans) }
+.tr.blk .imp.i3 { color: var(--acc-fg) }
+.tr.blk .imp.i2 { color: var(--fg2) }
+.tr.blk .imp.i1 { color: var(--fg3); font-weight: 400 }
+.tr.blk .nm { font-family: var(--sans); font-size: 12.5px }
+.tr.blk.cur { color: var(--fg) }
+.tr.blk.cur .nm { font-weight: 600 }
+.tag { flex: none; margin-left: 8px; font: 10.5px/1 var(--mono); padding: 3px 5px; border-radius: 4px; color: var(--fg3) }
+.tag.warn { color: var(--warn); background: var(--warn-soft) }
+.tag.rpl { color: var(--dot) }
+
+/* значки */
+.d-new { width: 8px; height: 8px; border-radius: 50%; background: var(--dot); animation: blink 1.6s ease-in-out infinite; display: inline-block }
+@keyframes blink { 0%, 100% { opacity: 1; transform: scale(1) } 50% { opacity: .25; transform: scale(.78) } }
+.d-seen { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--dot); display: inline-block; vertical-align: middle }
+.d-ok { color: var(--acc-fg); font-size: 12px; font-weight: 700; font-family: var(--sans) }
+.d-ok.gone { color: var(--fg3) }
+.d-gone { width: 8px; height: 2px; border-radius: 1px; background: var(--fg3); display: inline-block }
+.d-moved { color: var(--fg3); font-size: 11px }
+.rip { position: relative; width: 8px; height: 8px; display: inline-block; vertical-align: middle }
+.rip > i { position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid var(--dot); animation: ripple 2s ease-out infinite; opacity: 0 }
+.rip > i:nth-child(2) { animation-delay: .66s }
+.rip > i:nth-child(3) { animation-delay: 1.33s }
+@keyframes ripple { 0% { transform: scale(.7); opacity: .9 } 100% { transform: scale(2.6); opacity: 0 } }
+.rip > b { position: absolute; inset: 0; border-radius: 50%; background: var(--dot) }
+.rip.seen > b { background: none; border: 1.5px solid var(--dot) }
+/* змейка: шесть точек 2×3, огонёк бежит по часовой стрелке */
+.dots { display: inline-grid; grid-template-columns: repeat(2, 3px); grid-template-rows: repeat(3, 3px); gap: 2px; vertical-align: middle }
+.dots i { width: 3px; height: 3px; border-radius: 50%; background: var(--dot); opacity: .22; animation: snake 1.2s linear infinite }
+.dots i:nth-child(1) { animation-delay: 0s }
+.dots i:nth-child(2) { animation-delay: .2s }
+.dots i:nth-child(4) { animation-delay: .4s }
+.dots i:nth-child(6) { animation-delay: .6s }
+.dots i:nth-child(5) { animation-delay: .8s }
+.dots i:nth-child(3) { animation-delay: 1s }
+@keyframes snake { 0% { opacity: 1 } 30% { opacity: .6 } 50%, 100% { opacity: .22 } }
+.spin { display: inline-block; width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid var(--line2); border-top-color: var(--acc); animation: spin .9s linear infinite; vertical-align: middle }
+@keyframes spin { to { transform: rotate(360deg) } }
+
+/* ── верх файла ── */
+.winbar { flex: none; height: 36px; display: flex; align-items: center; gap: 10px; padding: 0 18px 0 22px; border-bottom: 1px solid var(--line); font: 12.5px/1 var(--mono); color: var(--fg2); background: var(--bg); white-space: nowrap }
+.winbar:empty { display: none }
+.winbar .dir { color: var(--fg3) }
+.winbar .fn { color: var(--fg); font-weight: 600 }
+.winbar .st { font-size: 11px; color: var(--fg3); display: inline-flex; align-items: center; gap: 6px; overflow: hidden }
+.winbar .sp { flex: 1 }
+.kb { display: inline-flex; align-items: center; gap: 7px; padding: 4px 6px 4px 9px; border-radius: 6px; font: 12px/1 var(--mono); color: var(--fg2) }
+button.kb:hover { background: var(--acc-soft); color: var(--acc-fg) }
+.kb.done { color: var(--acc-fg); padding-right: 9px }
+
+/* ── строка состояния ── */
+.status { flex: none; height: 28px; display: flex; align-items: stretch; background: var(--bg-bar); border-top: 1px solid var(--line); font: 11.5px/1 var(--mono); color: var(--fg2); position: relative; white-space: nowrap; overflow: hidden }
+.status .seg { display: block; line-height: 27px; padding: 0 11px; overflow: hidden; text-overflow: ellipsis }
+.status .seg .pbar, .status .seg .dots, .status .seg .spin, .status .seg .d-seen { vertical-align: middle; position: relative; top: -1px }
+.status .seg .pbar { margin-left: 8px }
+.status .seg + .seg { border-left: 1px solid var(--line) }
+.status .sp { flex: 1 }
+.status .sp + .seg { border-left: 1px solid var(--line) }
+.status .seg.mode { background: var(--acc); color: var(--acc-ink); font-weight: 700; letter-spacing: .06em; padding: 0 13px; border: 0; flex: none }
+.status .seg.mode.lead { background: var(--warn); color: #fff }
+.status .seg.mode.off { background: var(--err); color: #fff }
+.status .seg.mode.help { background: var(--fg2); color: var(--bg) }
+.status .seg.mode + .seg { border-left: 0 }
+.status .seg.file { color: var(--fg); background: var(--bg-seg); flex: 0 1 auto }
+.status .seg.file .dir { color: var(--fg3) }
+.status .seg.click { cursor: pointer; flex: none }
+.status .seg.click:hover { color: var(--fg); background: var(--bg-seg) }
+.status b { color: var(--fg); font-weight: 600 }
+.status .k { color: var(--acc-fg); font-weight: 700 }
+.status .sync { position: absolute; left: 0; top: -1px; height: 2px; background: var(--acc); transition: width .2s }
+.pbar { width: 54px; height: 4px; border-radius: 2px; background: var(--line2); overflow: hidden; display: inline-block }
+.pbar i { display: block; height: 100%; background: var(--acc); border-radius: 2px }
+
+/* ── карта правок ── */
+.map { position: absolute; right: 3px; top: 44px; bottom: 8px; width: 7px; cursor: pointer }
+.map i { position: absolute; left: 0; right: 0; border-radius: 1.5px; min-height: 3px; pointer-events: none }
+.map i.d { background: var(--del-fg); opacity: .7 }
+.map i.a { background: var(--add-fg); opacity: .75 }
+.map .vp { position: absolute; left: -2px; right: -2px; border-radius: 3px; border: 1px solid var(--fg4); background: color-mix(in srgb, var(--fg3) 8%, transparent); pointer-events: none }
+.map:empty { display: none }
+
+/* ── пометки над файлом ── */
+.notice { margin: 28px 0 8px 100px; max-width: 660px; font: 15px/1.5 var(--sans); color: var(--fg2) }
+.notice.del { color: var(--del-fg) }
+.notice.add { color: var(--add-fg) }
+.gone-body { opacity: .65 }
+.basebar { display: flex; gap: 8px; align-items: center; padding: 14px 0 0 100px; font: 11.5px/1 var(--mono); color: var(--fg3) }
+.basebar b, .hd b { color: var(--fg2); font-weight: 600 }
+.pill { color: var(--fg2); background: var(--bg-seg); padding: 3px 7px; border-radius: 4px }
+
+/* ── документ ── */
+.doc { font-family: var(--serif); font-size: 18px; line-height: 1.7; color: var(--fg); padding: 30px 40px 140px 100px }
+.doc > * { max-width: 660px }
+.doc h1 { font-size: 34px; line-height: 1.2; font-weight: 700; margin: 6px 0 22px; letter-spacing: -.01em }
+.doc h2 { font-size: 23px; line-height: 1.3; font-weight: 700; margin: 34px 0 12px }
+.doc h3 { font-size: 19.5px; line-height: 1.35; font-weight: 700; margin: 26px 0 10px }
+.doc h4, .doc h5, .doc h6 { font-size: 18px; font-weight: 700; margin: 20px 0 8px }
+.doc .u > :first-child, .doc .chg .u:first-child > :first-child { margin-top: 0 }
+.doc p { margin: 0 0 16px }
+.doc blockquote { border-left: 3px solid var(--line2); padding-left: 16px; color: var(--fg2); margin: 0 0 16px }
+.doc blockquote p { margin: 0 }
+.doc hr { border: 0; border-top: 1px solid var(--line2); margin: 26px 0 }
+.doc code, .two code { font: .8em/1 var(--mono); background: var(--code-bg); padding: 3px 6px; border-radius: 4px; color: var(--fg) }
+.doc .li, .two .li { position: relative; padding-left: calc(24px + var(--lvl, 0) * 24px); margin: 0 0 4px }
+.doc .li:has(+ .u:not(:has(.li))), .doc .u:last-child .li { margin-bottom: 16px }
+.li .lm { position: absolute; left: calc(var(--lvl, 0) * 24px); width: 22px }
+.li .lm:not(.n)::before { content: ""; position: absolute; left: 7px; top: .72em; width: 5px; height: 5px; border-radius: 50%; background: var(--fg3) }
+.li .lm.n { color: var(--fg3); font-variant-numeric: tabular-nums; text-align: left }
+.li .box { margin-right: 6px; color: var(--fg2) }
+.doc pre, .two pre { font: 13.5px/1.6 var(--mono); background: var(--code-bg); border-radius: 7px; padding: 12px 16px; margin: 0 0 16px; white-space: pre-wrap; word-break: break-word }
+.cl { display: block; min-height: 1.6em }
+.doc .chg pre, .two .b pre { background: var(--pre-in) }
+pre.diff .cdel > .cl { background: var(--del-bg); margin: 0 -16px; padding: 0 16px }
+pre.diff .cadd > .cl { background: var(--add-bg); margin: 0 -16px; padding: 0 16px }
+.doc table, .two table { border-collapse: collapse; font-size: 16px; line-height: 1.45; margin: 2px 0 16px; width: 100% }
+.doc th, .two th { text-align: left; font-weight: 700; padding: 6px 14px 6px 0; border-bottom: 1.5px solid var(--line2) }
+.doc td, .two td { padding: 6px 14px 6px 0; border-bottom: 1px solid var(--line2) }
+.doc tr:last-child td, .two tr:last-child td { border-bottom: 0 }
+.img { font-style: italic; color: var(--fg2) }
+.img::before { content: "▣ "; font-style: normal; color: var(--fg3) }
+
+/* блоки правок: светлый фон собирает правку, тёмным — текст, которого не было (или который убрали) */
+.chg { position: relative; margin: 0 -14px 16px; padding: 6px 14px; border-radius: 6px; max-width: 688px }
+.chg > .u:last-child > :last-child, .chg > .u:last-child .li { margin-bottom: 0 }
+.chg.del { background: var(--del-bg) }
+.chg.add { background: var(--add-bg) }
+.chg.mix { background: none; padding: 0 14px }
+.chg.del:has(+ .chg.add) { margin-bottom: 4px }
+.chg.ws { font: 12px/1.4 var(--mono); padding: 4px 14px }
+.chg.ws.del { color: var(--del-fg) }
+.chg.ws.add { color: var(--add-fg) }
+[data-s]::after { content: attr(data-s); position: absolute; right: calc(100% + 12px); top: 12px; font: 500 10.5px/1 var(--mono); white-space: nowrap; letter-spacing: .02em }
+.chg.del[data-s]::after { color: var(--del-fg) }
+.chg.add[data-s]::after { color: var(--add-fg) }
+.chg.mix[data-s]::after { color: var(--acc-fg) }
+mark { color: inherit; border-radius: 3px; padding: .06em 1px; -webkit-box-decoration-break: clone; box-decoration-break: clone }
+mark.wd { background: var(--del-w) }
+mark.wa { background: var(--add-w) }
+
+/* ── две колонки: документ ── */
+.two { font-family: var(--serif); font-size: 16.5px; line-height: 1.68; padding: 0 0 140px }
+.hd { position: sticky; top: 0; z-index: 2; display: grid; grid-template-columns: 1fr 1fr; background: var(--bg); border-bottom: 1px solid var(--line); font: 11.5px/1 var(--mono); color: var(--fg3) }
+.hd > div { padding: 11px 34px 10px; display: flex; gap: 8px; align-items: center }
+.hd > div + div { border-left: 1px solid var(--line) }
+.r { display: grid; grid-template-columns: 1fr 1fr }
+.r > .c { display: flex; flex-direction: column; padding: 0 34px 14px; min-width: 0 }
+.r > .c + .c { border-left: 1px solid var(--line) }
+.r:nth-child(2) > .c { padding-top: 24px }
+.r > .c > .b { flex: 1; margin: 0 -12px; padding: 4px 12px; border-radius: 6px }
+.r > .c > .b.del { background: var(--del-bg) }
+.r > .c > .b.add { background: var(--add-bg) }
+.r > .c > .b.ws { font: 12px/1.4 var(--mono); min-height: 24px }
+.hatch { background-image: repeating-linear-gradient(135deg, var(--hatch) 0 1.2px, transparent 1.2px 7px) }
+.two h1 { font-size: 29px; line-height: 1.25; font-weight: 700 }
+.two h2 { font-size: 20.5px; line-height: 1.3; font-weight: 700; padding-top: 10px }
+.two h3, .two h4, .two h5, .two h6 { font-size: 17.5px; font-weight: 700; padding-top: 6px }
+.two p { margin: 0 }
+.two .u + .u { margin-top: 10px }
+.two .u:has(.li) + .u:has(.li) { margin-top: 4px }
+.two blockquote { border-left: 3px solid var(--line2); padding-left: 14px; color: var(--fg2) }
+.two hr { border: 0; border-top: 1px solid var(--line2); margin: 12px 0 }
+.two pre { font-size: 12.5px; margin: 4px 0; padding: 10px 12px }
+.two table { font-size: 15px; margin: 2px 0 }
+
+/* ── код ── */
+.code { font: 13px/21px var(--mono); padding: 8px 0 140px; color: var(--fg) }
+.code .ln { display: grid; grid-template-columns: 44px 44px 22px minmax(0, 1fr) }
+.code.plain .ln { grid-template-columns: 0 52px 14px minmax(0, 1fr) }
+.code .no { color: var(--fg4); text-align: right; padding-right: 6px; user-select: none; font-size: 12px; overflow: hidden }
+.code .sg { text-align: center; user-select: none; color: var(--fg3) }
+.code .tx { white-space: pre-wrap; word-break: break-word; padding-right: 24px }
+.code .ln.del .sg, .code .ln.del .tx { background: var(--del-bg) }
+.code .ln.add .sg, .code .ln.add .tx { background: var(--add-bg) }
+.code .ln.del .sg { color: var(--del-fg) }
+.code .ln.add .sg { color: var(--add-fg) }
+.fold { display: flex; align-items: center; gap: 10px; height: 28px; margin: 4px 0; padding-left: 30px; color: var(--fg3); font: 11.5px/1 var(--mono); cursor: pointer; background: var(--code-bg); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line) }
+.fold:hover { color: var(--acc-fg) }
+.fold .ar { font-size: 10px }
+.fold .rg { color: var(--fg4) }
+.code2 { font: 12.5px/20px var(--mono); padding: 0 0 140px }
+.code2 .hd > div { padding: 11px 16px 10px 44px }
+.code2 .rr { display: grid; grid-template-columns: 40px minmax(0, 1fr) 40px minmax(0, 1fr) }
+.code2 .no { color: var(--fg4); text-align: right; padding-right: 10px; font-size: 11.5px; user-select: none }
+.code2 .no.r2 { border-left: 1px solid var(--line) }
+.code2 .tx { white-space: pre-wrap; word-break: break-word; padding: 0 16px 0 4px; min-width: 0 }
+.code2 .tx.del { background: var(--del-bg) }
+.code2 .tx.add { background: var(--add-bg) }
+.code2 .hd + .rr > * { padding-top: 10px }
+.code2 .hd + .rr > .tx { padding-top: 0; margin-top: 10px }
+.code2 .hatch { background-image: repeating-linear-gradient(135deg, var(--hatch) 0 1.2px, transparent 1.2px 7.0711px) }
+.code2 .fold { padding-left: 16px }
+.t-k { color: var(--t-k) } .t-s { color: var(--t-s) } .t-c { color: var(--t-c); font-style: italic } .t-f { color: var(--t-f) } .t-t { color: var(--t-t) } .t-n { color: var(--t-n) } .t-p { color: var(--t-p) }
+.code mark, .code2 mark, pre mark { padding: 1px 0; margin: 0; border-radius: 2px }
+
+/* ── список ревью ── */
+.list { max-width: 1200px; margin: 0 auto; padding: 54px 40px }
+.list .lh { display: flex; align-items: baseline; gap: 12px; margin: 0 0 16px 30px; font: 12px/1 var(--mono); color: var(--fg3) }
+.list .lh b { font: 600 22px/1 var(--sans); color: var(--fg); letter-spacing: -.01em }
+.list .empty { margin-left: 30px; font: 15px/1.5 var(--sans); color: var(--fg2) }
+.list .cols, .lr { display: grid; grid-template-columns: 30px minmax(0, 1fr) 150px 120px 230px 200px }
+.list .cols { font: 11px/1 var(--mono); color: var(--fg3); padding: 0 0 9px; border-bottom: 1px solid var(--line) }
+.lr { align-items: center; min-height: 58px; border-bottom: 1px solid var(--line); cursor: pointer; font: 12px/1.3 var(--mono); color: var(--fg2) }
+.lr:hover { background: color-mix(in srgb, var(--sel) 50%, transparent) }
+.lr.on { background: var(--sel); border-radius: 8px; border-bottom-color: transparent }
+.lr .cur { color: var(--acc-fg); font-weight: 700; text-align: center; opacity: 0 }
+.lr.on .cur { opacity: 1 }
+.lr .nm { font: 500 15.5px/1.35 var(--sans); color: var(--fg); padding-right: 16px }
+.lr .pr, .lr .ag, .lr .mk { display: flex; align-items: center; gap: 8px }
+.lr .mk.okc { color: var(--acc-fg) }
+.lr .mk.rpl { color: var(--dot) }
+
+/* ── всплывающее ── */
+#over > * { z-index: 10 }
+.wk { position: absolute; left: 0; right: 0; bottom: 28px; background: var(--bg-pop); border-top: 1px solid var(--line2); box-shadow: 0 -12px 30px rgba(30, 20, 50, .10); padding: 14px 30px 16px; font: 12.5px/1 var(--mono) }
+body.dark .wk { box-shadow: 0 -14px 34px rgba(0, 0, 0, .4) }
+.wk .top { display: flex; align-items: center; gap: 10px; color: var(--fg3); font-size: 11.5px; margin-bottom: 14px }
+.wk .top .crumb { color: var(--warn); font-weight: 700; font-size: 13px }
+.wk .top .sp { flex: 1 }
+.wk .grid { display: grid; grid-template-columns: repeat(2, max-content); gap: 0 90px }
+.wk .grp { font-size: 11px; color: var(--fg3); margin-bottom: 10px }
+.wk .it { display: flex; align-items: center; gap: 10px; height: 27px; cursor: pointer; border-radius: 5px; padding: 0 6px; margin: 0 -6px }
+.wk .it:hover { background: var(--sel) }
+.wk .it .key { width: 14px; color: var(--warn); font-weight: 700; font-size: 14px }
+.wk .it .ar { color: var(--fg4) }
+.wk .it .ds { font-family: var(--sans); font-size: 14px; color: var(--fg) }
+.wk .it .now { color: var(--fg3); font-size: 11px }
+.wk .it.later { cursor: default }
+.wk .it.later:hover { background: none }
+.wk .it.later .key, .wk .it.later .ds, .wk .it.later .now { color: var(--fg4) }
+.toast { position: absolute; right: 22px; bottom: 44px; width: 430px; background: var(--bg-pop); border: 1px solid var(--line2); border-radius: 10px; box-shadow: var(--shadow); padding: 14px 16px; display: grid; grid-template-columns: 26px 1fr; gap: 2px 8px }
+.toast .x { width: 20px; height: 20px; border-radius: 50%; background: var(--err-soft); color: var(--err); display: flex; align-items: center; justify-content: center; font: 700 12px/1 var(--sans); margin-top: 1px }
+.toast.ok .x { background: var(--ok-soft); color: var(--ok) }
+.toast .t1 { font: 600 14.5px/1.4 var(--sans); color: var(--fg) }
+.toast .t2 { font: 14px/1.45 var(--sans); color: var(--fg2); grid-column: 2 }
+.toast .t3 { grid-column: 2; display: flex; align-items: center; gap: 10px; margin-top: 10px; font: 11.5px/1 var(--mono); color: var(--fg3) }
+.dimmer { position: absolute; inset: 0; background: var(--dim) }
+.off-card { position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); width: 470px; background: var(--bg-pop); border: 1px solid var(--line2); border-radius: 12px; box-shadow: var(--shadow); padding: 22px 24px 18px }
+.off-card .h { display: flex; align-items: center; gap: 10px; font: 600 17px/1.3 var(--sans) }
+.off-card .h .pt { width: 9px; height: 9px; border-radius: 50%; background: var(--err) }
+.off-card p { font: 14.5px/1.55 var(--sans); color: var(--fg2); margin: 10px 0 14px }
+.off-card .ft { display: flex; align-items: center; gap: 9px; font: 11.5px/1 var(--mono); color: var(--fg3); border-top: 1px solid var(--line); padding-top: 12px }
+.keys { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(980px, calc(100% - 40px)); background: var(--bg-pop); border: 1px solid var(--line2); border-radius: 12px; box-shadow: var(--shadow); padding: 20px 28px 22px }
+.keys .h { display: flex; align-items: baseline; gap: 12px; margin-bottom: 18px; font: 11.5px/1 var(--mono); color: var(--fg3) }
+.keys .h b { font: 600 17px/1 var(--sans); color: var(--fg) }
+.keys .h .sp { flex: 1 }
+.keys .g { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 34px }
+.keys .grp { font: 11px/1 var(--mono); color: var(--fg3); margin: 14px 0 8px }
+.keys .k { display: flex; align-items: center; gap: 10px; min-height: 26px }
+.keys .k .ks { width: 74px; flex: none; display: flex; gap: 4px }
+.keys .k .ds { font: 14px/1.3 var(--sans); color: var(--fg) }
+.basebar.code-bar { padding-left: 44px; padding-bottom: 4px }
+/* значки в шапке файла не обрезаются */
+.winbar .st { overflow: visible }
+.winbar .st .rip, .winbar .st .dots { margin: 0 3px }
+
+/* ══ шаг 6b: комментарии ══ */
+body.light { --cm-u: #d9930f; --cm-u-soft: #fcf1dc; --cm-q: #3d7bf0; --cm-q-soft: #e4edfd; --sel-a: #bcd3f6; --sel-b: #d3c8fb; --sel-op: 1 }
+body.dark { --cm-u: #e5ad45; --cm-u-soft: #3a2f1a; --cm-q: #6a9cf7; --cm-q-soft: #1f2d48; --sel-a: #5f84a8; --sel-b: #6a5a9c; --sel-op: .85 }
+
+/* своё выделение: родного выделения в тексте файла нет, его рисует duet одной фигурой */
+#sc .doc, #sc .two, #sc .code, #sc .code2 { cursor: text }
+#sc .doc ::selection, #sc .two ::selection, #sc .code ::selection, #sc .code2 ::selection { background: transparent; color: inherit }
+#sc .cc ::selection, #sc .ced ::selection { background: color-mix(in srgb, var(--acc) 30%, transparent) }
+svg.selsvg { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 3; overflow: visible }
+svg.selsvg path { fill: url(#selg); fill-opacity: var(--sel-op) }
+svg.selsvg stop.a { stop-color: var(--sel-a) }
+svg.selsvg stop.b { stop-color: var(--sel-b) }
+body.light svg.selsvg { mix-blend-mode: multiply }
+body.dark svg.selsvg { mix-blend-mode: screen }
+
+/* правка в несколько строк — одной фигурой под текстом */
+.mhost { position: relative; z-index: 0 }
+svg.mshape { position: absolute; left: 0; top: 0; z-index: -1; pointer-events: none; overflow: visible }
+svg.mshape path.wa { fill: var(--add-w) }
+svg.mshape path.wd { fill: var(--del-w) }
+mark.shaped { background: transparent !important }
+
+/* меню при выделении */
+.smenu { position: absolute; z-index: 6; display: flex; align-items: center; gap: 8px; padding: 5px 6px 5px 10px; background: var(--bg-pop); border: 1px solid var(--line2); border-radius: 8px; box-shadow: var(--shadow); font: 500 13px/1 var(--sans); color: var(--fg); cursor: pointer; white-space: nowrap }
+.smenu:hover { background: var(--acc-soft); color: var(--acc-fg) }
+.smenu .ic { color: var(--acc-fg); font-size: 14px }
+
+/* окно комментария */
+.ced { position: absolute; z-index: 6; width: 440px; background: var(--bg-pop); border: 1px solid var(--line2); border-radius: 10px; box-shadow: var(--shadow); font: 14px/1.5 var(--sans); overflow: hidden; cursor: auto }
+.ced.whole { position: relative; width: auto; max-width: 620px; margin: 0 0 18px }
+.ced.incard { position: relative; width: auto; box-shadow: none; margin: 8px -4px 0; border-radius: 8px }
+.ced textarea { display: block; width: 100%; min-height: 76px; resize: none; border: 0; outline: 0; background: transparent; color: var(--fg); font: 14.5px/1.5 var(--sans); padding: 12px 14px 6px; field-sizing: content; max-height: 360px }
+.ced.incard textarea { min-height: 56px; font-size: 14px }
+.ced textarea::placeholder { color: var(--fg3) }
+.ced .wh { padding: 10px 14px 0; font: 11px/1 var(--mono); color: var(--fg3) }
+.ced .imgs { display: flex; flex-wrap: wrap; gap: 8px; padding: 2px 14px 10px }
+.thumb { position: relative; display: inline-block; border-radius: 6px; border: 1px solid var(--line2); overflow: hidden; background: var(--bg-side) }
+.thumb img { display: block; height: 64px; max-width: 160px; object-fit: cover }
+.thumb button { position: absolute; right: 2px; top: 2px; width: 18px; height: 18px; border-radius: 50%; background: var(--bg-pop); color: var(--fg2); font: 13px/16px var(--sans); text-align: center }
+.ced .ft { display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 14px; border-top: 1px solid var(--line); background: var(--bg-side); font: 11.5px/1 var(--mono); color: var(--fg3) }
+.ced .ft .sp { flex: 1 }
+.ced .ft .hint { color: var(--fg4) }
+.ced .ft.ask { background: var(--warn-soft); color: var(--fg) }
+.ced .ft.ask .q { font: 600 13px/1 var(--sans) }
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 6px 8px 6px 11px; border-radius: 6px; background: var(--acc); color: #fff; font: 500 13px/1 var(--sans) }
+.btn kbd { background: rgba(255, 255, 255, .2); color: #fff; box-shadow: none }
+.btn.err { background: var(--err) }
+.btn2 { display: inline-flex; align-items: center; gap: 7px; padding: 5px 7px 5px 10px; border-radius: 6px; font: 500 12.5px/1 var(--sans); color: var(--fg2) }
+.btn2:hover { background: var(--bg-seg); color: var(--fg) }
+
+/* отметка текста с комментарием */
+::highlight(cm-unsent) { text-decoration: underline 2px var(--cm-u); text-underline-offset: 4px }
+::highlight(cm-waiting), ::highlight(cm-working) { text-decoration: underline 2px var(--fg3); text-underline-offset: 4px }
+::highlight(cm-answered) { text-decoration: underline 2px var(--acc); text-underline-offset: 4px }
+::highlight(cm-question) { text-decoration: underline 2px var(--cm-q); text-underline-offset: 4px }
+::highlight(cm-on) { background-color: color-mix(in srgb, var(--acc) 22%, transparent) }
+
+/* карточки */
+.cc-slot { cursor: auto }
+.cc-doc { max-width: 620px; margin: 6px 0 20px }
+.cc-code, .cc-code.cc-whole { margin: 6px 24px 10px 110px; max-width: 600px }
+.code.plain + .cc-slot, .cc-whole.cc-doc { margin-top: 0 }
+.cc2 { display: grid; grid-template-columns: 1fr 1fr; padding: 6px 16px 10px 44px; column-gap: 60px }
+.r.cc-slot > .c { padding-top: 6px; padding-bottom: 12px }
+.cc-hatch { padding: 4px 0 }
+.b.hatch.cc-in-hatch { background-color: color-mix(in srgb, var(--cm-u) 8%, transparent); outline: 2px dashed color-mix(in srgb, var(--cm-u) 60%, transparent); outline-offset: -2px }
+.cc + .cc { margin-top: 8px }
+.cc { position: relative; background: var(--bg-pop); border: 1px solid var(--line2); border-radius: 9px; padding: 9px 12px 10px; font: 13.5px/1.45 var(--sans); color: var(--fg); cursor: pointer; transition: box-shadow .12s, border-color .12s; text-align: left }
+.cc.on { border-color: color-mix(in srgb, var(--acc) 70%, var(--line2)); box-shadow: var(--shadow); cursor: auto }
+.cc .ch { display: flex; gap: 8px; align-items: center; font: 11px/1 var(--mono); color: var(--fg3); margin-bottom: 6px; white-space: nowrap }
+.cc .ch .no { font-weight: 700; color: var(--fg2); min-width: 12px }
+.cc .ch .sp { flex: 1 }
+.stt { display: inline-flex; align-items: center; gap: 6px }
+.stt.unsent { color: var(--cm-u) }
+.stt.unsent::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--cm-u) }
+.stt.waiting::before { content: ""; width: 6px; height: 6px; border-radius: 50%; border: 1.2px solid var(--fg3) }
+.stt.working { color: var(--dot) }
+.stt.answered { color: var(--acc-fg) }
+.stt.question { color: #fff; background: var(--cm-q); padding: 3px 6px; border-radius: 4px; font-weight: 600 }
+.cc .m { white-space: pre-wrap; overflow-wrap: anywhere }
+.cc .m + .m, .cc .m + .ced, .cc .ced + .m { margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--line) }
+.cc .au { display: flex; gap: 6px; font: 10.5px/1 var(--mono); color: var(--fg3); margin-bottom: 4px; white-space: normal }
+.cc .ag .au { color: var(--acc-fg) }
+.cc .m.draft { background: var(--cm-u-soft); margin-left: -6px; margin-right: -6px; padding: 7px 6px 6px; border-radius: 6px; border-top: 0 }
+.cc .m.draft .au { color: var(--cm-u) }
+.cc .was { margin: 2px 0 7px; padding: 5px 8px; border-radius: 5px; background: var(--code-bg); font: 13px/1.4 var(--serif); color: var(--fg2); white-space: pre-wrap; max-height: 9em; overflow: hidden }
+.cc .was b { font: 600 10.5px/1 var(--mono); color: var(--fg3); margin-right: 6px }
+.cc .was i { font: normal 10.5px/1 var(--mono); color: var(--fg3); margin-left: 6px }
+.cc .mimg { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px }
+.cc .mimg img { display: block; max-height: 120px; max-width: 260px; border-radius: 6px; border: 1px solid var(--line2) }
+.cc .acts { display: flex; gap: 4px; margin: 8px -6px -4px; font: 11.5px/1 var(--mono); color: var(--fg3) }
+.cc .acts button { padding: 4px 6px; border-radius: 5px; display: inline-flex; gap: 6px; align-items: center; color: var(--fg3) }
+.cc .acts button:hover { background: var(--acc-soft); color: var(--acc-fg) }
+.cc .acts kbd, .cc .opt kbd { font-size: 10px; padding: 2px 4px }
+.cc .opts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; white-space: normal }
+.cc .opt { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line2); border-radius: 6px; padding: 4px 9px 4px 5px; font: 13px/1.2 var(--sans); color: var(--fg) }
+.cc .opt:hover { border-color: var(--acc) }
+.cc .opt.on { border-color: var(--acc); background: var(--acc-soft); color: var(--acc-fg) }
+
+/* дерево: сколько открытых комментариев; синим — есть вопрос агента */
+.cmk { flex: none; margin-left: 6px; font: 600 10px/1 var(--mono); color: var(--fg3); padding: 2px 4px; border-radius: 3px; background: var(--bg-seg) }
+.cmk.q { color: #fff; background: var(--cm-q) }
+
+/* строка состояния */
+.status .seg.uns { color: var(--cm-u); cursor: pointer }
+.status .seg.uns b { color: var(--cm-u) }
+.status .seg.uns:hover { background: var(--cm-u-soft) }
+.status .kb.int { margin-left: 6px; padding: 2px 5px; vertical-align: middle }
+
+/* полоса над файлом: агент пропал */
+.banner { display: flex; align-items: center; gap: 12px; padding: 9px 22px; border-bottom: 1px solid var(--line); font: 13.5px/1.4 var(--sans); background: var(--err-soft); color: var(--fg) }
+.banner:empty { display: none }
+.banner .sp { flex: 1 }
+.banner .pt { width: 8px; height: 8px; border-radius: 50%; background: var(--err); flex: none }
+.toast .x.i { background: var(--acc-soft); color: var(--acc-fg) }
+.toast .x.w { background: var(--warn-soft); color: var(--warn) }
+.toast code { font: 12px var(--mono); background: var(--bg-seg); padding: 2px 5px; border-radius: 4px; color: var(--fg); user-select: all }
+.toast .t3 .src { margin-left: auto }
+.toast .t3 button.btn2 { border: 1px solid var(--line2) }
+.off-card .bt { display: flex; gap: 10px; align-items: center }
+
+/* ══ шаг 6c: окно ответа (вариант E макета docs/changes/06c-response/mockups/response.html) ══ */
+body.light { --rsp: #2f74e0; --rsp-soft: #e3edfc; --veil: #cfcbd3 }
+body.dark { --rsp: #5f97f5; --rsp-soft: #1d2b45; --veil: #0b0a10 }
+.rhead, .rfoot { display: none }
+/* Окно: основной экран справа от дерева поверх затемнения; дерево не затемнено и служит навигацией. */
+#app.rmode .body { background: var(--veil) }
+#app.rmode .main { margin: 16px 22px; border: 1px solid var(--line2); border-radius: 14px; overflow: hidden; box-shadow: 0 30px 80px rgba(20, 10, 40, .28), 0 4px 14px rgba(20, 10, 40, .12) }
+body.dark #app.rmode .main { box-shadow: 0 30px 90px rgba(0, 0, 0, .7), 0 4px 14px rgba(0, 0, 0, .4) }
+#app.rmode .rhead { flex: none; display: flex; align-items: center; gap: 12px; height: 48px; padding: 0 14px 0 22px; border-bottom: 1px solid var(--line); background: var(--bg-bar); white-space: nowrap }
+.rhead .ttl { font: 600 15px/1 var(--sans); color: var(--fg); display: flex; align-items: center; gap: 10px }
+.rhead .ttl .pt { width: 9px; height: 9px; border-radius: 50%; background: var(--rsp) }
+.rhead .meta { font: 11.5px/1 var(--mono); color: var(--fg3); overflow: hidden; text-overflow: ellipsis }
+.rhead .sp { flex: 1 }
+.ract { display: inline-flex; align-items: center; gap: 8px; padding: 7px 8px 7px 12px; border-radius: 7px; font: 500 13px/1 var(--sans); color: var(--fg2) }
+.ract:hover { background: var(--bg-seg); color: var(--fg) }
+.ract.ok { background: var(--acc); color: #fff }
+.ract.ok:hover { background: var(--acc); filter: brightness(1.07); color: #fff }
+.ract.ok kbd { background: rgba(255, 255, 255, .2); color: #fff; box-shadow: none }
+.ract.no:hover { background: var(--err-soft); color: var(--err) }
+#app.rmode .rfoot { flex: none; height: 28px; display: flex; align-items: center; gap: 16px; padding: 0 18px; border-top: 1px solid var(--line); background: var(--bg-bar); font: 11.5px/1 var(--mono); color: var(--fg3); white-space: nowrap; overflow: hidden }
+.rfoot .sp { flex: 1 }
+.rfoot b { color: var(--fg2); font-weight: 600 }
+#app.rmode .map { top: 96px; bottom: 36px }
+.winbar .vs { font-size: 11px; color: var(--fg3); display: inline-flex; gap: 6px; align-items: center }
+.pill { background: var(--bg-seg); color: var(--fg2); padding: 3px 6px; border-radius: 4px }
+.pill.rs { background: var(--rsp-soft); color: var(--rsp) }
+.rnew, .tag.rnew { color: var(--add-fg) }
+/* дерево в окне ответа: файлы, которых ответ не касается, приглушены */
+.tree.rmode .tr.untouched { opacity: .38; cursor: default }
+.tree.rmode .tr.untouched:hover { background: none }
+.tree.rmode .tr.blk { display: none }
+/* подсказка ␣r */
+.status .seg.rsp { color: var(--rsp); cursor: pointer; font-weight: 600; position: relative; overflow: hidden; flex: none }
+.status .seg.rsp:hover { background: var(--rsp-soft) }
+.status .seg.rsp .rip { margin-right: 8px }
+.status .seg.rsp::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--rsp) 22%, transparent), transparent); transform: translateX(-100%); animation: shim 2.4s ease-in-out infinite; pointer-events: none }
+@keyframes shim { 60%, 100% { transform: translateX(100%) } }
+.status .seg.mode.rspm { background: var(--rsp); color: #fff }
+.winbar .kb.rsp, .winbar .rsp-t { color: var(--rsp) }
+/* карточки */
+.cc .inr { font: 10.5px/1 var(--mono); color: var(--rsp) }
+.cc .pend { margin-top: 7px; font: 11px/1.4 var(--mono); color: var(--rsp); cursor: pointer }
+.cc .pend kbd { font-size: 10px; padding: 2px 4px }
+.off-card p.strong { color: var(--fg); font-weight: 600; margin-top: -4px }
+.off-card code { font: 12.5px var(--mono); background: var(--bg-seg); color: var(--fg); padding: 2px 6px; border-radius: 4px }
+
+/* 6c: окно ответа, пока агент работает поверх него, и устаревшее окно */
+.rip.still > i { animation: none; opacity: 0 }
+.status .seg.rsp.quiet { font-weight: 500 }
+.status .seg.rsp.quiet::after { display: none }
+.rhead .rwork { color: var(--fg2); font-size: 12px; margin-left: 14px; display: inline-flex; align-items: center; gap: 8px }
+.rhead .rstale { margin-left: 14px; border: 0; border-radius: 6px; padding: 4px 10px; background: var(--rsp-soft); color: var(--rsp); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; position: relative; overflow: hidden }
+.rhead .rstale::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--rsp) 22%, transparent), transparent); transform: translateX(-100%); animation: shim 2.4s ease-in-out infinite; pointer-events: none }
+.rhead .ract.off { opacity: .4 }
+
+.rhead .rstale, .rhead .rwork { flex: none; white-space: nowrap }
+.rhead .meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+
+/* ══ 6d: правка владельца — окно поверх места чтения ══ */
+body.light { --own: #c2620c; --own-soft: #fbeedd }
+body.dark { --own: #ef9a4a; --own-soft: #3b2a19 }
+.status .seg.mode.edm { background: var(--own); color: #fff }
+.ewrap { display: none }
+#app.emode .ewrap { display: block; position: absolute; inset: 0; z-index: 6; background: var(--veil) }
+.ewin { position: absolute; inset: 16px 22px; display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--line2); border-radius: 14px; overflow: hidden; box-shadow: 0 30px 80px rgba(20, 10, 40, .28), 0 4px 14px rgba(20, 10, 40, .12) }
+body.dark .ewin { box-shadow: 0 30px 90px rgba(0, 0, 0, .7), 0 4px 14px rgba(0, 0, 0, .4) }
+.ehead { flex: none; display: flex; align-items: center; gap: 12px; height: 48px; padding: 0 14px 0 22px; border-bottom: 1px solid var(--line); background: var(--bg-bar); white-space: nowrap }
+.ehead .ttl { font: 600 15px/1 var(--sans); color: var(--fg); display: flex; align-items: center; gap: 8px; min-width: 0 }
+.ehead .ttl .pt { width: 9px; height: 9px; border-radius: 50%; background: var(--own); margin-right: 2px }
+.ehead .ttl .fn { font: 500 13.5px/1 var(--mono); overflow: hidden; text-overflow: ellipsis }
+.ehead .meta { font: 11.5px/1 var(--mono); color: var(--fg3) }
+.ehead .sp { flex: 1 }
+.ract.sv { background: var(--own); color: #fff }
+.ract.sv:hover { background: var(--own); filter: brightness(1.07); color: #fff }
+.ract.sv kbd { background: rgba(255, 255, 255, .2); color: #fff; box-shadow: none }
+.escroll { flex: 1; overflow: auto; min-height: 0; scrollbar-width: thin }
+.ebox { position: relative; font: 13.5px/22px var(--mono); tab-size: 4; min-height: 100% }
+.ehl, .eta { padding: 14px 40px 45vh 64px; white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; font: inherit; letter-spacing: 0 }
+.ehl { counter-reset: el; color: var(--fg); pointer-events: none }
+.ehl .el { position: relative; counter-increment: el; min-height: 22px }
+.ehl .el::before { content: counter(el); position: absolute; left: -56px; width: 40px; text-align: right; color: var(--fg4); font-size: 12px; user-select: none }
+.eta { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; border: 0; outline: 0; resize: none; overflow: hidden; background: transparent; color: transparent; caret-color: var(--own); -webkit-text-fill-color: transparent }
+.eta::selection { background: color-mix(in srgb, var(--own) 26%, transparent); -webkit-text-fill-color: transparent }
+.efoot { flex: none; height: 28px; display: flex; align-items: center; gap: 16px; padding: 0 18px; border-top: 1px solid var(--line); background: var(--bg-bar); font: 11.5px/1 var(--mono); color: var(--fg3); white-space: nowrap; overflow: hidden }
+.efoot .sp { flex: 1 }
+.efoot b { color: var(--fg2); font-weight: 600 }
+.off-card .h .pt.o { background: var(--own) }
+.off-card .h .pt.w { background: var(--warn) }
+.toast .x.o { background: var(--own-soft); color: var(--own) }
+.winbar .dnote { font: 11px/1 var(--mono); color: var(--own); background: var(--own-soft); padding: 4px 7px; border-radius: 4px; margin-left: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+
+</style>
+<style>
+/* ══ макет шага 7 ══ */
+
+/* шрифт и размер */
+body { --fs: 18px }
+body.sz-s { --fs: 16px }
+body.sz-l { --fs: 20px }
+body.sans { --serif: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif }
+.doc { font-size: var(--fs) }
+.doc h1 { font-size: 1.89em } .doc h2 { font-size: 1.28em } .doc h3 { font-size: 1.08em }
+.doc table { font-size: .89em } .doc pre { font-size: .75em }
+.two { font-size: calc(var(--fs) - 1.5px) }
+.two h1 { font-size: 1.76em } .two h2 { font-size: 1.24em } .two table { font-size: .91em } .two pre { font-size: .76em }
+body.sans .doc { line-height: 1.62 }
+
+/* одна колонка: лист и центровка */
+.doc { padding: 0 } .basebar { padding: 0 0 0 0 }
+.page { width: 804px; max-width: calc(100% - 20px); padding: 22px 72px 60px; margin: 18px 0 140px 28px; border-radius: 12px; border: 1px solid transparent }
+.page .doc { padding-top: 26px }
+body.cen-area .page { margin-left: max(28px, calc((100% - 804px) / 2)) }
+body.cen-screen .page { margin-left: max(28px, calc((100vw - 804px) / 2 - 260px)) }
+body.cen-screen.side-open .page { margin-left: max(28px, calc((100vw - 804px) / 2 - 260px)) }
+body.edge-leaf .main { background: var(--bg-out) }
+body.edge-leaf .page { background: var(--sheet); box-shadow: 0 1px 2px rgba(30, 20, 50, .06), 0 8px 28px rgba(30, 20, 50, .07) }
+body.dark.edge-leaf .page { box-shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 10px 34px rgba(0, 0, 0, .28) }
+body.edge-frame .page { border-color: var(--line2) }
+body.e2e:is(.edge-leaf, .edge-frame) .page { width: 740px; padding: 22px 40px 60px }
+body.e2e:is(.edge-leaf, .edge-frame).cen-area .page { margin-left: max(28px, calc((100% - 740px) / 2)) }
+body.e2e:is(.edge-leaf, .edge-frame) #one .chg { margin-left: -40px; margin-right: -40px; padding-left: 40px; padding-right: 40px; border-radius: 0; max-width: 740px }
+body.e2e:is(.edge-leaf, .edge-frame).old-click #one .chg.hasold::before { left: 17px }
+body.e2e:is(.edge-leaf, .edge-frame) .two .hd > div { padding-left: 24px; padding-right: 24px }
+body.e2e:is(.edge-leaf, .edge-frame) .r > .c { padding-left: 24px; padding-right: 24px }
+body.e2e:is(.edge-leaf, .edge-frame) .r > .c > .b { margin: 0 -24px; padding-left: 24px; padding-right: 24px; border-radius: 0 }
+body.edge-leaf .two, body.edge-frame .two { margin: 14px 18px 140px; border-radius: 12px; overflow: clip; border: 1px solid transparent; padding-bottom: 60px }
+body.edge-leaf .two { background: var(--sheet) }
+body.edge-leaf .two .hd { background: var(--sheet) }
+body.edge-frame .two { border-color: var(--line2) }
+body.light { --sheet: #fffefc; --bg-out: #f0eee9 }
+body.dark { --sheet: #1c1a26; --bg-out: #121019 }
+
+/* характер: сочный и яркий */
+.main > .haze { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .3s;
+  background: radial-gradient(640px 420px at 18% 8%, color-mix(in srgb, var(--acc) 14%, transparent), transparent 70%),
+              radial-gradient(760px 520px at 88% 85%, color-mix(in srgb, var(--add-fg) 11%, transparent), transparent 70%),
+              radial-gradient(520px 380px at 70% 30%, color-mix(in srgb, var(--del-fg) 7%, transparent), transparent 70%) }
+.main > .scroll { z-index: 1 }
+body.ch-j .main > .haze { opacity: .6 }
+body.ch-b .main > .haze { opacity: 1 }
+body.ch-j .chg.add, body.ch-b .chg.add, body.ch-j .b.add, body.ch-b .b.add { background: linear-gradient(90deg, var(--add-bg), var(--add-bg) 40%, color-mix(in srgb, var(--add-bg) 30%, transparent)); box-shadow: inset 3px 0 0 var(--add-fg) }
+body.ch-j .chg.del, body.ch-b .chg.del, body.ch-j .b.del, body.ch-b .b.del { background: linear-gradient(90deg, var(--del-bg), var(--del-bg) 40%, color-mix(in srgb, var(--del-bg) 30%, transparent)); box-shadow: inset 3px 0 0 var(--del-fg) }
+body.ch-b .chg.add, body.ch-b .b.add { box-shadow: inset 3px 0 0 var(--add-fg), inset 16px 0 18px -12px color-mix(in srgb, var(--add-fg) 55%, transparent) }
+body.ch-b .chg.del, body.ch-b .b.del { box-shadow: inset 3px 0 0 var(--del-fg), inset 16px 0 18px -12px color-mix(in srgb, var(--del-fg) 55%, transparent) }
+body.ch-b mark.wa { box-shadow: 0 0 7px color-mix(in srgb, var(--add-fg) 35%, transparent) }
+body.ch-b mark.wd { box-shadow: 0 0 7px color-mix(in srgb, var(--del-fg) 35%, transparent) }
+body.ch-j .status .seg.mode, body.ch-b .status .seg.mode { background: linear-gradient(90deg, var(--acc), var(--add-fg)) }
+
+/* метки на полях */
+body.nolabels [data-s]::after { display: none }
+/* полоса у края на сочном и ярком */
+body.bar-straight:is(.ch-j, .ch-b) :is(.chg, .b):is(.add, .del) { border-top-left-radius: 0; border-bottom-left-radius: 0 }
+body.bar-none:is(.ch-j, .ch-b) :is(.chg, .b):is(.add, .del) { box-shadow: none }
+/* слова на сочном и ярком */
+body.w-grad:is(.ch-j, .ch-b) mark.wa { background: linear-gradient(90deg, var(--add-w2), var(--add-w) 65%, color-mix(in srgb, var(--add-w) 55%, transparent)) }
+body.w-grad:is(.ch-j, .ch-b) mark.wd { background: linear-gradient(90deg, var(--del-w2), var(--del-w) 65%, color-mix(in srgb, var(--del-w) 55%, transparent)) }
+body.w-marker:is(.ch-j, .ch-b) mark.wa { background: linear-gradient(180deg, transparent 50%, var(--add-w2) 50%) }
+body.w-marker:is(.ch-j, .ch-b) mark.wd { background: linear-gradient(180deg, transparent 50%, var(--del-w2) 50%) }
+/* комментарии в коде на подсветке */
+body.ccom :is(mark, .cadd, .cdel) .t-c { color: var(--fg2) }
+/* соседние правки одним блоком */
+#one .chg.jn { margin-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; padding-bottom: 12px }
+#one .chg.jp { border-top-left-radius: 0; border-top-right-radius: 0 }
+.r > .c.jn { padding-bottom: 0 }
+.r > .c.jn > .b { border-bottom-left-radius: 0; border-bottom-right-radius: 0; padding-bottom: 14px }
+.r > .c.jp > .b { border-top-left-radius: 0; border-top-right-radius: 0 }
+/* «как было» по клику */
+.gonebar { display: none }
+body.old-click #one .chg.old:not(.open) { display: none }
+body.old-click #one .chg.hasold { cursor: pointer }
+body.old-click #one .chg.hasold::before { content: ""; position: absolute; left: -12px; top: 17px; width: 6px; height: 6px; border-radius: 50%; background: var(--del-fg); opacity: .85 }
+body.old-click #one .chg.hasold.open::before { display: none }
+body.old-click #one .chg.gone { cursor: pointer }
+body.old-click #one .chg.gone:not(.open) { background: none !important; box-shadow: none !important; padding: 0 14px; margin-bottom: 14px }
+body.old-click #one .chg.gone:not(.open) > .u { display: none }
+body.old-click #one .chg.gone:not(.open) > .gonebar { display: flex; align-items: center; gap: 10px; font: 11px/22px var(--mono); color: var(--del-fg) }
+body.old-click #one .chg.gone:not(.open) > .gonebar::before { content: ""; width: 26px; border-top: 2px solid var(--del-fg); border-radius: 1px }
+body.old-click #one .chg.gone:not(.open):hover > .gonebar { text-decoration: underline }
+
+/* фокус по блокам */
+[data-blk] { transition: opacity .25s }
+body.focus [data-blk]:not(.fcur) { opacity: .3 }
+
+/* клавиши на кнопках */
+body.nokeys .tabline kbd, body.nokeys .winbar kbd { display: none }
+
+/* пометка «изм. на диске» — цвет правки владельца */
+.tag.own { color: var(--own); background: var(--own-soft) }
+
+/* ── панель «Вид» ── */
+.tabline .tb.on { background: var(--acc-soft); color: var(--acc-fg) }
+.vp { font: 13px/1.35 var(--sans); color: var(--fg) }
+.vp .vh { display: flex; align-items: center; gap: 8px; font: 600 10.5px/1 var(--mono); letter-spacing: .08em; color: var(--fg3); text-transform: uppercase }
+.vp .vh .sp { flex: 1 }
+.vp .vh .x { text-transform: none; letter-spacing: 0; font-weight: 400; cursor: pointer }
+.vp .vh .x:hover { color: var(--fg) }
+.vr { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line) }
+.vr .vl { flex: 1; min-width: 0 }
+.vr .vl small { display: block; color: var(--fg3); font-size: 11.5px; margin-top: 2px }
+.vr .lk { flex: none; font: 600 10.5px/1 var(--mono); color: var(--fg3); width: 14px; text-align: center }
+.sg { display: inline-flex; background: var(--bg-seg); border-radius: 7px; padding: 2px; flex: none }
+.sg button { padding: 4px 9px; border-radius: 5px; font: 12px/1.2 var(--sans); color: var(--fg2) }
+.sg button:hover { color: var(--fg) }
+.sg button.on { background: var(--bg-pop); color: var(--fg); font-weight: 600; box-shadow: 0 1px 2px rgba(20, 10, 40, .14) }
+body.dark .sg button.on { background: var(--line2) }
+.ch { padding: 12px 0 14px }
+.ch .cn { display: flex; align-items: baseline; gap: 8px }
+.ch .cn b { font-size: 17px; font-weight: 700 }
+.ch .cd { color: var(--fg2); font-size: 12.5px; margin: 4px 0 14px; min-height: 34px }
+.ch .trk { position: relative; height: 18px; margin: 0 10px }
+.ch .trk::before { content: ""; position: absolute; left: 0; right: 0; top: 8px; height: 2px; border-radius: 1px; background: linear-gradient(90deg, var(--fg4), var(--acc), var(--add-fg)) }
+.ch .trk button { position: absolute; top: 2px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: var(--bg-pop); border: 2px solid var(--fg4) }
+.ch .trk button.on { border-color: var(--acc); background: var(--acc); box-shadow: 0 0 0 4px var(--acc-soft) }
+.ch .tl { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--fg3); margin-top: 6px }
+.ch .tl span.on { color: var(--fg); font-weight: 600 }
+.pal { display: flex; gap: 4px; padding: 10px 0 12px; border-top: 1px solid var(--line) }
+.pal button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 7px 0 6px; border-radius: 8px; font-size: 11.5px; color: var(--fg2) }
+.pal button:hover { background: var(--sel) }
+.pal button.on { background: var(--bg-seg); color: var(--fg); font-weight: 600 }
+.pal i { width: 34px; height: 9px; border-radius: 5px; display: block }
+.vf { padding-top: 9px; border-top: 1px solid var(--line); color: var(--fg3); font: 11px/1.5 var(--mono) }
+/* A — выпадает сверху */
+.vp.va { position: absolute; top: 34px; right: 10px; width: 392px; max-height: calc(100% - 70px); overflow: auto; z-index: 30; background: var(--bg-pop); border: 1px solid var(--line2); border-radius: 12px; box-shadow: var(--shadow); padding: 14px 18px 12px }
+.vp.va .vh { margin-bottom: 8px }
+/* B — сбоку справа */
+aside.vside { flex: none; width: 0; overflow: hidden; background: var(--bg-side); border-left: 1px solid var(--line); transition: width .18s }
+body.side-open aside.vside { width: 340px }
+.vp.vb { width: 340px; height: 100%; overflow: auto; padding: 14px 20px 14px }
+.vp.vb .vh { margin-bottom: 8px }
+/* C — снизу, клавишами */
+.vp.vc { position: absolute; left: 0; right: 0; bottom: 28px; z-index: 30; background: var(--bg-pop); border-top: 1px solid var(--line2); box-shadow: 0 -12px 30px rgba(30, 20, 50, .10); padding: 14px 30px 18px; font: 12.5px/1 var(--mono) }
+body.dark .vp.vc { box-shadow: 0 -14px 34px rgba(0, 0, 0, .4) }
+.vc .top { display: flex; align-items: center; gap: 10px; color: var(--fg3); font-size: 11.5px; margin-bottom: 14px }
+.vc .top .crumb { color: var(--acc-fg); font-weight: 700; font-size: 13px }
+.vc .top .sp { flex: 1 }
+.vc .grid { display: grid; grid-template-columns: repeat(3, max-content); gap: 2px 64px }
+.vc .it { display: flex; align-items: center; gap: 10px; height: 28px; white-space: nowrap }
+.vc .it .k { color: var(--acc-fg); font-weight: 700; width: 10px }
+.vc .it .ar { color: var(--fg4) }
+.vc .it .n { color: var(--fg); width: 130px; font-family: var(--sans); font-size: 13px }
+.vc .it .vs { display: flex; gap: 4px }
+.vc .it .vs button { font: 12px/1 var(--mono); color: var(--fg3); padding: 4px 6px; border-radius: 4px }
+.vc .it .vs button:hover { color: var(--fg); background: var(--sel) }
+.vc .it .vs button.on { color: var(--fg); background: var(--bg-seg); font-weight: 600 }
+.vc .it .vs i { width: 22px; height: 8px; border-radius: 4px; display: inline-block; vertical-align: middle; margin-right: 6px }
+.vc .desc { margin-top: 12px; color: var(--fg3); font-size: 11.5px; font-family: var(--sans) }
+
+/* служебная панель макета */
+#svc { position: fixed; left: 10px; top: 262px; max-height: calc(100vh - 300px); overflow: auto; width: 240px; z-index: 50; background: var(--bg-pop); border: 1px dashed var(--fg4); border-radius: 10px; padding: 10px 12px 11px; font: 11.5px/1.4 var(--sans); color: var(--fg2) }
+#svc b.t { display: block; font: 600 10px/1 var(--mono); letter-spacing: .08em; color: var(--fg3); margin-bottom: 8px; text-transform: uppercase }
+#svc .q { margin: 6px 0 3px; color: var(--fg) }
+#svc .sg button { font-size: 11px; padding: 3px 7px }
+#svc p { margin-top: 8px; color: var(--fg3); font-size: 11px }
+</style>
+</head>
+<body class="dark">
+<div id="app">
+  <header class="tabline" id="tabline"><a class="logo">duet</a><span class="sep">/</span><span class="ttl">Импорт заметок: спека</span><span class="sp"></span><button class="tb" id="b-doc">документ <kbd>␣m</kbd></button><button class="tb" id="b-cols">одна колонка <kbd>␣v</kbd></button><span class="tsep"></span><button class="tb" id="b-view">вид <kbd>,</kbd></button></header>
+  <div class="body">
+    <nav class="tree" id="tree"><div class="tr dir" data-dir="docs/"><span class="pad"></span><span class="ic">▾</span><span class="nm">docs/</span></div><div class="tr" data-file="docs/decisions.md" title="docs/decisions.md"><span class="pad"></span><span class="ind"></span><span class="ic"><span class="d-seen"></span></span><span class="nm">decisions.md</span><span class="fill"></span></div><div class="tr open" data-file="docs/import.md" title="docs/import.md"><span class="pad"></span><span class="ind"></span><span class="ic"><span class="d-seen"></span></span><span class="nm">import.md</span><span class="fill"></span></div><div class="tr blk" data-block="0"><span class="pad"></span><span class="ind"></span><span class="ind"></span><span class="imp i3">⇈</span><span class="nm">Что переносим</span></div><div class="tr blk" data-block="1"><span class="pad"></span><span class="ind"></span><span class="ind"></span><span class="imp i2">↑</span><span class="nm">Конфликты</span></div><div class="tr blk" data-block="2"><span class="pad"></span><span class="ind"></span><span class="ind"></span><span class="imp i1">↓</span><span class="nm">Прогресс</span></div><div class="tr blk" data-block="3"><span class="pad"></span><span class="ind"></span><span class="ind"></span><span class="imp i2">↑</span><span class="nm">Ограничения</span></div><div class="tr dir" data-dir="web/"><span class="pad"></span><span class="ic">▾</span><span class="nm">web/</span></div><div class="tr" data-file="web/tree.ts" title="web/tree.ts"><span class="pad"></span><span class="ind"></span><span class="ic"><span class="d-seen"></span></span><span class="nm">tree.ts</span><span class="fill"></span><span class="tag own">изм. на диске</span></div></nav>
+    <section class="main">
+      <div class="haze"></div>
+      <div class="winbar" id="winbar"><span><span class="dir">docs/</span><span class="fn">import.md</span></span><span class="st"><span class="d-seen"></span> открывали</span><span class="sp"></span><button class="kb" data-act="edit">править <kbd>␣e</kbd></button><button class="kb" data-act="comment">комментарий <kbd>␣c</kbd></button><button class="kb" data-act="accept">принять <kbd>␣a</kbd></button></div>
+      <div class="scroll" id="sc"><div id="one"><div class="page"><div class="basebar"><span class="pill">база</span> <b>до задачи</b> · git, HEAD</div><article class="doc"><div class="u" data-n="1"><h1><span data-p="n0.2">Импорт заметок</span></h1></div><div class="chg del cg" data-n="3" data-o="3" data-s="было"><div class="u" data-o="3"><p class="mhost"><span data-p="o2.0">Импорт переносит заметки из старого приложения. </span><span data-p="o2.48"><mark class="wd">Он запускается вручную из настроек.</mark></span></p></div></div><div class="chg add" data-n="3" data-s="стало"><div class="u" data-n="3"><p class="mhost"><span data-p="n2.0">Импорт переносит заметки</span><span data-p="n2.24"><mark class="wa">, папки и вложения</mark></span><span data-p="n2.42"> из старого приложения. </span><span data-p="n2.66"><mark class="wa">Он запускается сам при первом входе, а потом — из настроек.</mark></span></p></div></div><div class="u" data-n="5"><h2><span data-p="n4.3">Что переносим</span></h2></div><div class="chg del cg" data-n="7" data-o="7" data-s="было"><div class="u" data-o="7"><p><span data-p="o6.0"><mark class="wd">Переносим текст заметок и даты создания. Вложения пока не переносим.</mark></span></p></div></div><div class="chg add" data-n="7" data-s="стало"><div class="u" data-n="7"><p class="mhost"><span data-p="n6.0"><mark class="wa">Переносим текст заметок, даты создания и изменения, папки и вложения до 20 МБ каждое.</mark></span></p></div></div><div class="chg add cg" data-n="9" data-s="новое"><div class="u" data-n="9"><table><thead><tr><th><span data-p="n8.2"><mark class="wa">Что</mark></span></th><th><span data-p="n8.8"><mark class="wa">Как</mark></span></th></tr></thead><tbody><tr><td><span data-p="n10.2"><mark class="wa">Папки</mark></span></td><td><span data-p="n10.10"><mark class="wa">сохраняем вложенность</mark></span></td></tr><tr><td><span data-p="n11.2"><mark class="wa">Теги</mark></span></td><td><span data-p="n11.9"><mark class="wa">превращаем в папки верхнего уровня</mark></span></td></tr></tbody></table></div></div><div class="u" data-n="14"><h2><span data-p="n13.3">Конфликты</span></h2></div><div class="chg add cg" data-n="16" data-s="новое"><div class="u" data-n="16"><p class="mhost"><span data-p="n15.0"><mark class="wa">Если заметка с таким названием уже есть, импорт сравнивает тексты. Одинаковые — пропускает, разные — сохраняет обе и добавляет к новой «(импорт)».</mark></span></p></div><div class="u" data-n="18"><div class="li" style="--lvl:0"><span class="lm"></span><div class="lc"><span data-p="n17.2"><mark class="wa">Владелец видит список таких заметок в конце импорта.</mark></span></div></div></div><div class="u" data-n="19"><div class="li" style="--lvl:0"><span class="lm"></span><div class="lc"><span data-p="n18.2"><mark class="wa">Из списка можно открыть обе версии рядом.</mark></span></div></div></div></div><div class="chg del cg" data-n="21" data-o="11" data-s="было"><div class="u" data-o="11"><p class="mhost"><span data-p="o10.0"><mark class="wd">Если заметка с таким названием уже есть, импорт пропускает её и пишет об этом в журнал.</mark></span></p></div></div><div class="chg add" data-n="21" data-s="стало"><div class="u" data-n="21"><h2><span data-p="n20.3"><mark class="wa">Прогресс</mark></span></h2></div><div class="u" data-n="23"><p class="mhost"><span data-p="n22.0"><mark class="wa">Пока идёт импорт, внизу экрана видна полоса прогресса и число перенесённых заметок. Импорт можно поставить на паузу и продолжить позже.</mark></span></p></div><div class="u" data-n="25"><pre class="cb"><span class="cl" data-p="n25.0"><mark class="wa"><span class="t-k">const</span> BATCH = <span class="t-n">200</span>; <span class="t-c">// заметок за один проход</span></mark></span><span class="cl" data-p="n26.0"><mark class="wa"><span class="t-k">await</span> <span class="t-f">importNotes</span>({ batch: BATCH, onProgress });</mark></span></pre></div></div><div class="u" data-n="30"><h2><span data-p="n29.3">Ограничения</span></h2></div><div class="chg del cg" data-n="32" data-o="15" data-s="было"><div class="u" data-o="15"><p><span data-p="o14.0"><mark class="wd">Импорт работает только с файлами до 50 МБ.</mark></span></p></div></div><div class="chg add" data-n="32" data-s="стало"><div class="u" data-n="32"><p class="mhost"><span data-p="n31.0"><mark class="wa">Импорт работает с архивами любого размера, но одно вложение — не больше 20 МБ.</mark></span></p></div></div><div class="u" data-n="34"><p><span data-p="n33.0">Одновременно идёт только один импорт.</span></p></div><div class="chg del cg" data-o="19" data-s="удалено"><div class="u" data-o="19"><p><span data-p="o18.0"><mark class="wd">Заметки из корзины не переносятся.</mark></span></p></div></div></article></div></div><div id="two" hidden><div class="two"><div class="hd"><div><span class="pill">база</span> <b>до задачи</b> · git, HEAD</div><div><span class="pill">текущая</span></div></div><div class="r" data-n="1" data-o="1"><div class="c"><div class="u" data-o="1"><h1><span data-p="o0.2">Импорт заметок</span></h1></div></div><div class="c"><div class="u" data-n="1"><h1><span data-p="n0.2">Импорт заметок</span></h1></div></div></div><div class="r cg" data-n="3" data-o="3"><div class="c"><div class="b del"><div class="u" data-o="3"><p class="mhost"><span data-p="o2.0">Импорт переносит заметки из старого приложения. </span><span data-p="o2.48"><mark class="wd">Он запускается вручную из настроек.</mark></span></p></div></div></div><div class="c"><div class="b add"><div class="u" data-n="3"><p class="mhost"><span data-p="n2.0">Импорт переносит заметки</span><span data-p="n2.24"><mark class="wa">, папки и вложения</mark></span><span data-p="n2.42"> из старого приложения. </span><span data-p="n2.66"><mark class="wa">Он запускается сам при первом входе, а потом — из настроек.</mark></span></p></div></div></div></div><div class="r" data-n="5" data-o="5"><div class="c"><div class="u" data-o="5"><h2><span data-p="o4.3">Что переносим</span></h2></div></div><div class="c"><div class="u" data-n="5"><h2><span data-p="n4.3">Что переносим</span></h2></div></div></div><div class="r cg" data-n="7" data-o="7"><div class="c"><div class="b del"><div class="u" data-o="7"><p class="mhost"><span data-p="o6.0"><mark class="wd">Переносим текст заметок и даты создания. Вложения пока не переносим.</mark></span></p></div></div></div><div class="c"><div class="b add"><div class="u" data-n="7"><p class="mhost"><span data-p="n6.0"><mark class="wa">Переносим текст заметок, даты создания и изменения, папки и вложения до 20 МБ каждое.</mark></span></p></div></div></div></div><div class="r cg" data-n="9"><div class="c"><div class="b hatch"></div></div><div class="c"><div class="b add"><div class="u" data-n="9"><table><thead><tr><th><span data-p="n8.2"><mark class="wa">Что</mark></span></th><th><span data-p="n8.8"><mark class="wa">Как</mark></span></th></tr></thead><tbody><tr><td><span data-p="n10.2"><mark class="wa">Папки</mark></span></td><td><span data-p="n10.10"><mark class="wa">сохраняем вложенность</mark></span></td></tr><tr><td><span data-p="n11.2"><mark class="wa">Теги</mark></span></td><td><span data-p="n11.9"><mark class="wa">превращаем в папки верхнего уровня</mark></span></td></tr></tbody></table></div></div></div></div><div class="r" data-n="14" data-o="9"><div class="c"><div class="u" data-o="9"><h2><span data-p="o8.3">Конфликты</span></h2></div></div><div class="c"><div class="u" data-n="14"><h2><span data-p="n13.3">Конфликты</span></h2></div></div></div><div class="r cg" data-n="16"><div class="c"><div class="b hatch"></div></div><div class="c"><div class="b add"><div class="u" data-n="16"><p class="mhost"><span data-p="n15.0"><mark class="wa">Если заметка с таким названием уже есть, импорт сравнивает тексты. Одинаковые — пропускает, разные — сохраняет обе и добавляет к новой «(импорт)».</mark></span></p></div><div class="u" data-n="18"><div class="li" style="--lvl:0"><span class="lm"></span><div class="lc"><span data-p="n17.2"><mark class="wa">Владелец видит список таких заметок в конце импорта.</mark></span></div></div></div><div class="u" data-n="19"><div class="li" style="--lvl:0"><span class="lm"></span><div class="lc"><span data-p="n18.2"><mark class="wa">Из списка можно открыть обе версии рядом.</mark></span></div></div></div></div></div></div><div class="r cg" data-n="21" data-o="11"><div class="c"><div class="b del"><div class="u" data-o="11"><p class="mhost"><span data-p="o10.0"><mark class="wd">Если заметка с таким названием уже есть, импорт пропускает её и пишет об этом в журнал.</mark></span></p></div></div></div><div class="c"><div class="b add"><div class="u" data-n="21"><h2><span data-p="n20.3"><mark class="wa">Прогресс</mark></span></h2></div><div class="u" data-n="23"><p class="mhost"><span data-p="n22.0"><mark class="wa">Пока идёт импорт, внизу экрана видна полоса прогресса и число перенесённых заметок. Импорт можно поставить на паузу и продолжить позже.</mark></span></p></div><div class="u" data-n="25"><pre class="cb"><span class="cl" data-p="n25.0"><mark class="wa"><span class="t-k">const</span> BATCH = <span class="t-n">200</span>; <span class="t-c">// заметок за один проход</span></mark></span><span class="cl" data-p="n26.0"><mark class="wa"><span class="t-k">await</span> <span class="t-f">importNotes</span>({ batch: BATCH, onProgress });</mark></span></pre></div></div></div></div><div class="r" data-n="30" data-o="13"><div class="c"><div class="u" data-o="13"><h2><span data-p="o12.3">Ограничения</span></h2></div></div><div class="c"><div class="u" data-n="30"><h2><span data-p="n29.3">Ограничения</span></h2></div></div></div><div class="r cg" data-n="32" data-o="15"><div class="c"><div class="b del"><div class="u" data-o="15"><p><span data-p="o14.0"><mark class="wd">Импорт работает только с файлами до 50 МБ.</mark></span></p></div></div></div><div class="c"><div class="b add"><div class="u" data-n="32"><p class="mhost"><span data-p="n31.0"><mark class="wa">Импорт работает с архивами любого размера, но одно вложение — не больше 20 МБ.</mark></span></p></div></div></div></div><div class="r" data-n="34" data-o="17"><div class="c"><div class="u" data-o="17"><p><span data-p="o16.0">Одновременно идёт только один импорт.</span></p></div></div><div class="c"><div class="u" data-n="34"><p><span data-p="n33.0">Одновременно идёт только один импорт.</span></p></div></div></div><div class="r cg" data-o="19"><div class="c"><div class="b del"><div class="u" data-o="19"><p><span data-p="o18.0"><mark class="wd">Заметки из корзины не переносятся.</mark></span></p></div></div></div><div class="c"><div class="b hatch"></div></div></div></div></div></div>
+      <div class="map" id="map"><span class="vp" style="top: 0%; height: 50.6281%;"></span><i class="d" style="top:7.807592650753768%;height:4.585427135678391%"></i><i class="a" style="top:12.656053706030152%;height:4.585427135678391%"></i><i class="d" style="top:20.889604271356784%;height:2.701005025125628%"></i><i class="a" style="top:23.816347361809047%;height:4.585427135678391%"></i><i class="a" style="top:29.418577261306535%;height:7.537688442211055%"></i><i class="a" style="top:40.56513033919598%;height:11.620603015075377%"></i><i class="d" style="top:53.188795540201006%;height:4.585427135678391%"></i><i class="a" style="top:58.03725659547738%;height:14.384422110552764%"></i><i class="d" style="top:76.04919126884423%;height:2.701005025125628%"></i><i class="a" style="top:78.97593435929649%;height:4.585427135678391%"></i><i class="d" style="top:87.50490734924622%;height:2.701005025125628%"></i></div>
+    </section>
+    <aside class="vside" id="vside"></aside>
+  </div>
+  <footer class="status" id="status"><span class="seg mode ">ЧТЕНИЕ</span><span class="seg file"><span class="dir">docs/</span>import.md</span><span class="sp"></span><span class="seg ">принято <b>0</b>/3 <span class="pbar"><i style="width:0%"></i></span></span><span class="seg "><span class="d-seen"></span> Claude Code · ждёт</span><span class="seg pos">изм 1/7 · 0%</span><span class="seg click" data-act="menu"><span class="k">␣</span> меню · <span class="k">?</span> клавиши</span></footer>
+  <div id="pop"></div>
+</div>
+<div id="svc"></div>
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+
+// Палитры: цвет нового, убранного и акцент — для светлой и тёмной схемы.
+const PAL = {
+  sian:  { ru: 'Сияние',   light: { a: '#2d62c9', d: '#c4364a', acc: '#7b6cf6', af: '#5b4ce0' }, dark: { a: '#86aef5', d: '#f08a98', acc: '#8b7cf8', af: '#a99dfb' } },
+  sea:   { ru: 'Море',     light: { a: '#0c7c8c', d: '#d0573b', acc: '#0f8a9c', af: '#0b6f7e' }, dark: { a: '#62cfdb', d: '#f59b82', acc: '#3fb8c8', af: '#7fd8e2' } },
+  forest:{ ru: 'Лес',      light: { a: '#2c8650', d: '#c43a6c', acc: '#37905c', af: '#2a7449' }, dark: { a: '#7fd69c', d: '#f08bb2', acc: '#57c084', af: '#8fdcaa' } },
+  sunset:{ ru: 'Закат',    light: { a: '#b36b06', d: '#b8327a', acc: '#e0702a', af: '#b8561a' }, dark: { a: '#f2b45a', d: '#f084bb', acc: '#ef8a45', af: '#f6aa74' } },
+  gh:    { ru: 'Классика', light: { a: '#1a7f37', d: '#cf222e', acc: '#0969da', af: '#0757b8' }, dark: { a: '#3fb950', d: '#f85149', acc: '#4493f8', af: '#79b4fa' } },
+};
+// Характер: доля цвета в подложке блока и в подложке слова.
+const CH = [
+  { k: 'quiet',  ru: 'Тихий',   light: [4, 17],  dark: [12, 32], d: 'Бледнее, чем сейчас: блоки правок чуть тонированы, слова заметнее блока.' },
+  { k: 'normal', ru: 'Обычный', light: [8, 27],  dark: [20, 48], d: 'Как сейчас: ровные подложки без переходов, изменённые слова ярче блока.' },
+  { k: 'juicy',  ru: 'Сочный',  light: [12, 36], dark: [26, 58], d: 'Насыщеннее; подложка тает к правому краю, полоса у края блока, лёгкая дымка за текстом.' },
+  { k: 'bright', ru: 'Яркий',   light: [16, 46], dark: [32, 68], d: 'Самый насыщенный: дымка сильнее, полосы и изменённые слова светятся.' },
+];
+const OPTS = {
+  t:     { key: 't', ru: 'Схема',  vals: [['system', 'как macOS'], ['dark', 'тёмная'], ['light', 'светлая']] },
+  font:  { key: 'f', ru: 'Шрифт', vals: [['serif', 'с засечками'], ['sans', 'без засечек']] },
+  size:  { key: 's', ru: 'Размер', vals: [['s', 'мельче'], ['m', 'средний'], ['l', 'крупнее']] },
+  edge:  { key: 'e', ru: 'Края текста', vals: [['none', 'без краёв'], ['leaf', 'лист'], ['frame', 'рамка']] },
+  focus: { key: 'b', ru: 'Фокус по блокам', hint: 'j k — блоки, остальное тише', vals: [['0', 'нет'], ['1', 'да']] },
+  keys:  { key: 'p', ru: 'Клавиши на кнопках', vals: [['1', 'да'], ['0', 'нет']] },
+  lang:  { key: 'l', ru: 'Язык', vals: [['ru', 'RU'], ['en', 'EN']] },
+};
+const DEF = { v: 'A', cen: 'area', cols: '1', open: '1', t: 'system', pal: 'gh', old: 'click', join: 'exc', e2e: '1', labels: '0', bar: 'straight', words: 'grad', ccom: '1', ch: 'normal', font: 'serif', size: 'm', edge: 'none', focus: '0', keys: '1', lang: 'ru', y: '0' };
+const S = { ...DEF };
+for (const [k, v] of new URLSearchParams(location.hash.slice(1))) if (k in S) S[k] = v;
+
+const mq = matchMedia('(prefers-color-scheme: dark)');
+function scheme() { return S.t === 'system' ? (mq.matches ? 'dark' : 'light') : S.t; }
+
+function apply() {
+  const b = document.body, sc = scheme();
+  b.className = sc;
+  b.classList.add('cen-' + S.cen, 'sz-' + S.size, 'edge-' + S.edge);
+  if (S.font === 'sans') b.classList.add('sans');
+  if (S.focus === '1') b.classList.add('focus');
+  if (S.keys === '0') b.classList.add('nokeys');
+  if (S.ch === 'juicy') b.classList.add('ch-j');
+  if (S.ch === 'bright') b.classList.add('ch-b');
+  if (S.v === 'B' && S.open === '1') b.classList.add('side-open');
+  b.classList.add('bar-' + S.bar, 'w-' + S.words);
+  if (S.old === 'click') b.classList.add('old-click');
+  if (S.labels === '0') b.classList.add('nolabels');
+  if (S.ccom === '1') b.classList.add('ccom');
+  if (S.e2e === '1') b.classList.add('e2e');
+  const p = PAL[S.pal][sc], c = CH.find((x) => x.k === S.ch)[sc];
+  const mix = (col, n, to = 'var(--bg)') => `color-mix(in srgb, ${col} ${n}%, ${to})`;
+  const st = b.style;
+  st.setProperty('--add-fg', p.a); st.setProperty('--del-fg', p.d);
+  st.setProperty('--add-bg', mix(p.a, c[0])); st.setProperty('--del-bg', mix(p.d, c[0]));
+  st.setProperty('--add-w', mix(p.a, c[1])); st.setProperty('--del-w', mix(p.d, c[1]));
+  st.setProperty('--add-w2', mix(p.a, c[1] + 20)); st.setProperty('--del-w2', mix(p.d, c[1] + 20));
+  st.setProperty('--acc', p.acc); st.setProperty('--acc-fg', p.af);
+  st.setProperty('--acc-soft', mix(p.acc, sc === 'dark' ? 22 : 14)); st.setProperty('--sel', mix(p.acc, sc === 'dark' ? 13 : 9));
+  $('#one').hidden = S.cols !== '1'; $('#two').hidden = S.cols === '1';
+  $('#b-cols').firstChild.textContent = S.cols === '1' ? 'одна колонка ' : 'две колонки ';
+  $('#b-view').classList.toggle('on', S.open === '1');
+  renderPanel(); renderSvc(); markBlocks(); joinBlocks(); paintFocus();
+  history.replaceState(null, '', '#' + new URLSearchParams(Object.entries(S).filter(([k, v]) => v !== DEF[k] || k === 'v')).toString());
+}
+mq.addEventListener('change', apply);
+
+function seg(name) {
+  const o = OPTS[name];
+  return `<span class="sg">${o.vals.map(([v, l]) => `<button data-set="${name}=${v}" class="${S[name] === v ? 'on' : ''}">${l}</button>`).join('')}</span>`;
+}
+function charBlock() {
+  const i = CH.findIndex((x) => x.k === S.ch), cur = CH[i];
+  return `<div class="ch"><div class="cn"><span class="lk">h</span><span style="color:var(--fg2)">Характер</span></div>
+    <div class="cn" style="margin-top:4px"><b>${cur.ru}</b></div><div class="cd">${cur.d}</div>
+    <div class="trk">${CH.map((x, j) => `<button style="left:${j * 100 / 3}%" data-set="ch=${x.k}" class="${j === i ? 'on' : ''}" title="${x.ru}"></button>`).join('')}</div>
+    <div class="tl">${CH.map((x, j) => `<span class="${j === i ? 'on' : ''}">${x.ru}</span>`).join('')}</div></div>`;
+}
+function swatch(k) { const p = PAL[k][scheme()]; return `background:linear-gradient(90deg, ${p.a} 0 50%, ${p.d} 50% 100%)`; }
+function palBlock() {
+  return `<div class="pal">${Object.entries(PAL).map(([k, p]) => `<button data-set="pal=${k}" class="${S.pal === k ? 'on' : ''}"><i style="${swatch(k)}"></i>${p.ru}</button>`).join('')}</div>`;
+}
+function row(name) {
+  const o = OPTS[name];
+  return `<div class="vr"><span class="lk">${o.key}</span><span class="vl">${o.ru}${o.hint ? `<small>${o.hint}</small>` : ''}</span>${seg(name)}</div>`;
+}
+function panelCard(cls) {
+  return `<div class="vp ${cls}"><div class="vh">Вид<span class="sp"></span><span class="x" data-close>, или Esc — закрыть</span></div>
+    ${charBlock()}
+    <div class="vr" style="padding-bottom:0"><span class="lk">c</span><span class="vl">Цвета правок</span></div>${palBlock()}
+    ${['t', 'font', 'size', 'edge', 'focus', 'keys', 'lang'].map(row).join('')}
+    <div class="vf">буква — следующее значение · выбор запоминается в браузере</div></div>`;
+}
+function panelSheet() {
+  const it = (k, n, vals) => `<div class="it"><span class="k">${k}</span><span class="ar">→</span><span class="n">${n}</span><span class="vs">${vals}</span></div>`;
+  const vs = (name) => OPTS[name].vals.map(([v, l]) => `<button data-set="${name}=${v}" class="${S[name] === v ? 'on' : ''}">${l}</button>`).join('');
+  const cur = CH.find((x) => x.k === S.ch);
+  const items = [
+    it('h', 'характер', CH.map((x) => `<button data-set="ch=${x.k}" class="${S.ch === x.k ? 'on' : ''}">${x.ru.toLowerCase()}</button>`).join('')),
+    it('c', 'цвета правок', Object.entries(PAL).map(([k, p]) => `<button data-set="pal=${k}" class="${S.pal === k ? 'on' : ''}"><i style="${swatch(k)}"></i>${p.ru.toLowerCase()}</button>`).join('')),
+    it('t', 'схема', vs('t')),
+    it('f', 'шрифт', vs('font')), it('s', 'размер', vs('size')), it('e', 'края', vs('edge')),
+    it('b', 'фокус по блокам', vs('focus')), it('p', 'клавиши на кнопках', vs('keys')), it('l', 'язык', vs('lang')),
+  ];
+  return `<div class="vp vc"><div class="top"><span class="crumb">,</span><span>вид</span><span class="sp"></span><kbd>esc</kbd><span>закрыть</span></div>
+    <div class="grid" style="grid-template-columns:max-content max-content">${items[0]}${items[2]}${items[1]}${items[3]}${items[4]}${items[5]}${items[6]}${items[7]}${items[8]}</div>
+    <div class="desc">Характер «${cur.ru}»: ${cur.d}</div></div>`;
+}
+function renderPanel() {
+  const pop = $('#pop'), side = $('#vside');
+  pop.innerHTML = ''; side.innerHTML = '';
+  if (S.open !== '1') return;
+  if (S.v === 'A') pop.innerHTML = panelCard('va');
+  if (S.v === 'B') side.innerHTML = panelCard('vb');
+  if (S.v === 'C') pop.innerHTML = panelSheet();
+}
+
+function renderSvc() {
+  const sg = (name, vals) => `<span class="sg">${vals.map(([v, l]) => `<button data-set="${name}=${v}" class="${S[name] === v ? 'on' : ''}">${l}</button>`).join('')}</span>`;
+  const q = (t, name, vals) => `<div class="q">${t}</div>${sg(name, vals)}`;
+  $('#svc').innerHTML = `<b class="t">макет · служебное</b>
+    <p style="margin:0 0 4px">Первый вариант в каждой строке — мой.</p>
+    ${q('Колонки', 'cols', [['1', 'одна'], ['2', 'две']])}
+    ${q('«Как было» в одной колонке', 'old', [['click', 'по клику'], ['all', 'всегда']])}
+    ${q('Соседние правки вместе', 'join', [['exc', 'кроме «до»'], ['1', 'все'], ['0', 'отдельно']])}
+    ${q('Правки на листе и в рамке', 'e2e', [['1', 'от края до края'], ['0', 'внутри']])}
+    ${q('Метки «было / стало» на полях', 'labels', [['0', 'нет'], ['1', 'да']])}
+    ${q('Полоса у края (сочный, яркий)', 'bar', [['straight', 'прямая'], ['none', 'нет'], ['round', 'скругл.']])}
+    ${q('Слова (сочный, яркий)', 'words', [['grad', 'градиент'], ['marker', 'маркер'], ['flat', 'ровно']])}
+    ${q('Комментарии в коде на подсветке', 'ccom', [['1', 'ярче'], ['0', 'как сейчас']])}
+    <p>Клик по блоку с красной точкой — «как было». <b>za</b>, <b>zR</b> / <b>zM</b> — то же клавишами. <b>,</b> — «Вид».</p>`;
+}
+
+// Блоки агента: начинаются с заголовков «Что переносим», «Конфликты», «Прогресс», «Ограничения».
+const BLOCKS = ['Что переносим', 'Конфликты', 'Прогресс', 'Ограничения'];
+function markBlocks() {
+  $$('[data-blk]').forEach((e) => delete e.dataset.blk);
+  const startOf = (u) => { const h = u.querySelector('h2'); return h ? BLOCKS.indexOf(h.textContent.trim()) : -1; };
+  for (const root of [$('#one .doc'), $('#two .two')]) {
+    let n = -1;
+    for (const el of root.children) {
+      if (el.classList.contains('hd')) continue;
+      const us = el.matches('.u') ? [el] : $$('.u', el), starts = us.map(startOf);
+      if (!starts.slice(1).some((x) => x >= 0)) { if (starts[0] >= 0) n = starts[0]; el.dataset.blk = n; continue; }
+      // правка задевает два блока — помечаем каждый абзац отдельно
+      const cols = el.classList.contains('r') ? $$(':scope > .c', el) : [el];
+      let end = n;
+      for (const c of cols) { let m = n; for (const u of $$('.u', c)) { const x = startOf(u); if (x >= 0) m = x; u.dataset.blk = m; } end = Math.max(end, m); }
+      n = end;
+    }
+  }
+}
+function blkEl(i) { return $(`${S.cols === '1' ? '#one .doc' : '#two .two'} [data-blk="${i}"]`); }
+function curBlock() {
+  const sc = $('#sc'), line = sc.getBoundingClientRect().top + sc.clientHeight * 0.3;
+  const els = $$(S.cols === '1' ? '#one .doc [data-blk]' : '#two .two [data-blk]').filter((e) => e.offsetParent);
+  let cur = els.length ? els[0].dataset.blk : '-1';
+  for (const el of els) if (el.getBoundingClientRect().top <= line) cur = el.dataset.blk;
+  if (sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 4) cur = String(BLOCKS.length - 1);
+  return cur;
+}
+let FB = null, progUntil = 0;
+function paintFocus() {
+  if (FB === null) FB = curBlock();
+  for (const el of $$('[data-blk]')) el.classList.toggle('fcur', el.dataset.blk === FB);
+  for (const el of $$('.tr.blk')) el.classList.toggle('cur', el.dataset.block === FB);
+}
+$('#sc').addEventListener('scroll', () => { if (Date.now() < progUntil) return; FB = curBlock(); paintFocus(); });
+function scrollToEl(el) {
+  const sc = $('#sc');
+  progUntil = Date.now() + 800;
+  sc.scrollTo({ top: sc.scrollTop + el.getBoundingClientRect().top - sc.getBoundingClientRect().top - sc.clientHeight * 0.3 + 20, behavior: 'smooth' });
+}
+function blockEls(i) { return $$(`${S.cols === '1' ? '#one .doc' : '#two .two'} [data-blk="${i}"]`).filter((e) => e.offsetParent); }
+function goBlock(i) {
+  i = Math.max(-1, Math.min(BLOCKS.length - 1, i));
+  FB = String(i); paintFocus();
+  const el = blockEls(i)[0];
+  if (el) { if (i < 0) { progUntil = Date.now() + 800; $('#sc').scrollTo({ top: 0, behavior: 'smooth' }); } else scrollToEl(el); }
+}
+function jumpBlock(dir) { goBlock(+(FB ?? curBlock()) + dir); }
+// j/k при фокусе: длинный блок сначала листается, потом — следующий блок.
+function moveFocus(dir) {
+  const sc = $('#sc'), r = sc.getBoundingClientRect(), els = blockEls(FB);
+  if (els.length) {
+    if (dir > 0 && els[els.length - 1].getBoundingClientRect().bottom > r.bottom - 30) { progUntil = Date.now() + 800; sc.scrollBy({ top: sc.clientHeight * 0.6, behavior: 'smooth' }); return; }
+    if (dir < 0 && els[0].getBoundingClientRect().top < r.top - 10) { progUntil = Date.now() + 800; sc.scrollBy({ top: -sc.clientHeight * 0.6, behavior: 'smooth' }); return; }
+  }
+  jumpBlock(dir);
+}
+
+// Соседние правки одного вида — одним блоком.
+function joinBlocks() {
+  $$('.jn, .jp').forEach((e) => e.classList.remove('jn', 'jp'));
+  const join = (a, b) => { a.classList.add('jn'); b.classList.add('jp'); };
+  const shown = (e) => getComputedStyle(e).display !== 'none';
+  const k1 = (e) => (!e || !e.matches('.chg') || e.matches('.gone:not(.open)') && S.old === 'click') ? '' : e.classList.contains('add') ? 'add' : e.classList.contains('del') ? 'del' : '';
+  const pairOpen = (e) => e.matches('.old') && (S.old === 'all' || e.classList.contains('open'));
+  const vis = $$('#one .doc > *').filter(shown);
+  for (let i = 0; i < vis.length - 1; i++) {
+    const a = vis[i], b = vis[i + 1];
+    if (pairOpen(a) && b === a.nextElementSibling) { join(a, b); continue; } // «до» и «после» — без разрыва
+    if (S.join === '0') continue;
+    const k = k1(a);
+    if (!k || k !== k1(b)) continue;
+    if (S.join === 'exc' && (a.matches('.old, .hasold') || b.matches('.old, .hasold'))) continue;
+    join(a, b);
+  }
+  if (S.join === '0') return;
+  const k2 = (c) => { const b = c && c.querySelector(':scope > .b'); return !b ? '' : ['add', 'del', 'hatch'].find((x) => b.classList.contains(x)) || ''; };
+  const pairRow = (r) => k2(r.children[0]) === 'del' && k2(r.children[1]) === 'add';
+  const rows = $$('#two .two > .r');
+  for (const side of [0, 1]) for (let i = 0; i < rows.length - 1; i++) {
+    const a = rows[i].children[side], b = rows[i + 1].children[side], k = k2(a);
+    if (!k || k !== k2(b)) continue;
+    if (S.join === 'exc' && (pairRow(rows[i]) || pairRow(rows[i + 1]))) continue;
+    join(a, b);
+  }
+}
+
+// «Как было»: пара «удалено + новое» и удаление без замены.
+function markPairs() {
+  for (const el of $$('#one .doc > .chg.del')) {
+    const nx = el.nextElementSibling;
+    if (nx && nx.matches('.chg.add')) { el.classList.add('old'); nx.classList.add('hasold'); }
+    else {
+      el.classList.add('gone');
+      const n = $$(':scope > .u', el).length;
+      el.insertAdjacentHTML('afterbegin', `<div class="gonebar">удалено: ${n} ${n === 1 ? 'абзац' : n < 5 ? 'абзаца' : 'абзацев'}</div>`);
+    }
+  }
+}
+// Высота, внутренние отступы и нижний отступ едут вместе — иначе в конце остаётся полоска и прыгает.
+function slide(el, open, done) {
+  el.getAnimations().forEach((a) => a.cancel());
+  const cs = getComputedStyle(el);
+  const full = { height: el.offsetHeight + 'px', paddingTop: cs.paddingTop, paddingBottom: cs.paddingBottom, marginBottom: cs.marginBottom, opacity: 1 };
+  const zero = { height: '0px', paddingTop: '0px', paddingBottom: '0px', marginBottom: '0px', opacity: 0 };
+  el.style.overflow = 'hidden';
+  const a = el.animate(open ? [zero, full] : [full, zero], { duration: 240, easing: 'cubic-bezier(.2,.7,.2,1)', fill: 'forwards' });
+  a.onfinish = () => { done && done(); a.cancel(); el.style.overflow = ''; };
+}
+// Удаление без замены: от полоски «удалено» к абзацу и обратно.
+function grow(el, h0, h1) {
+  el.getAnimations().forEach((a) => a.cancel());
+  el.style.overflow = 'hidden';
+  const a = el.animate([{ height: h0 + 'px' }, { height: h1 + 'px' }], { duration: 240, easing: 'cubic-bezier(.2,.7,.2,1)' });
+  a.onfinish = () => { el.style.overflow = ''; };
+}
+function after() { joinBlocks(); markBlocks(); paintFocus(); }
+function toggleOld(ch, on) {
+  const old = ch.matches('.hasold') ? ch.previousElementSibling : ch.matches('.old') ? ch : null;
+  if (old) {
+    const nw = old.nextElementSibling, v = on ?? !old.classList.contains('open');
+    if (v === old.classList.contains('open')) return;
+    if (v) { old.classList.add('open'); nw.classList.add('open'); after(); slide(old, true); }
+    else { nw.classList.remove('open'); slide(old, false, () => { old.classList.remove('open'); after(); }); }
+    return;
+  }
+  const v = on ?? !ch.classList.contains('open');
+  if (v === ch.classList.contains('open')) return;
+  const h0 = ch.offsetHeight;
+  ch.classList.toggle('open', v); after();
+  grow(ch, h0, ch.offsetHeight);
+}
+function curChange() {
+  const sc = $('#sc'), line = sc.getBoundingClientRect().top + sc.clientHeight * 0.3;
+  const all = $$('#one .doc > .chg').filter((e) => (e.matches('.hasold, .gone')));
+  let cur = all[0];
+  for (const e of all) if (e.getBoundingClientRect().top <= line) cur = e;
+  return cur;
+}
+
+function set(name, v) { S[name] = v; apply(); }
+function cycle(name) {
+  if (name === 'ch') { const i = CH.findIndex((x) => x.k === S.ch); return set('ch', CH[(i + 1) % CH.length].k); }
+  if (name === 'pal') { const ks = Object.keys(PAL); return set('pal', ks[(ks.indexOf(S.pal) + 1) % ks.length]); }
+  const vals = OPTS[name].vals.map((x) => x[0]); set(name, vals[(vals.indexOf(S[name]) + 1) % vals.length]);
+}
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('[data-set]');
+  if (t) { const [k, v] = t.dataset.set.split('='); set(k, v); return; }
+  if (e.target.closest('[data-close]')) return set('open', '0');
+  if (e.target.closest('#b-view')) return set('open', S.open === '1' ? '0' : '1');
+  if (e.target.closest('#b-cols')) return set('cols', S.cols === '1' ? '2' : '1');
+  const blk = e.target.closest('.tr.blk');
+  if (blk) return goBlock(+blk.dataset.block);
+  if (getSelection().toString()) return;
+  const inDoc = e.target.closest('#sc [data-blk]');
+  if (S.focus === '1' && inDoc && inDoc.dataset.blk !== FB) { FB = inDoc.dataset.blk; paintFocus(); return; }
+  const ch = e.target.closest('#one .doc > .chg');
+  if (S.old === 'click' && ch && ch.matches('.hasold, .old, .gone')) toggleOld(ch);
+});
+let lead = '', space = false;
+document.addEventListener('keydown', (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = e.key, sc = $('#sc');
+  if (space) { space = false; if (k === 'v') set('cols', S.cols === '1' ? '2' : '1'); e.preventDefault(); return; }
+  if (lead) {
+    const l = lead; lead = '';
+    if (l !== 'z' && k === 'b') { jumpBlock(l === ']' ? 1 : -1); return; }
+    if (l === 'z' && S.old === 'click' && S.cols === '1') {
+      if (k === 'a') { const c = curChange(); c && toggleOld(c); }
+      if (k === 'R' || k === 'M') { for (const c of $$('#one .chg.hasold, #one .chg.gone')) toggleOld(c, k === 'R'); }
+      return;
+    }
+  }
+  if (k === ' ') { space = true; e.preventDefault(); return; }
+  if (k === ']' || k === '[' || k === 'z') { lead = k; return; }
+  if (k === ',') return set('open', S.open === '1' ? '0' : '1');
+  if (k === 'Escape' && S.open === '1') return set('open', '0');
+  if (k === 'j' || k === 'ArrowDown') { e.preventDefault(); if (S.focus === '1') return moveFocus(1); sc.scrollBy({ top: 60 }); return; }
+  if (k === 'k' || k === 'ArrowUp') { e.preventDefault(); if (S.focus === '1') return moveFocus(-1); sc.scrollBy({ top: -60 }); return; }
+  if (S.open === '1') {
+    const m = { h: 'ch', c: 'pal', t: 't', f: 'font', s: 'size', e: 'edge', b: 'focus', p: 'keys', l: 'lang' };
+    if (m[k]) cycle(m[k]);
+  }
+});
+markPairs();
+apply();
+if (+S.y) requestAnimationFrame(() => { $('#sc').scrollTop = +S.y; FB = curBlock(); paintFocus(); });
+</script>
+</body>
+</html>

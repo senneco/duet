@@ -4,6 +4,7 @@
 import { esc, fileKind, splitLines } from './util.js';
 import { langOf } from './syntax.js';
 import { dict, defaultLang, fmtDate } from './i18n.js';
+import { loadLook, next, optionByKey, isOption, paint, LOOK_CLASSES, panelHTML } from './look.js';
 import { buildTree, flatten, fileOrder, isAccepted, counts } from './tree.js';
 import { renderCode, renderDoc, renderDocPlain, renderLines } from './view.js';
 import { target, commentOrder } from './anchors.js';
@@ -33,8 +34,9 @@ const S = {
   contentKey: '',
   cols: store.get('cols', 1),
   doc: store.get('doc', true),
-  theme: store.get('theme', 'system'),
-  lang: store.get('lang', defaultLang()),
+  look: loadLook((k, d) => store.get(k, d), defaultLang()), // настройки вида (шаг 7a), см. look.js
+  theme: '', // = look.theme
+  lang: '', // = look.lang
   collapsed: new Set(),
   blocksHidden: false,
   expanded: new Set(),
@@ -61,6 +63,8 @@ const S = {
   editAfterStop: null, // «прервать и править»: что сделать, когда агент остановится — edit | revert
   diskSeq: {}, // последняя показанная правка с диска по ревью
 };
+S.theme = S.look.theme;
+S.lang = S.look.lang;
 const T = () => dict(S.lang);
 
 // ── API ──
@@ -293,11 +297,48 @@ function refresh(ids) {
 
 // ── отрисовка ──
 
+function scheme() {
+  return S.theme === 'dark' || (S.theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+}
+
+// applyTheme — схема и настройки вида на странице: классы body и цвета правок.
 function applyTheme() {
-  const dark = S.theme === 'dark' || (S.theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
-  document.body.classList.toggle('dark', dark);
-  document.body.classList.toggle('light', !dark);
+  const b = document.body, sc = scheme();
+  b.classList.toggle('dark', sc === 'dark');
+  b.classList.toggle('light', sc === 'light');
+  b.classList.remove(...LOOK_CLASSES);
+  const { props, classes } = paint(S.look, sc);
+  b.classList.add(...classes);
+  for (const [k, v] of Object.entries(props)) b.style.setProperty(k, v);
   document.documentElement.lang = S.lang;
+}
+
+// setLook — поменять настройку вида. Шрифт, размер, края и язык меняют раскладку текста — перерисовать на том же месте.
+function setLook(name, value) {
+  if (!isOption(name, value) || S.look[name] === value) return;
+  S.look[name] = value;
+  store.set(name, value);
+  lookChanged([name]);
+}
+function lookChanged(names) {
+  S.theme = S.look.theme;
+  S.lang = S.look.lang;
+  if (names.some((n) => ['lang', 'font', 'size', 'edge'].includes(n))) { S.contentKey = ''; rerenderKeep(); }
+  else { renderAll(); }
+}
+// Настройки вида, поменянные в другой вкладке.
+addEventListener('storage', (e) => {
+  if (!e.key || !e.key.startsWith('duet:')) return;
+  const was = { ...S.look };
+  S.look = loadLook((k, d) => store.get(k, d), defaultLang());
+  const changed = Object.keys(S.look).filter((k) => S.look[k] !== was[k]);
+  if (changed.length) lookChanged(changed);
+});
+function toggleLook() {
+  S.overlay = S.overlay === 'look' ? '' : 'look';
+  renderOverlays();
+  renderHeader();
+  renderStatus();
 }
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
 
@@ -346,9 +387,7 @@ function renderHeader() {
     }
     right += `<button class="tb" data-act="cols" title="␣v">${S.cols === 2 ? t.two : t.one} <kbd>␣v</kbd></button><span class="tsep"></span>`;
   }
-  right += `<button class="tb" data-act="lang">${S.lang === 'ru' ? '<b>RU</b><s>EN</s>' : '<s>RU</s><b>EN</b>'}</button>`;
-  const th = { system: ['◐', t.themeSystem], dark: ['◑', t.themeDark], light: ['○', t.themeLight] }[S.theme];
-  right += `<button class="tb" data-act="theme">${th[0]} ${th[1]}</button>`;
+  right += `<button class="tb${S.overlay === 'look' ? ' on' : ''}" data-act="look" title=",">${t.lookBtn} <kbd>,</kbd></button>`;
   $('#tabline').innerHTML = `${left}<span class="sp"></span>${right}`;
 }
 
@@ -368,7 +407,7 @@ function fileIcon(f) {
 
 function fileTag(f) {
   const t = T();
-  if (f.diskChanged) return `<span class="tag warn">${t.stDiskShort}</span>`;
+  if (f.diskChanged) return `<span class="tag own">${t.stDiskShort}</span>`;
   if (f.ripple) return `<span class="tag rpl">${S.lang === 'ru' ? 'ответ' : 'response'}</span>`;
   if (f.state === 'deleted' || f.state === 'deleted-accepted') return `<span class="tag">${t.stDeleted}</span>`;
   if (f.state === 'moved') return `<span class="tag">↗</span>`;
@@ -391,7 +430,7 @@ function renderTree() {
     const open = f.path === S.path;
     const gone = ['deleted', 'deleted-accepted', 'moved'].includes(f.state) ? ' gone' : '';
     const off = rset && !rset.has(f.path) ? ' untouched' : '';
-    const tag = S.resp ? (f.absent ? `<span class="tag rnew">${T().rNew}</span>` : f.diskChanged ? `<span class="tag warn">${T().stDiskShort}</span>` : '') : fileTag(f);
+    const tag = S.resp ? (f.absent ? `<span class="tag rnew">${T().rNew}</span>` : f.diskChanged ? `<span class="tag own">${T().stDiskShort}</span>` : '') : fileTag(f);
     h += `<div class="tr${open ? ' open' : ''}${gone}${off}" data-file="${esc(f.path)}" title="${esc(f.path)}"><span class="pad"></span>${ind(r.depth)}<span class="ic">${fileIcon(f)}</span><span class="nm">${esc(f.name)}</span>${f.open && !S.resp ? `<span class="cmk${f.questions ? ' q' : ''}">${f.open}</span>` : ''}<span class="fill"></span>${tag}</div>`;
     if (open && !S.resp && !S.blocksHidden && S.file && S.file.path === f.path) {
       const cur = currentBlock();
@@ -506,7 +545,7 @@ function renderContent() {
   const key = JSON.stringify([!!S.resp, f.path, f.base, f.current, f.currentDeleted, f.hasBase, f.response, f.responseDeleted, f.state === 'moved', f.baseIsOriginal, f.originSource, S.chunks, S.cols, S.doc, [...S.expanded], S.lang]);
   if (key === S.contentKey) return;
   S.contentKey = key;
-  sc.innerHTML = contentHTML();
+  sc.innerHTML = `<div class="page">${contentHTML()}</div>`;
   S.sel = null; S.menuSel = false;
   shapeMarks(sc);
   resolveBlocks();
@@ -550,6 +589,7 @@ function renderStatus() {
   if (!S.online) mode = [t.modeOff, 'off'];
   else if (S.overlay === 'menu') mode = ['␣ ' + t.modeMenu, 'lead'];
   else if (S.overlay === 'help') mode = ['? ' + t.modeHelp, 'help'];
+  else if (S.overlay === 'look') mode = [', ' + t.modeLook, 'lead'];
   else if (!id) mode = [t.modeList, ''];
   else if (S.edit) mode = [t.modeEdit, 'edm'];
   else if (S.resp) mode = [t.modeResp, 'rspm'];
@@ -631,6 +671,7 @@ function renderOverlays() {
 <div><div class="grp">${t.menuAgent}</div>${it('s', t.menuSend, r.unsent ? t.menuSendNow(r.unsent) : '', !r.unsent)}${it('u', t.menuInterrupt, t.menuInterruptNow, !canInterrupt())}</div>
 <div><div class="grp">${t.menuResp}</div>${it('r', t.menuRespOpen, '', !pendingResp())}</div></div></div>`;
   }
+  if (S.overlay === 'look') h += panelHTML(S.look, t, scheme());
   if (S.overlay === 'help') {
     const k = (keys, ds) => `<div class="k"><span class="ks">${keys.map((x) => `<kbd>${x}</kbd>`).join('')}</span><span class="ds">${ds}</span></div>`;
     h += `<div class="dimmer" data-act="close"></div><div class="keys"><div class="h"><b>${t.allKeys}</b><span class="sp"></span><kbd>esc</kbd> ${t.close}</div><div class="g">
@@ -638,7 +679,7 @@ function renderOverlays() {
 <div><div class="grp">${t.navigation}</div>${k([']c', '[c'], t.kChange)}${k([']f', '[f'], t.kFile)}${k([']b', '[b'], t.kBlock)}</div>
 <div><div class="grp">${t.actions}</div>${k(['␣'], t.kMenu)}${k(['␣a'], t.kAccept)}${k(['␣e'], t.kEdit)}${k(['␣b'], t.kRevert)}${k(['?'], t.kHelp)}${k(['esc'], t.kEsc)}</div>
 <div><div class="grp">${t.rHint}</div>${k(['␣r'], t.kResp)}${k(['␣a'], t.kRespAccept)}${k(['␣x'], t.kRespReject)}${k([']f', '[f'], t.kRespFile)}${k(['␣s'], t.kRespSend)}</div>
-<div><div class="grp">${t.view}</div>${k(['␣v'], t.kCols)}${k(['␣m'], t.kDoc)}</div>
+<div><div class="grp">${t.view}</div>${k(['␣v'], t.kCols)}${k(['␣m'], t.kDoc)}${k([','], t.kLook)}</div>
 <div><div class="grp">${t.comments}</div>${k(['gc'], t.kComment)}${k(['␣c'], t.kCommentAny)}${k(['␣s'], t.kSend)}${k(['␣u'], t.kInterrupt)}${k([']n', '[n'], t.kNextComment)}</div>
 <div><div class="grp">${t.selected}</div>${k(['↵'], t.kCardEnter)}${k(['x'], t.kCardX)}${k(['1', '2', '3'], t.kCardNum)}</div>
 <div><div class="grp">${t.reviews.toLowerCase()}</div>${k(['j', 'k', '↵'], t.kList)}</div>
@@ -880,9 +921,11 @@ function rerenderKeep() {
 }
 
 function closeOverlay() {
+  const look = S.overlay === 'look';
   S.overlay = '';
   renderOverlays();
   renderStatus();
+  if (look) renderHeader();
 }
 
 // ── комментарии ──
@@ -1714,6 +1757,13 @@ document.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.target.closest && e.target.closest('input, textarea, [contenteditable]')) return;
   const isList = !routeId();
+  // Панель «Вид»: буква — следующее значение настройки; остальные клавиши работают как обычно (прокрутка).
+  if (S.overlay === 'look' && !S.pending) {
+    if (k === 'Escape' || k === ',') { e.preventDefault(); closeOverlay(); return; }
+    const o = optionByKey(k);
+    if (o) { e.preventDefault(); setLook(o.name, next(S.look, o.name)); return; }
+  }
+  if (k === ',' && !S.pending && (!S.overlay || S.overlay === 'look')) { e.preventDefault(); toggleLook(); return; }
   if (S.overlay === 'menu') {
     e.preventDefault();
     closeOverlay();
@@ -1831,10 +1881,13 @@ document.addEventListener('click', (e) => {
   const goEl = t.closest('[data-go]');
   if (goEl && !e.metaKey && !e.ctrlKey) { e.preventDefault(); go(goEl.dataset.go); return; }
   const a = t.closest('[data-act]');
+  const lk = t.closest('[data-look]');
+  if (lk) { const [n, v] = lk.dataset.look.split('='); setLook(n, v); return; }
+  if (S.overlay === 'look' && !t.closest('.vp') && !(a && a.dataset.act === 'look')) closeOverlay();
   if (S.edit) {
     // Пока открыта правка, другой файл в дереве — то же, что Esc; остальное под окном не нажимается.
     if (a && a.dataset.act === 'close' && S.overlay && S.overlay !== 'help') { backToEdit(); return; }
-    if (a && !['edit-save', 'edit-cancel', 'edit-discard-go', 'edit-mean-go', 'lang', 'theme', 'help', 'close'].includes(a.dataset.act)) return;
+    if (a && !['edit-save', 'edit-cancel', 'edit-discard-go', 'edit-mean-go', 'look', 'help', 'close'].includes(a.dataset.act)) return;
     if (!a && t.closest('[data-file], [data-block], [data-go]')) { ownerCancel(); return; }
   }
   if (a) {
@@ -1842,8 +1895,7 @@ document.addEventListener('click', (e) => {
       case 'accept': accept(); break;
       case 'cols': toggleCols(); break;
       case 'doc': toggleDoc(); break;
-      case 'lang': S.lang = S.lang === 'ru' ? 'en' : 'ru'; store.set('lang', S.lang); S.contentKey = ''; rerenderKeep(); break;
-      case 'theme': S.theme = { system: 'dark', dark: 'light', light: 'system' }[S.theme]; store.set('theme', S.theme); renderAll(); break;
+      case 'look': toggleLook(); break;
       case 'menu': S.overlay = S.overlay === 'menu' ? '' : 'menu'; renderOverlays(); renderStatus(); break;
       case 'help': S.overlay = 'help'; renderOverlays(); renderStatus(); break;
       case 'close': closeOverlay(); break;

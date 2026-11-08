@@ -278,3 +278,56 @@ test('отступ Tab — как в файле', () => {
   assert.equal(indentUnit('x\n', 'code'), '    ');
   assert.equal(lineOf('a\nb\nc', 4), 2);
 });
+
+// ── вид (шаг 7a) ──
+import { loadLook, next, optionByKey, isOption, paint, panelHTML, OPTIONS, PALETTES } from '../web/js/look.js';
+
+test('вид: по умолчанию — обычный характер, классика, как macOS, с засечками, средний, без краёв, клавиши видны', () => {
+  const look = loadLook((k, d) => d, 'ru');
+  assert.deepEqual(look, { char: 'normal', pal: 'gh', theme: 'system', font: 'serif', size: 'm', edge: 'none', keys: 'on', lang: 'ru' });
+});
+
+test('вид: выбор читается из хранилища, неизвестное значение — как по умолчанию', () => {
+  const saved = { char: 'juicy', pal: 'sea', theme: 'dark', size: 'xl', edge: 'leaf' };
+  const look = loadLook((k, d) => (k in saved ? saved[k] : d), 'en');
+  assert.equal(look.char, 'juicy');
+  assert.equal(look.pal, 'sea');
+  assert.equal(look.theme, 'dark');
+  assert.equal(look.size, 'm');
+  assert.equal(look.edge, 'leaf');
+  assert.equal(look.lang, 'en');
+});
+
+test('вид: буква переключает настройку на следующее значение по кругу', () => {
+  assert.deepEqual(OPTIONS.map((o) => o.key).join(''), 'hctfsepl');
+  const look = loadLook((k, d) => d, 'ru');
+  assert.equal(optionByKey('h').name, 'char');
+  assert.equal(next(look, 'char'), 'juicy');
+  assert.equal(next({ ...look, char: 'bright' }, 'char'), 'quiet');
+  assert.equal(next(look, 'pal'), 'sian');
+  assert.equal(next(look, 'theme'), 'dark');
+  assert.equal(next(look, 'lang'), 'en');
+  assert.equal(optionByKey('j'), undefined);
+  assert.ok(isOption('edge', 'frame'));
+  assert.ok(!isOption('edge', 'glass'));
+});
+
+test('вид: цвета правок из палитры и силы характера, классы страницы', () => {
+  const look = loadLook((k, d) => d, 'ru');
+  const p = paint(look, 'dark');
+  assert.equal(p.props['--add-fg'], PALETTES.gh.dark.a);
+  assert.equal(p.props['--add-bg'], `color-mix(in srgb, ${PALETTES.gh.dark.a} 20%, var(--bg))`);
+  assert.deepEqual(p.classes, ['ch-normal', 'sz-m', 'edge-none']);
+  const q = paint({ ...look, char: 'quiet', font: 'sans', keys: 'off' }, 'light');
+  assert.equal(q.props['--del-w'], `color-mix(in srgb, ${PALETTES.gh.light.d} 17%, var(--bg))`);
+  assert.ok(q.classes.includes('sans') && q.classes.includes('nokeys'));
+});
+
+test('вид: карточка показывает все настройки и отмечает выбранные', () => {
+  const look = loadLook((k, d) => d, 'ru');
+  const h = panelHTML(look, dict('ru'), 'dark');
+  for (const o of OPTIONS) assert.match(h, new RegExp(`data-look="${o.name}=`));
+  assert.match(h, /data-look="pal=gh" class="on"/);
+  assert.match(h, /<div class="cv">Обычный<\/div>/);
+  assert.match(h, /data-look="edge=none" class="on">без краёв/);
+});

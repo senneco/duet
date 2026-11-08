@@ -14,6 +14,7 @@
   <div class="body">
     <nav class="tree" id="tree"></nav>
     <section class="main">
+      <div class="haze"></div>
       <div class="rhead" id="rhead"></div>
       <div class="winbar" id="winbar"></div>
       <div class="banner" id="banner"></div>
@@ -26,5 +27,10 @@
   <footer class="status" id="status"></footer>
   <div id="over"></div>
 </div>
+<!-- Градиенты изменённых слов для «сочного» и «яркого» характера: цвета берутся из переменных темы. -->
+<svg class="defs" width="0" height="0" aria-hidden="true"><defs>
+  <linearGradient id="gwa"><stop offset="0" style="stop-color:var(--add-w2)"/><stop offset=".65" style="stop-color:var(--add-w)"/><stop offset="1" style="stop-color:var(--add-w);stop-opacity:.55"/></linearGradient>
+  <linearGradient id="gwd"><stop offset="0" style="stop-color:var(--del-w2)"/><stop offset=".65" style="stop-color:var(--del-w)"/><stop offset="1" style="stop-color:var(--del-w);stop-opacity:.55"/></linearGradient>
+</defs></svg>
 </body>
 </html>
