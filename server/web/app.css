@@ -536,7 +536,7 @@ body.dark .ewin { box-shadow: 0 30px 90px rgba(0, 0, 0, .7), 0 4px 14px rgba(0, 
 .ract.sv kbd { background: rgba(255, 255, 255, .2); color: #fff; box-shadow: none }
 .escroll { flex: 1; overflow: auto; min-height: 0; scrollbar-width: thin }
 .ebox { position: relative; font: 13.5px/22px var(--mono); tab-size: 4; min-height: 100% }
-.ehl, .eta { padding: 14px 40px 45vh 64px; white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; font: inherit; letter-spacing: 0 }
+.ehl, .eta { padding: 14px 12px 45vh 64px; white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; font: inherit; letter-spacing: 0 }
 .ehl { counter-reset: el; color: var(--fg); pointer-events: none }
 .ehl .el { position: relative; counter-increment: el; min-height: 22px }
 .ehl .el::before { content: counter(el); position: absolute; left: -56px; width: 40px; text-align: right; color: var(--fg4); font-size: 12px; user-select: none }

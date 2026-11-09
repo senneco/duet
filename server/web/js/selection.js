@@ -31,3 +31,37 @@ export function extendWords(anchor, word) {
   if (word.compareBoundaryPoints(Range.END_TO_END, anchor) > 0) r.setEnd(word.endContainer, word.endOffset);
   return r;
 }
+
+// DOM двух колонок чередует левую и правую ячейки. Диапазон режем по тексту
+// исходной стороны: общий DOM Range захватывает и противоположные ячейки.
+export function selectionRanges(range) {
+  const el = range.startContainer.nodeType === 3 ? range.startContainer.parentElement : range.startContainer;
+  const root = el.closest('.two, .code2');
+  const side = el.closest('[data-p]')?.dataset.p[0];
+  if (!root || !side) return [range];
+  const out = [];
+  for (const span of root.querySelectorAll(`[data-p^="${side}"]`)) {
+    const walk = document.createTreeWalker(span, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walk.nextNode())) {
+      const r = document.createRange(); r.selectNodeContents(node);
+      if (r.compareBoundaryPoints(Range.END_TO_START, range) >= 0 || r.compareBoundaryPoints(Range.START_TO_END, range) <= 0) continue;
+      if (r.compareBoundaryPoints(Range.START_TO_START, range) < 0) r.setStart(range.startContainer, range.startOffset);
+      if (r.compareBoundaryPoints(Range.END_TO_END, range) > 0) r.setEnd(range.endContainer, range.endOffset);
+      if (!r.collapsed) out.push(r);
+    }
+  }
+  return out;
+}
+
+export function selectionText(range) {
+  const ranges = selectionRanges(range);
+  if (ranges.length === 1 && ranges[0] === range) return range.toString();
+  let text = '', last;
+  for (const r of ranges) {
+    const line = r.startContainer.parentElement.closest('[data-p]').dataset.p.split('.')[0];
+    if (last !== undefined && line !== last) text += '\n';
+    text += r.toString(); last = line;
+  }
+  return text;
+}

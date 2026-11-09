@@ -84,3 +84,21 @@ node server/browsertest/selection.mjs /путь/к/puppeteer-core/lib/esm/puppet
 ```
 
 Проверка меняет только DOM отдельной вкладки и системный буфер обмена. Файлы ревью не меняет. Границы слов и расширение диапазона — `server/web/js/selection.js`.
+
+Проверка возврата к месту чтения работает на отдельном ядре с вымышленными документами (порт 4882):
+
+```sh
+go run server/browsertest/position-fixture.go
+# В другом терминале:
+node server/browsertest/reading-position.mjs /путь/к/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js
+```
+
+Проверяются принятие ответа в том же и другом файле, вставка и удаление выше места чтения, закрытие и отклонение окна. Рабочее ядро и его данные не используются.
+
+Для проверки ширины и положения текста редактора на том же тестовом ядре:
+
+```sh
+node server/browsertest/editor-position.mjs /путь/к/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js
+```
+
+Проверяются одна и две колонки, выделенное слово в длинном абзаце и открытие без выделения.

@@ -1,14 +1,14 @@
 // Веб-клиент duet: список ревью и ревью (дерево, отличия, принятие), клавиши, тема и язык,
 // живые обновления. Всё, что решает поведение, делает ядро; клиент показывает и передаёт действия.
 
-import { wordRange, extendWords } from './selection.js';
+import { wordRange, extendWords, selectionText } from './selection.js';
 import { esc, fileKind, splitLines } from './util.js';
 import { langOf } from './syntax.js';
 import { dict, defaultLang, fmtDate } from './i18n.js';
 import { loadLook, next, optionByKey, isOption, paint, LOOK_CLASSES, panelHTML } from './look.js';
 import { buildTree, flatten, fileOrder, isAccepted, counts } from './tree.js';
 import { renderCode, renderDoc, renderDocPlain, renderLines } from './view.js';
-import { target, commentOrder } from './anchors.js';
+import { target, commentOrder, oldToNew } from './anchors.js';
 import { editLinesHTML, editSelection, lineOf, indentUnit } from './edit.js';
 import { cardHTML, editorHTML, threadState, shownComments, placeCards, anchorRanges, paintAnchors, pointPos, shapeMarks, drawSelection } from './comments.js';
 
@@ -1515,6 +1515,24 @@ function editError(e, title, then) {
   toast({ title, text: e.code === 'not-found' && S.file && S.file.currentDeleted ? t.eDeletedFile : esc(e.message || t.errNet), short: `✕ ${title}` });
 }
 
+// Геометрия чтения и точка, которую удерживаем при переходе к исходнику.
+function editReadingPlace() {
+  const sc = $('#sc'), box = sc.getBoundingClientRect();
+  const region = sc.querySelector('.two .r > .c:last-child .b') || sc.querySelector('.doc p') || sc.querySelector('.doc, .code, .code2');
+  if (!region) return null;
+  const rect = region.getBoundingClientRect(), css = getComputedStyle(region);
+  const left = rect.left + parseFloat(css.paddingLeft || 0);
+  const width = rect.width - parseFloat(css.paddingLeft || 0) - parseFloat(css.paddingRight || 0);
+  let range = S.sel?.range;
+  if (!range) {
+    const point = caretAt(left + width / 2, box.top + box.height / 2);
+    if (point && inText(point[0])) range = rangeOf(point, point);
+  }
+  const pos = range && pointPos(range.startContainer, range.startOffset);
+  const r = range && range.getClientRects()[0];
+  return { left, width, y: r ? r.top : box.top + box.height / 2, pos };
+}
+
 async function startEdit() {
   const t = T();
   const f = S.file;
@@ -1526,6 +1544,7 @@ async function startEdit() {
   if (!S.file || S.file.path !== f.path || S.resp || S.edit) { act('editing', { on: false }).catch(() => {}); return; }
   const g = S.file;
   const a = anchorOf();
+  const place = editReadingPlace();
   const cur = g.current || '';
   const kind = fileKind(f.path);
   S.edit = {
@@ -1533,6 +1552,7 @@ async function startEdit() {
     lang: kind === 'code' ? langOf(f.path) : kind === 'markdown' ? 'md' : '',
     line: a ? a.n - 1 : 0, off: a ? a.off : 0,
     sel: editSelection(S.sel, g.base, cur, S.chunks),
+    place, focus: place?.pos ? editSelection({ a: place.pos, b: place.pos }, g.base, cur, S.chunks)?.[0] : null,
   };
   S.sel = null; S.menuSel = false; S.ed = null; S.act = null; S.ask = null;
   toast(null);
@@ -1555,6 +1575,13 @@ function renderEdit() {
 <div class="efoot"><span id="epos"></span><span class="sp"></span><span>${t.eUnder} <b>${esc(rel)}</b></span></div></div>`;
   const ta = $('#eta');
   ta.value = ed.text;
+  if (ed.place) {
+    const scroll = $('#escroll'), rect = scroll.getBoundingClientRect();
+    const left = Math.max(0, ed.place.left - rect.left - 64);
+    const width = Math.min(ed.place.width, Math.max(80, rect.width - left - 76));
+    $('.ebox').style.marginLeft = left + 'px';
+    $('.ebox').style.width = (width + 76) + 'px';
+  }
   paintEdit();
   let raf = 0;
   ta.addEventListener('input', () => {
@@ -1567,11 +1594,25 @@ function renderEdit() {
   const lines = $('#ehl').children;
   const at = (n) => lines[Math.max(0, Math.min(n, lines.length - 1))];
   if (ed.sel) ta.setSelectionRange(ed.sel[0], ed.sel[1]);
-  else { const i = ed.text.split('\n').slice(0, ed.line).join('\n').length + (ed.line ? 1 : 0); ta.setSelectionRange(i, i); }
+  else { const i = ed.focus ?? (ed.text.split('\n').slice(0, ed.line).join('\n').length + (ed.line ? 1 : 0)); ta.setSelectionRange(i, i); }
   if (at(ed.line)) sc.scrollTop = Math.max(0, at(ed.line).offsetTop - ed.off);
   if (ed.sel) {
     const el = at(lineOf(ed.text, ed.sel[0]));
     if (el && (el.offsetTop < sc.scrollTop || el.offsetTop > sc.scrollTop + sc.clientHeight - 60)) sc.scrollTop = Math.max(0, el.offsetTop - sc.clientHeight / 3);
+  }
+  if (ed.place && (ed.sel || ed.focus != null)) {
+    const i = ed.sel ? ed.sel[0] : ed.focus;
+    const line = lineOf(ed.text, i), col = i - (ed.text.lastIndexOf('\n', i - 1) + 1);
+    const el = at(line), walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let n, rest = col;
+    while ((n = walker.nextNode())) {
+      if (rest <= n.length) {
+        const r = document.createRange(); r.setStart(n, rest); r.setEnd(n, Math.min(n.length, rest + 1));
+        sc.scrollTop += r.getBoundingClientRect().top - ed.place.y;
+        break;
+      }
+      rest -= n.length;
+    }
   }
   ta.focus({ preventScroll: true });
   renderStatus();
@@ -1747,8 +1788,8 @@ async function openResp() {
   else renderAll();
 }
 
-// closeResp — закрыть окно. path — какой файл открыть (после «принять»), иначе — то, что было под окном.
-async function closeResp(path) {
+// closeResp — вернуться к файлу и месту чтения, сохранённым до открытия ответа.
+async function closeResp() {
   if (!S.resp) return;
   const back = S.resp.back;
   S.resp = null;
@@ -1757,8 +1798,7 @@ async function closeResp(path) {
   if (!S.review) { renderAll(); return; }
   const has = (x) => x && visibleFiles().some((f) => f.path === x);
   S.path = null;
-  if (has(path)) await openFile(path);
-  else if (has(back.path)) await openFile(back.path, back.anchor ? { line: back.anchor.n, off: back.anchor.off } : {});
+  if (has(back.path)) await openFile(back.path, back.anchor ? { line: back.anchor.n, off: back.anchor.off } : {});
   else if (S.order[0]) await openFile(S.order[0].path);
   else renderAll();
 }
@@ -1809,9 +1849,23 @@ const respMine = () => (pendingResp() || {}).mine || 0;
 async function acceptResp() {
   if (!S.resp || staleDenied()) return;
   const t = T();
-  const path = S.path;
-  try { await act('accept-response'); } catch (e) { commentError(e); return; }
-  await closeResp(path);
+  const back = S.resp.back;
+  let anchor = back.anchor;
+  try {
+    // Отличия ответа считаются ядром: переводим место чтения в новую версию до принятия.
+    if (back.path && anchor) {
+      const [file, chunks] = await Promise.all([
+        api(`/api/reviews/${rid()}/file?path=${encodeURIComponent(back.path)}`),
+        api(`/api/reviews/${rid()}/diff?path=${encodeURIComponent(back.path)}&mode=response`),
+      ]);
+      if (file.response != null && chunks.length) {
+        anchor = { ...anchor, n: oldToNew(chunks, anchor.n - 1, file.response).line + 1 };
+      }
+    }
+    await act('accept-response');
+  } catch (e) { commentError(e); return; }
+  back.anchor = anchor;
+  await closeResp();
   note(`✓ ${t.rAccepted}`);
 }
 
@@ -1926,6 +1980,7 @@ document.addEventListener('mousemove', (e) => {
   if (!drag.b && Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) < 3) return;
   const c = caretAt(e.clientX, e.clientY);
   if (!c || !inText(c[0])) return;
+  if ((drag.a[0].parentElement?.closest('.two, .code2')) && pointPos(drag.a[0], drag.a[1])?.side !== pointPos(c[0], c[1])?.side) return;
   drag.b = c;
   const sc = $('#sc');
   sc.querySelectorAll(':scope > .smenu').forEach((m) => m.remove());
@@ -1980,7 +2035,7 @@ document.addEventListener('copy', (e) => {
   if (!S.sel || !S.sel.range || document.activeElement?.closest('input, textarea, [contenteditable]')) return;
   const s = window.getSelection();
   if (!s.isCollapsed && !(s.anchorNode && s.anchorNode.parentElement && s.anchorNode.parentElement.closest('[data-p]'))) return;
-  e.clipboardData.setData('text/plain', S.sel.range.toString());
+  e.clipboardData.setData('text/plain', selectionText(S.sel.range));
   e.preventDefault();
 });
 
@@ -1991,7 +2046,7 @@ document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === 'c' && S.sel?.range &&
       !e.target.closest('input, textarea, [contenteditable]')) {
     e.preventDefault();
-    navigator.clipboard.writeText(S.sel.range.toString()).catch(() => document.execCommand('copy'));
+    navigator.clipboard.writeText(selectionText(S.sel.range)).catch(() => document.execCommand('copy'));
     return;
   }
   // Окно правки: ⌘Enter — сохранить, Esc — отменить (с вопросом, если текст менялся), Tab — отступ.

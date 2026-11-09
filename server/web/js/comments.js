@@ -1,6 +1,7 @@
 // Комментарии на экране: карточки под текстом, окно комментария, отметки в тексте, своё выделение
 // и правки в несколько строк одной фигурой. Всё, что решает поведение, делает ядро; здесь только вид.
 
+import { selectionRanges } from './selection.js';
 import { esc } from './util.js';
 import { parseP, byteToChar, lineStarts, charToPos } from './anchors.js';
 
@@ -458,7 +459,7 @@ export function drawSelection(sc, range) {
   if (!range || range.collapsed) { svg.innerHTML = ''; return []; }
   const o = sc.getBoundingClientRect();
   const origin = { left: o.left - sc.scrollLeft, top: o.top - sc.scrollTop };
-  const ls = lines(range.getClientRects(), origin, 2);
+  const ls = lines(selectionRanges(range).flatMap(r => [...r.getClientRects()]), origin, 2);
   svg.setAttribute('width', sc.scrollWidth);
   svg.setAttribute('height', sc.scrollHeight);
   svg.innerHTML = ls.length ? GRAD + `<path d="${shapePath(ls)}"/>` : '';
