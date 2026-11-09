@@ -43,7 +43,12 @@ func main() {
 		}
 		os.WriteFile(p, []byte(next), 0600)
 		os.WriteFile(q, []byte(next), 0600)
-		_, err = c.AgentFinish(id, []core.Submission{{Path: p, Content: next}, {Path: q, Content: next}}, nil)
+		files := []core.Submission{{Path: p, Content: next}, {Path: q, Content: next}}
+		if r.URL.Query().Get("untouched") == "1" {
+			os.WriteFile(p, []byte(text), 0600)
+			files = files[1:]
+		}
+		_, err = c.AgentFinish(id, files, nil)
 		if err != nil {
 			panic(err)
 		}

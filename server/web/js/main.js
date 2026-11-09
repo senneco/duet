@@ -248,6 +248,24 @@ async function openFile(path, { line = 0, off, keep = false } = {}) {
 let es = null;
 let refreshTimer = 0;
 let dirty = new Set();
+let connectionProbe = 0;
+let connectionTimer = 0;
+
+async function probeConnection() {
+  const probe = ++connectionProbe;
+  clearTimeout(connectionTimer);
+  S.connection = 'checking';
+  renderOverlays();
+  let available = false;
+  try {
+    const r = await fetch('/api/health', { cache: 'no-store', signal: AbortSignal.timeout(2000) });
+    available = r.ok && typeof (await r.json()).build === 'string';
+  } catch { /* недоступность не доказывает остановку процесса */ }
+  if (probe !== connectionProbe || S.online) return;
+  S.connection = available ? 'reconnecting' : 'unavailable';
+  renderOverlays();
+  connectionTimer = setTimeout(probeConnection, 3000);
+}
 
 function connect() {
   es = new EventSource('/api/events');
@@ -256,6 +274,8 @@ function connect() {
     if (S.build && build !== S.build) { location.reload(); return; }
     S.build = build;
     const was = S.online;
+    ++connectionProbe; clearTimeout(connectionTimer);
+    S.connection = null;
     S.online = true;
     if (!was) renderAll();
     // После каждого подключения ревью открывается заново: после перезапуска duet сам ничего не сверяет.
@@ -272,7 +292,8 @@ function connect() {
     }
   });
   es.onerror = () => {
-    if (S.online) { S.online = false; renderAll(); }
+    if (S.online) { S.online = false; S.connection = 'checking'; renderAll(); }
+    probeConnection();
   };
 }
 
@@ -719,7 +740,10 @@ function renderOverlays() {
     h += `<div class="toast${S.toast.ok ? ' ok' : ''}"><span class="x${S.toast.cls ? ' ' + S.toast.cls : ''}">${icon}</span><div class="t1">${esc(S.toast.title)}</div>${S.toast.text ? `<div class="t2">${S.toast.text}</div>` : ''}<div class="t3">${S.toast.btn || ''}<span><kbd>esc</kbd> ${t.close}</span></div></div>`;
   }
   if (!S.online) {
-    h += `<div class="dimmer"></div><div class="off-card"><div class="h"><span class="pt"></span>${t.offTitle}</div><p>${t.offText}</p><div class="ft"><span class="spin"></span> ${t.offWait}</div></div>`;
+    const state = S.connection || 'checking';
+    const title = state === 'unavailable' ? t.offTitle : state === 'reconnecting' ? t.connTitle : t.checkTitle;
+    const text = state === 'unavailable' ? t.offText : state === 'reconnecting' ? t.connText : t.checkText;
+    h += `<div class="dimmer"></div><div class="off-card"><div class="h"><span class="pt"></span>${title}</div><p>${text}</p><div class="ft"><span class="spin"></span> ${t.offWait}</div></div>`;
   }
   $('#over').innerHTML = h;
 }
@@ -1854,12 +1878,11 @@ async function acceptResp() {
   try {
     // Отличия ответа считаются ядром: переводим место чтения в новую версию до принятия.
     if (back.path && anchor) {
-      const [file, chunks] = await Promise.all([
-        api(`/api/reviews/${rid()}/file?path=${encodeURIComponent(back.path)}`),
-        api(`/api/reviews/${rid()}/diff?path=${encodeURIComponent(back.path)}&mode=response`),
-      ]);
-      if (file.response != null && chunks.length) {
-        anchor = { ...anchor, n: oldToNew(chunks, anchor.n - 1, file.response).line + 1 };
+      const file = await api(`/api/reviews/${rid()}/file?path=${encodeURIComponent(back.path)}`);
+      // Файл под окном может не входить в ответ: тогда его место не изменилось.
+      if (file.response != null) {
+        const chunks = await api(`/api/reviews/${rid()}/diff?path=${encodeURIComponent(back.path)}&mode=response`);
+        if (chunks.length) anchor = { ...anchor, n: oldToNew(chunks, anchor.n - 1, file.response).line + 1 };
       }
     }
     await act('accept-response');
