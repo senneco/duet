@@ -76,3 +76,11 @@ node --test server/webtest                 # клиент (нужен Node.js)
 ```
 
 Тесты `app/` собирают настоящую программу и запускают её в отдельной папке данных и на свободном порту. С `-race` медленный тест скорости отличий в `core/` не проходит: гоняйте `-race` для `./server/ ./app/`.
+
+Проверка жестов выделения в Chrome (нужны установленный Chrome, запущенный duet с ревью и `puppeteer-core`):
+
+```sh
+node server/browsertest/selection.mjs /путь/к/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js
+```
+
+Проверка меняет только DOM отдельной вкладки и системный буфер обмена. Файлы ревью не меняет. Границы слов и расширение диапазона — `server/web/js/selection.js`.

@@ -1,6 +1,7 @@
 // Веб-клиент duet: список ревью и ревью (дерево, отличия, принятие), клавиши, тема и язык,
 // живые обновления. Всё, что решает поведение, делает ядро; клиент показывает и передаёт действия.
 
+import { wordRange, extendWords } from './selection.js';
 import { esc, fileKind, splitLines } from './util.js';
 import { langOf } from './syntax.js';
 import { dict, defaultLang, fmtDate } from './i18n.js';
@@ -1916,7 +1917,8 @@ $('#sc').addEventListener('mousedown', (e) => {
   if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
   window.getSelection().removeAllRanges();
   const c = caretAt(e.clientX, e.clientY);
-  drag = { a: c && inText(c[0]) ? c : null, b: null, x: e.clientX, y: e.clientY, el: e.target, single: e.detail <= 1 };
+  drag = { a: c && inText(c[0]) ? c : null, b: null, x: e.clientX, y: e.clientY, el: e.target, single: e.detail <= 1, word: e.detail === 2 && c && inText(c[0]) ? wordRange(c) : null };
+  if (drag.word) drawSelection($('#sc'), drag.word);
 });
 
 document.addEventListener('mousemove', (e) => {
@@ -1927,15 +1929,15 @@ document.addEventListener('mousemove', (e) => {
   drag.b = c;
   const sc = $('#sc');
   sc.querySelectorAll(':scope > .smenu').forEach((m) => m.remove());
-  drawSelection(sc, rangeOf(drag.a, c));
+  drawSelection(sc, drag.word ? extendWords(drag.word, wordRange(c) || rangeOf(c, c)) : rangeOf(drag.a, c));
 });
 
 document.addEventListener('mouseup', (e) => {
   if (!drag) return;
   const d = drag;
   drag = null;
-  if (d.a && d.b) {
-    const r = rangeOf(d.a, d.b);
+  if (d.word || (d.a && d.b)) {
+    const r = d.word ? (d.b ? extendWords(d.word, wordRange(d.b) || rangeOf(d.b, d.b)) : d.word) : rangeOf(d.a, d.b);
     if (!r.collapsed && setSelection(r)) return;
   }
   // Просто клик: по тексту с комментарием — выбрать комментарий. Клик по полям блока правки (и по точке
@@ -1967,30 +1969,15 @@ function plainClick(t) {
   clickOld(row, !!t.closest('[data-p]'));
 }
 
-$('#sc').addEventListener('dblclick', (e) => {
-  const c = caretAt(e.clientX, e.clientY);
-  if (!c || c[0].nodeType !== 3 || !inText(c[0])) return;
-  const s = c[0].nodeValue;
-  const W = /[\p{L}\p{N}_-]/u;
-  let a = c[1], b = c[1];
-  while (a > 0 && W.test(s[a - 1])) a--;
-  while (b < s.length && W.test(s[b])) b++;
-  if (b <= a) return;
-  const r = document.createRange();
-  r.setStart(c[0], a);
-  r.setEnd(c[0], b);
-  setSelection(r);
-});
-
 // Копирование: ⌘C и «Копировать» в меню правой кнопки (на это время выделение отдаём браузеру).
 document.addEventListener('contextmenu', () => {
-  if (!S.sel || !S.sel.range) return;
+  if (!S.sel || !S.sel.range || document.activeElement?.closest('input, textarea, [contenteditable]')) return;
   const s = window.getSelection();
   s.removeAllRanges();
   s.addRange(S.sel.range);
 });
 document.addEventListener('copy', (e) => {
-  if (!S.sel || !S.sel.range) return;
+  if (!S.sel || !S.sel.range || document.activeElement?.closest('input, textarea, [contenteditable]')) return;
   const s = window.getSelection();
   if (!s.isCollapsed && !(s.anchorNode && s.anchorNode.parentElement && s.anchorNode.parentElement.closest('[data-p]'))) return;
   e.clipboardData.setData('text/plain', S.sel.range.toString());
@@ -2001,6 +1988,12 @@ document.addEventListener('copy', (e) => {
 
 document.addEventListener('keydown', (e) => {
   const k = e.key;
+  if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === 'c' && S.sel?.range &&
+      !e.target.closest('input, textarea, [contenteditable]')) {
+    e.preventDefault();
+    navigator.clipboard.writeText(S.sel.range.toString()).catch(() => document.execCommand('copy'));
+    return;
+  }
   // Окно правки: ⌘Enter — сохранить, Esc — отменить (с вопросом, если текст менялся), Tab — отступ.
   if (S.edit && S.overlay !== 'help') {
     if (S.overlay === 'editDiscard' || S.overlay === 'editMeanwhile') {
