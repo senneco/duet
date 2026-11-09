@@ -218,10 +218,8 @@ test('171: пока ответ не открыт, ответа агента в �
   const html = cardHTML(c, { t: dict('ru'), n: 1, on: true });
   assert.match(html, /агент ответил — откройте ответ/);
   assert.doesNotMatch(html, /Сократил|data-cact="reply"/);
-  // ответ принят — видно как обычно
-  const [d] = shownComments([cm()], { pending: 0 });
-  assert.equal(d.pend, undefined);
-  assert.equal(d.thread.length, 2);
+  // ответ принят — прочитанная ветка скрыта
+  assert.deepEqual(shownComments([cm()], { pending: 0 }), []);
 });
 
 test('176, 179: в окне ответа комментарии на местах в версии из ответа, написанные в окне — тоже', () => {
@@ -386,4 +384,21 @@ test('232: подряд новые куски — один блок, блок с
   const right = [...two.matchAll(/<\/div><div class="(c[^"]*)"><div class="b (\w+)"/g)].map((m) => `${m[1]} ${m[2]}`);
   assert.deepEqual(cols, ['c', 'c jn', 'c jp', 'c', 'c', 'c']);
   assert.deepEqual(right, ['c jn add', 'c jp add', 'c add', 'c add']);
+});
+
+ test('Принятые ответы скрыты, встречный комментарий и вопрос остаются', () => {
+  const list = [cm(), cm({ id: 'draft', status: 'unsent', thread: [...thread, { author: 'owner', text: 'Ещё правка' }] }), cm({ id: 'question', status: 'question' })];
+  assert.deepEqual(shownComments(list).map(c => c.id), ['draft', 'question']);
+  assert.deepEqual(shownComments(list, { pending: 9 }).map(c => c.id), ['draft', 'question']);
+  assert.equal(list[0].thread.length, 2, 'история сохранена');
+});
+
+test('Новый ответ не показывает отвеченные ветки предыдущего ответа', () => {
+  const resp = { range: { start: 0, end: 4 } };
+  const old = cm({ resp });
+  const current = cm({ id: 'current', resp, thread: [...thread, { author: 'agent', text: 'Новый ответ', response: 4 }] });
+  const draft = cm({ id: 'draft', resp, status: 'unsent' });
+  const question = cm({ id: 'question', resp, status: 'question' });
+  assert.deepEqual(shownComments([old, current, draft, question], { resp: true, pending: 4 }).map(c => c.id), ['current', 'draft', 'question']);
+  assert.equal(old.thread.length, 2);
 });
