@@ -176,6 +176,10 @@ export function renderBlock(b, lines, rangesOf = () => [], cls = '', side = '') 
     case 'table':
       return table(b, lines, rangesOf, cls, side);
     case 'code':
+      if (b.lang.toLowerCase() === 'mermaid') {
+        const source = lines.slice(b.inner[0], b.inner[1]).join('\n');
+        return diagramBlock(source, `<pre class="cb">${codeLines(b, lines, rangesOf, cls, side)}</pre>`);
+      }
       return `<pre class="cb">${codeLines(b, lines, rangesOf, cls, side)}</pre>`;
   }
   return '';
@@ -354,4 +358,8 @@ function parse(s, from, to, out) {
 function safeHref(url) {
   if (/^(https?:|mailto:)/i.test(url)) return ` href="${esc(url)}"`;
   return '';
+}
+
+export function diagramBlock(source, sourceHTML, open = false) {
+  return `<section class="diagram" data-source="${esc(source)}"><div class="diagram-tools"><span>Mermaid</span><button type="button" class="diagram-expand" hidden>⤢</button></div><div class="diagram-canvas" aria-live="polite"></div><details${open ? ' open' : ''}><summary>Mermaid · &lt;/&gt;</summary>${sourceHTML}</details></section>`;
 }

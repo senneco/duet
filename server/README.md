@@ -102,3 +102,9 @@ node server/browsertest/editor-position.mjs /путь/к/puppeteer-core/lib/esm/
 ```
 
 Проверяются одна и две колонки, выделенное слово в длинном абзаце и открытие без выделения.
+
+Схемы Mermaid: `js/diagrams.js`, библиотека и лицензия в `web/vendor/mermaid/`. Загружается при наличии схем. SVG строится локально, исходник с якорями комментариев и подсветкой правок остаётся в раскрываемом блоке. Проверка на тестовом ядре:
+
+```sh
+node server/browsertest/diagrams.mjs /путь/к/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js
+```

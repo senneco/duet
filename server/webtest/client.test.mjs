@@ -402,3 +402,31 @@ test('Новый ответ не показывает отвеченные ве�
   assert.deepEqual(shownComments([old, current, draft, question], { resp: true, pending: 4 }).map(c => c.id), ['current', 'draft', 'question']);
   assert.equal(old.thread.length, 2);
 });
+
+ test('Mermaid: графическая область сохраняет исходник, якоря и подсветку правок', () => {
+  const lines = ['```mermaid', 'flowchart LR', 'A[Запрос] --> B[Ответ]', '```'];
+  const block = parseBlocks(lines)[0];
+  const html = renderBlock(block, lines, i => i === 2 ? [[0, lines[2].length]] : [], 'wa', 'n');
+  assert.match(html, /class="diagram"/);
+  assert.match(html, /class="diagram-canvas"/);
+  assert.match(html, /<details>/);
+  assert.match(html, /data-p="n2.0"/);
+  assert.match(html, /<mark class="wa">/);
+  assert.match(html, /data-source="flowchart LR/);
+  const ordinary = ['```js', 'const a = 1;', '```'];
+  assert.doesNotMatch(renderBlock(parseBlocks(ordinary)[0], ordinary), /class="diagram"/);
+});
+
+test('Mermaid: итоговая схема над построчным диффом', () => {
+  const old = ['```mermaid', 'stateDiagram-v2', 'direction LR', 'free: Свободен', 'busy: Занят', '[*] --> free', 'free --> busy: запрос', 'busy --> free: ответ', '```'];
+  const next = old.map(l => l.replace('busy --> free: ответ', 'busy --> free: готово'));
+  const chunks = [{kind:'deleted',old:old.map((text,i)=>L(i+1,text))},{kind:'added',new:next.map((text,i)=>L(i+1,text))}];
+  const html = renderDoc(chunks, old.join('\n'), next.join('\n'), {cols:1});
+  assert.match(html, /class="diagram"/);
+  assert.match(html, /<details open>/);
+  assert.match(html, /class="cb diff"/);
+  assert.ok(html.indexOf('diagram-canvas') < html.indexOf('cb diff'));
+  assert.match(html, /data-source="[^"]*готово/);
+  assert.match(html, /class="cdel"/);
+  assert.match(html, /class="cadd"/);
+});

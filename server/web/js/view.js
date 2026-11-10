@@ -4,7 +4,7 @@
 // (или который убрали). Строки, новые или удалённые целиком, подсвечены целиком.
 
 import { esc, ranges, wholeRange, paint, splitLines } from './util.js';
-import { parseBlocks, renderBlock, codeLineList } from './markdown.js';
+import { parseBlocks, renderBlock, codeLineList, diagramBlock } from './markdown.js';
 import { tokenize } from './syntax.js';
 
 const CTX = 3; // строк вокруг правки в коде
@@ -229,7 +229,10 @@ export function renderDoc(chunks, oldText, newText, opts = {}) {
         h += c.kind === 'same' ? x : `<span class="cadd">${x}</span>`;
       }
     }
-    return `<pre class="cb diff">${h}</pre>`;
+    const diff = `<pre class="cb diff">${h}</pre>`;
+    return nb.lang.toLowerCase() === 'mermaid'
+      ? diagramBlock(nl.slice(nb.inner[0], nb.inner[1]).join('\n'), diff, true)
+      : diff;
   };
   const isCodeDiff = (u) => u.old.length === 1 && u.new.length === 1 && u.old[0].type === 'code' && u.new[0].type === 'code' && u.new[0].inner[1] - u.new[0].inner[0] > 6;
 

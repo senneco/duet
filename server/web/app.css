@@ -670,3 +670,26 @@ body:is(.edge-leaf, .edge-frame) .page .doc > .chg.hasold::before { left: 18px }
 /* фокус по блокам: блок, который читаешь, обычной яркости, остальное приглушено */
 #sc [data-blk] { transition: opacity .25s }
 body.focus #sc [data-blk]:not(.fcur) { opacity: .3 }
+
+/* Схемы в документе: SVG и раскрываемый исходник с точными правками. */
+.diagram { margin: 12px 0 20px; border: 1px solid var(--line2); border-radius: 12px; background: var(--bg); overflow: hidden; max-width: 100% }
+.diagram-tools { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--line); font: 11px var(--mono); color: var(--fg3) }
+.diagram-tools button { font: 20px var(--sans); cursor: pointer; color: var(--fg2); background: transparent; border: 0; padding: 0 6px }
+.diagram-canvas { padding: 20px 14px; overflow: auto; text-align: center; min-height: 100px }
+.diagram-canvas svg { display: block; width: 100%; height: auto; margin: auto }
+.diagram details { border-top: 1px solid var(--line); text-align: left }
+.diagram summary { cursor: pointer; padding: 8px 12px; font: 11px var(--mono); color: var(--fg3) }
+.doc .diagram pre, .two .diagram pre { margin: 0; border-radius: 0; padding: 12px; font-size: 12px; overflow: auto }
+.diagram-error { color: var(--fg2); font: 13px/1.6 var(--sans); min-height: 0 }
+.diagram-dialog { width: min(1400px, 96vw); max-width: 96vw; height: 90vh; max-height: 94vh; padding: 0; border: 1px solid var(--line2); border-radius: 14px; background: var(--bg); color: var(--fg); box-shadow: 0 24px 90px #0004 }
+.diagram-dialog::backdrop { background: #16132188; backdrop-filter: blur(4px) }
+.diagram-dialog header { display: flex; align-items: center; gap: 24px; padding: 14px 20px; border-bottom: 1px solid var(--line); font: 14px var(--sans) }
+.diagram-dialog header label { display: flex; align-items: center; gap: 10px; margin-left: auto }
+.diagram-dialog button { cursor: pointer; background: var(--bg); color: var(--fg); border: 1px solid var(--line2); border-radius: 6px; padding: 6px 12px }
+.diagram-pan { overflow: auto; height: calc(100% - 62px); padding: 24px }
+.diagram-canvas .node rect { rx: 8px; ry: 8px }
+.diagram-canvas .node rect, .diagram-canvas .actor { filter: drop-shadow(0 2px 3px #20183c0d) }
+
+.diagram-dialog { inset: 0; margin: auto }
+.diagram-pan { display: grid; align-items: center; justify-items: center }
+.diagram-pan > svg { flex: none; max-height: none }

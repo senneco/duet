@@ -2,6 +2,7 @@
 // живые обновления. Всё, что решает поведение, делает ядро; клиент показывает и передаёт действия.
 
 import { wordRange, extendWords, selectionText } from './selection.js';
+import { renderDiagrams } from './diagrams.js';
 import { esc, fileKind, splitLines } from './util.js';
 import { langOf } from './syntax.js';
 import { dict, defaultLang, fmtDate } from './i18n.js';
@@ -368,7 +369,7 @@ function toggleLook() {
   renderHeader();
   renderStatus();
 }
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { applyTheme(); renderDiagrams($('#sc')); });
 
 function renderAll() {
   applyTheme();
@@ -397,6 +398,7 @@ function renderAll() {
   }
   renderStatus();
   renderOverlays();
+  renderDiagrams($('#sc'));
 }
 
 const SNAKE = '<span class="dots"><i></i><i></i><i></i><i></i><i></i><i></i></span>';
