@@ -13,7 +13,7 @@ Talk to the owner and write files in the owner's language. duet writes to you in
 
 ## Send for review
 
-Only when the owner asks you to. After that, in this session, send everything you prepare for the owner to the same review yourself, without reminders.
+Only when the owner asks you to. After that, while continuing the same task, send everything you prepare for the owner to the same review yourself, without reminders.
 
 ```sh
 duet submit '{"title": "Short title of the task",
@@ -36,6 +36,12 @@ Pass the JSON as **one single-quoted argument** like this, not through a heredoc
 - **Same review or a new one.** The same task goes to the same review (just `duet submit` again with the new files). A clearly new task goes to a new review: add `"new": true`. If you are not sure, ask the owner one short question.
 - Files already in the review need no resending: everything you change in them reaches the owner as your response by itself.
 - duet adds files you write with your edit tools inside your folder by itself. **Files you create or change with commands** (generators, `sed`, scripts) that are not in the review yet: send them with `duet submit`.
+
+## Restore a connection
+
+`duet web` only opens a page; it does not connect this session to a review. If it opens the home page or `duet status` reports no connection while you are continuing a task already assigned to a known review, run `duet connect <known review link>` yourself. The owner's earlier request to maintain that review is sufficient: do not ask again whether to reconnect or create a new review. Read the returned state and comments, then submit any missing changed or new files to that same review.
+
+This also applies when continuing the authorized task in a resumed or replacement session. If the intended review is unknown or ambiguous, ask for its link. If duet says another agent picked up the review, do not reconnect or take it back without an explicit handoff from the owner.
 
 ## Comments
 
