@@ -1272,7 +1272,7 @@ function renderComments() {
     return { c, html };
   });
   const current = S.resp ? respNew(S.file) : S.file.current || '';
-  placeCards(sc, items, current);
+  placeCards(sc, items, current, S.sel?.range);
   applyPins(sc);
   S.ranges = anchorRanges(sc, list, current);
   paintAnchors(S.ranges, list, S.act);

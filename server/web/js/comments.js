@@ -207,7 +207,18 @@ export function paintAnchors(ranges, comments, active) {
 // placeCards — карточки под тем, к чему они относятся. list — [{c, html}] по порядку.
 // Комментарий к удалённому тексту (точка) — перед тем, что идёт после удалённого; в двух колонках —
 // на заштрихованном месте справа. Ко всему файлу — в начале.
-export function placeCards(sc, list, current) {
+export function placeCards(sc, list, current, selection) {
+  // Перемещение абзацев при расстановке карточек сбрасывает живой DOM Range.
+  // Текстовые узлы остаются теми же: сохраняем границы до перемещения.
+  const endpoints = selection && [selection.startContainer, selection.startOffset, selection.endContainer, selection.endOffset];
+  placeCardsInner(sc, list, current);
+  if (endpoints && endpoints[0].isConnected && endpoints[2].isConnected) {
+    selection.setStart(endpoints[0], endpoints[1]);
+    selection.setEnd(endpoints[2], endpoints[3]);
+  }
+}
+
+function placeCardsInner(sc, list, current) {
   sc.querySelectorAll('.cc-slot').forEach((e) => e.remove());
   sc.querySelectorAll('.cc-in-hatch').forEach((e) => e.classList.remove('cc-in-hatch'));
   unsplit(sc);
