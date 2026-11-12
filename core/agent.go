@@ -193,7 +193,7 @@ func (c *Core) Owns(sessionID, path string) bool {
 }
 
 // WriteCheck — агент сессии собирается записать файл ревью (или файл, который duet добавит в ревью).
-// Если можно, заход начинается. Иначе — ошибка, почему нельзя: непросмотренный ответ,
+// Если можно, заход начинается, в том числе поверх непросмотренного ответа. Иначе — ошибка:
 // владелец правит, «прервать», файл занят в другом ревью (*BusyError).
 func (c *Core) WriteCheck(sessionID, path string, track bool) error {
 	c.mu.Lock()
@@ -212,9 +212,6 @@ func (c *Core) WriteCheck(sessionID, path string, track bool) error {
 	}
 	if ok && !mine && c.busy(f) {
 		return &BusyError{Busy{path, f.ReviewID}}
-	}
-	if r.pending() != nil && !r.Working { // после отправки из окна агент работает поверх ответа
-		return ErrUnviewedResponse
 	}
 	if r.Editing {
 		return ErrEditing
@@ -374,7 +371,7 @@ func (c *Core) fromDisk(r *Review) ([]Submission, error) {
 
 // diskDiffers — агент поменял файлы ревью на диске (например, командой), пока не был в заходе.
 func (c *Core) diskDiffers(r *Review) bool {
-	if c.disk == nil || r.pending() != nil || r.Stopping {
+	if c.disk == nil || r.Editing || r.Stopping {
 		return false
 	}
 	subs, err := c.fromDisk(r)
@@ -634,8 +631,7 @@ func (c *Core) findAnchor(r *Review, d *Response, a Answer) *Range {
 	return &Range{i, i + len(a.AnchorText)}
 }
 
-// Violations — агент поменял файлы ревью командой, когда менять их нельзя: есть непросмотренный
-// ответ или владелец правит. Возвращает файлы и причину (ErrUnviewedResponse, ErrEditing).
+// Violations — агент поменял файлы командой во время правки владельца.
 func (c *Core) Violations(sessionID string) ([]string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -643,14 +639,10 @@ func (c *Core) Violations(sessionID string) ([]string, error) {
 	if err != nil || c.disk == nil || r.Stopping {
 		return nil, nil
 	}
-	why := ErrUnviewedResponse
-	switch {
-	case r.pending() != nil && !r.Working:
-	case r.Editing:
-		why = ErrEditing
-	default:
+	if !r.Editing {
 		return nil, nil
 	}
+	why := ErrEditing
 	var out []string
 	for _, f := range c.files(r) {
 		exp, ok := c.expected(r, f)

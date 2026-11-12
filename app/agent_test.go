@@ -173,9 +173,9 @@ func TestAgentRoundTrip(t *testing.T) {
 	if st := e.reviewState("r1"); st["hasResponse"] != true {
 		t.Fatal(st)
 	}
-	// 110: пока ответ не просмотрен, менять файл ревью нельзя.
+	// Продолжение из чата разрешено и при непросмотренном ответе.
 	r = e.hook(dir, "s1", "PreToolUse", map[string]any{"tool_name": "Edit", "tool_input": map[string]any{"file_path": path}})
-	if r.code != 2 || !strings.Contains(r.err, "not viewed") {
+	if r.code != 0 {
 		t.Fatal(r)
 	}
 	// 118: `duet web` из сессии открывает её ревью.

@@ -158,7 +158,7 @@ func TestApplyPatchPaths(t *testing.T) {
 	}
 }
 
-// 110: агент поменял файл ревью командой, пока ответ не просмотрен, — duet сразу просит вернуть.
+// Продолжение из чата командой поверх непросмотренного ответа не блокируется.
 func TestCommandEditWhileUnviewed(t *testing.T) {
 	f := setup(t, "claude")
 	f.hook("UserPromptSubmit", nil)
@@ -170,7 +170,12 @@ func TestCommandEditWhileUnviewed(t *testing.T) {
 	f.hook("UserPromptSubmit", nil)
 	os.WriteFile(f.path, []byte("two\nthree\n"), 0o644) // командой, мимо инструмента правки
 	r := f.hook("PostToolUse", map[string]any{"tool_name": "Bash", "tool_input": map[string]any{"command": "cat >> a.md"}})
-	if !strings.Contains(r.Stdout, "you changed review files with a command") {
+	if strings.Contains(r.Stdout, "you changed review files with a command") {
 		t.Fatal(r)
+	}
+	f.hook("Stop", nil)
+	v, err := f.c.File(f.r, f.path)
+	if err != nil || v.Response == nil || *v.Response != "two\nthree\n" || v.Current != "one\n" {
+		t.Fatal(v, err)
 	}
 }

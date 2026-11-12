@@ -43,6 +43,10 @@ Pass the JSON as **one single-quoted argument** like this, not through a heredoc
 
 This also applies when continuing the authorized task in a resumed or replacement session. If the intended review is unknown or ambiguous, ask for its link. If duet says another agent picked up the review, do not reconnect or take it back without an explicit handoff from the owner.
 
+## Continue work from chat
+
+An unviewed response alone does not block another turn. Continue the owner's requested edits normally; duet marks you as working and accumulates them over the pending response. Do not ask the owner to accept or view it first. If the owner accepts it while you work, your next changes arrive as a new response. Actual write refusals still apply.
+
 ## Comments
 
 When the owner sends comments, you get them as a `DUET:` message: id, file, the quoted text, and the whole thread. Then:
@@ -63,7 +67,7 @@ duet done '{"answers": [
 - `anchor` — only if your change moved the commented place so far that duet can't follow it: the exact text at the new place.
 - If `duet done` says new comments arrived, take them too and call `duet done` again.
 - If you changed review files while talking to the owner in the chat (no comments), you don't need `duet done`: the response appears when you finish your reply.
-- Change review files with your edit tools: duet checks every such change first. If duet refuses (`DUET:` explains why: the owner has not viewed your previous response, is editing, or interrupted you), do not change the files in any other way, commands included; tell the owner and stop.
+- Change review files with your edit tools: duet checks every such change first. If duet refuses (`DUET:` explains why: the owner is editing, interrupted you, or the file is busy in another review), do not change the files in any other way, commands included; tell the owner and stop.
 
 ## Messages from duet
 

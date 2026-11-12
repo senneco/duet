@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 )
 
@@ -187,7 +188,7 @@ func TestWriteRefused(t *testing.T) {
 	must(t, c.WriteCheck("s1", a, false))
 	p.write("a.md", "3\n")
 	stop(t, c, "s1")
-	if err := c.WriteCheck("s1", a, false); !errors.Is(err, ErrUnviewedResponse) {
+	if err := c.WriteCheck("s1", a, false); err != nil {
 		t.Fatal(err)
 	}
 	// Файлы вне ревью и вне папки агента duet не касаются.
@@ -359,5 +360,42 @@ func TestStartAndBlocks(t *testing.T) {
 	}
 	if c.SetStart(r, other) == nil || rv(t, c, r).Start != path {
 		t.Fatal("start outside the review")
+	}
+}
+
+// Правки из чата продолжают ответ, не меняя показанную версию до конца захода.
+func TestChatContinuesPendingResponse(t *testing.T) {
+	for _, acceptDuring := range []bool{false, true} {
+		t.Run(fmt.Sprint(acceptDuring), func(t *testing.T) {
+			c, p := newProj(t)
+			r, a := agentReview(t, c, p, "a.md", "2\n", "1\n")
+			must(t, c.WriteCheck("s1", a, false))
+			p.write("a.md", "3\n")
+			stop(t, c, "s1")
+			must(t, c.WriteCheck("s1", a, false))
+			p.write("a.md", "4\n")
+			v := fv(t, c, r, a)
+			if v.Response == nil || *v.Response != "3\n" || v.Current != "2\n" {
+				t.Fatal(v)
+			}
+			if !rv(t, c, r).Working {
+				t.Fatal("continuation is not working")
+			}
+			if acceptDuring {
+				must(t, c.AcceptResponse(r))
+			}
+			stop(t, c, "s1")
+			v = fv(t, c, r, a)
+			if v.Response == nil || *v.Response != "4\n" {
+				t.Fatal(v)
+			}
+			want := "2\n"
+			if acceptDuring {
+				want = "3\n"
+			}
+			if v.Current != want || v.Base != "1\n" {
+				t.Fatal(v)
+			}
+		})
 	}
 }

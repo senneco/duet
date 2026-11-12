@@ -181,7 +181,6 @@ func TestBlockedWhileUnviewedResponse(t *testing.T) {
 		"правка":         c.Edit(r, "/b", "x"),
 		"вернуть к базе": c.RevertToBase(r, "/b"),
 		"принять файл":   c.AcceptFile(r, "/a"),
-		"новый заход":    c.AgentStart(r),
 	} {
 		if !errors.Is(err, ErrUnviewedResponse) {
 			t.Errorf("%s: %v", name, err)

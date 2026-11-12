@@ -365,9 +365,6 @@ func (c *Core) AgentStart(reviewID string) error {
 	if err != nil {
 		return err
 	}
-	if r.pending() != nil && !r.Working {
-		return ErrUnviewedResponse
-	}
 	if r.Stopping {
 		return ErrStopping
 	}
