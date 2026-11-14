@@ -79,6 +79,7 @@ type ResponseStatus string
 
 const (
 	ResponsePending  ResponseStatus = "pending"
+	ResponseDirect   ResponseStatus = "direct" // сразу в основной просмотр, без принятия владельцем
 	ResponseAccepted ResponseStatus = "accepted"
 	ResponseRejected ResponseStatus = "rejected"
 	// ResponseInterrupted — заход прерван владельцем, сделанное выброшено.
@@ -471,6 +472,12 @@ func (c *Core) finish(r *Review, files []Submission, answers []Answer) (bool, er
 		c.mergeInto(r, p, d)
 		target = p
 	}
+	direct := p == nil
+	for _, path := range r.Paths {
+		if d.touches(c, path) && !isAccepted(c.s.Files[path]) {
+			direct = false
+		}
+	}
 	for id, a := range d.Answers {
 		_, cm, _ := c.comment(r, id)
 		cm.Thread = append(cm.Thread, Message{Author: "agent", Text: a.Text, Question: a.Question, Options: a.Options, Response: target.ID, At: c.stamp()})
@@ -482,6 +489,12 @@ func (c *Core) finish(r *Review, files []Submission, answers []Answer) (bool, er
 	}
 	if p == nil {
 		r.Responses = append(r.Responses, d)
+	}
+	if direct {
+		if err := c.closeResponseLocked(r.ID, ResponseDirect); err != nil {
+			return false, err
+		}
+		return true, nil
 	}
 	return true, c.commit(r)
 }
@@ -557,6 +570,10 @@ func (c *Core) RejectResponse(reviewID string) error {
 func (c *Core) closeResponse(reviewID string, st ResponseStatus) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return c.closeResponseLocked(reviewID, st)
+}
+
+func (c *Core) closeResponseLocked(reviewID string, st ResponseStatus) error {
 	r, err := c.review(reviewID)
 	if err != nil {
 		return err
@@ -596,7 +613,7 @@ func (c *Core) closeResponse(reviewID string, st ResponseStatus) error {
 		}
 	}
 	var returned []string
-	if st == ResponseAccepted {
+	if st == ResponseAccepted || st == ResponseDirect {
 		for path, v := range p.Files {
 			f := c.s.Files[path]
 			anchors := map[string]Range{}
@@ -618,7 +635,7 @@ func (c *Core) closeResponse(reviewID string, st ResponseStatus) error {
 	}
 	c.eachComment(r, func(_ *File, cm *Comment) {
 		if cm.InResponse == p.ID {
-			if st == ResponseAccepted {
+			if st == ResponseAccepted || st == ResponseDirect {
 				cm.InResponse = 0
 			} else {
 				cm.Status = CommentDeleted // написанные в окне комментарии уходят вместе с ответом

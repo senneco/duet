@@ -430,3 +430,10 @@ test('Mermaid: итоговая схема над построчным дифф�
   assert.match(html, /class="cdel"/);
   assert.match(html, /class="cadd"/);
 });
+
+ test('Прямой ответ виден в основном просмотре до принятия файла', () => {
+ const direct = { id: 'direct', status: 'answered', direct: true, thread: [{author: 'agent', response: 3, text: 'Готово'}] };
+ const modal = { ...direct, id: 'modal', direct: false };
+ assert.deepEqual(shownComments([direct, modal]).map(c => c.id), ['direct']);
+ assert.equal(shownComments([direct])[0].thread[0].text, 'Готово');
+ });

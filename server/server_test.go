@@ -287,18 +287,18 @@ func TestReadAPI(t *testing.T) {
 	_, data := e.do("GET", "/api/reviews", nil, nil)
 	var list []core.ReviewView
 	json.Unmarshal(data, &list)
-	if len(list) != 1 || !list[0].HasResponse || list[0].Files[0].Current != "" || list[0].Files[0].State != core.StateAccepted || list[0].Files[0].DiskChanged || !list[0].Files[0].Ripple {
+	if len(list) != 1 || list[0].HasResponse || list[0].Files[0].Current != "" || list[0].Files[0].State == core.StateAccepted || list[0].Files[0].DiskChanged || list[0].Files[0].Ripple {
 		t.Fatalf("список: %s", data)
 	}
 
 	_, data = e.do("GET", "/api/reviews/"+id+"/file?path="+e.path("a.md"), nil, nil)
 	var fv core.FileView
 	json.Unmarshal(data, &fv)
-	if fv.Current != "раз два\n" || fv.Response == nil || *fv.Response != "раз три\n" {
+	if fv.Current != "раз три\n" || fv.Base != "раз два\n" || fv.Response != nil {
 		t.Fatalf("файл: %s", data)
 	}
 
-	_, data = e.do("GET", "/api/reviews/"+id+"/diff?mode=response&path="+e.path("a.md"), nil, nil)
+	_, data = e.do("GET", "/api/reviews/"+id+"/diff?path="+e.path("a.md"), nil, nil)
 	var chunks []core.Chunk
 	json.Unmarshal(data, &chunks)
 	if len(chunks) != 1 || chunks[0].Kind != core.ChunkChanged {

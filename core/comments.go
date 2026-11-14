@@ -86,6 +86,7 @@ type AgentComment struct {
 
 // CommentView — комментарий для клиента.
 type CommentView struct {
+	Direct     bool          `json:"direct,omitempty"` // ответ сразу перенесён в основной просмотр и ещё не принят с файлом
 	ID         string        `json:"id"`
 	Whole      bool          `json:"whole"`
 	Range      Range         `json:"range"`
@@ -633,6 +634,19 @@ func (c *Core) commentViews(r *Review, f *File) []CommentView {
 		}
 		if v.Whole {
 			v.Range = Range{}
+		}
+		for i := len(cm.Thread) - 1; i >= 0; i-- {
+			m := cm.Thread[i]
+			if m.Author != "agent" {
+				continue
+			}
+			for _, response := range r.Responses {
+				if response.ID == m.Response {
+					v.Direct = response.Status == ResponseDirect
+					break
+				}
+			}
+			break
 		}
 		v.Resp = c.respPlace(r, f, cm, v)
 		out = append(out, v)

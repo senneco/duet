@@ -28,7 +28,7 @@ const imgs = (m) => (m.images && m.images.length ? `<div class="mimg">${m.images
 export function shownComments(list, { resp, pending } = {}) {
   if (resp) return list.filter((c) => c.resp && (c.status !== 'answered' ||
     (pending && (c.thread || []).some((m) => m.author === 'agent' && m.response === pending)))).map((c) => ({ ...c, ...c.resp }));
-  return list.filter((c) => !c.inResponse && (c.status !== 'answered' ||
+  return list.filter((c) => !c.inResponse && (c.status !== 'answered' || c.direct ||
     (pending && (c.thread || []).some((m) => m.author === 'agent' && m.response === pending)))).map((c) => (pending && (c.thread || []).some((m) => m.author === 'agent' && m.response === pending)
     ? { ...c, pend: true, thread: c.thread.filter((m) => m.response !== pending) } : c));
 }

@@ -199,7 +199,7 @@ func sorted(s ...string) []string {
 // pendingSetup — агент прислал ответ: a «1» → «2».
 func pendingSetup(t *testing.T) (*Core, *proj, string, string) {
 	c, p := newProj(t)
-	r, a := newReview(t, c, p, "a.md", "1\n", "1\n")
+	r, a := newReview(t, c, p, "a.md", "1\n", "до правок\n")
 	must(t, c.AgentStart(r))
 	p.write("a.md", "2\n")
 	_, err := c.AgentFinish(r, []Submission{{Path: a, Content: "2\n"}}, nil)

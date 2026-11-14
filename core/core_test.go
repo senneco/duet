@@ -99,7 +99,7 @@ func TestResponseShowsRippleAndKeepsAccepted(t *testing.T) {
 	c, _ := open(t)
 	r := create(t, c, Submission{Path: "/a", Content: "1"}, Submission{Path: "/b", Content: "b"})
 	must(t, c.AcceptFile(r, "/a"))
-	respond(t, c, r, Submission{Path: "/a", Content: "2"}, Submission{Path: "/b", Content: "b"})
+	respond(t, c, r, Submission{Path: "/a", Content: "2"}, Submission{Path: "/b", Content: "changed"})
 	rv, _ := c.Review(r)
 	if !rv.HasResponse {
 		t.Fatal("нет ответа")
@@ -108,21 +108,20 @@ func TestResponseShowsRippleAndKeepsAccepted(t *testing.T) {
 	if !a.Ripple || a.State != StateAccepted || a.Current != "1" || *a.Response != "2" {
 		t.Fatalf("%+v", a)
 	}
-	if b := fv(t, c, r, "/b"); b.Ripple {
-		t.Fatal("рябь по нетронутому файлу")
+	if b := fv(t, c, r, "/b"); !b.Ripple {
+		t.Fatal("нет ряби по затронутому файлу")
 	}
 	if err := c.AcceptFile(r, "/a"); !errors.Is(err, ErrUnviewedResponse) {
 		t.Fatal(err)
 	}
-	must(t, c.AcceptFile(r, "/b")) // ответ не касается — можно
+	// Оба файла затронуты смешанным ответом.
 }
 
 // 6, 32
 func TestAcceptResponse(t *testing.T) {
 	c, _ := open(t)
-	r := create(t, c, Submission{Path: "/a", Content: "1"})
+	r := create(t, c, Submission{Path: "/a", Content: "draft", Original: orig("1")})
 	must(t, c.MarkOpened(r, "/a"))
-	must(t, c.AcceptFile(r, "/a"))
 	respond(t, c, r, Submission{Path: "/a", Content: "2"})
 	must(t, c.AcceptResponse(r))
 	v := fv(t, c, r, "/a")
@@ -308,7 +307,6 @@ func TestDeletedFile(t *testing.T) {
 	r := create(t, c, Submission{Path: "/a", Content: "1"})
 	must(t, c.AcceptFile(r, "/a"))
 	respond(t, c, r, Submission{Path: "/a", Deleted: true})
-	must(t, c.AcceptResponse(r))
 	if v := fv(t, c, r, "/a"); v.State != StateDeleted {
 		t.Fatalf("%+v", v)
 	}

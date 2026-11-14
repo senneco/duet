@@ -50,7 +50,7 @@ const doc = "один\nдва\nтри\nчетыре\n"
 
 func setup(t *testing.T) (*Core, string) {
 	c, _ := open(t)
-	r := create(t, c, Submission{Path: "/a", Content: doc, Original: orig(doc)})
+	r := create(t, c, Submission{Path: "/a", Content: doc, Original: orig("до правок\n")})
 	return c, r
 }
 
@@ -176,6 +176,7 @@ func TestQuestion(t *testing.T) {
 // 24: неотправленный комментарий держит ревью непринятым.
 func TestUnsentBlocksReviewAccepted(t *testing.T) {
 	c, r := setup(t)
+	must(t, c.AcceptFile(r, "/a"))
 	addC(t, c, r, "/a", nil, "А")
 	rv, _ := c.Review(r)
 	if rv.Accepted || rv.Unsent != 1 || fv(t, c, r, "/a").State != StateAccepted {
