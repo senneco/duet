@@ -461,7 +461,7 @@ function renderTree() {
     const gone = ['deleted', 'deleted-accepted', 'moved'].includes(f.state) ? ' gone' : '';
     const off = rset && !rset.has(f.path) ? ' untouched' : '';
     const tag = S.resp ? (f.absent ? `<span class="tag rnew">${T().rNew}</span>` : f.diskChanged ? `<span class="tag own">${T().stDiskShort}</span>` : '') : fileTag(f);
-    h += `<div class="tr${open ? ' open' : ''}${gone}${off}" data-file="${esc(f.path)}" title="${esc(f.path)}"><span class="pad"></span>${ind(r.depth)}<span class="ic">${fileIcon(f)}</span><span class="nm">${esc(f.name)}</span>${f.open && !S.resp ? `<span class="cmk${f.questions ? ' q' : ''}">${f.open}</span>` : ''}<span class="fill"></span>${tag}</div>`;
+    h += `<div class="tr${open ? ' open' : ''}${gone}${off}" data-file="${esc(f.path)}" title="${esc(f.path)}"><span class="pad"></span>${ind(r.depth)}<span class="ic">${fileIcon(f)}</span><span class="nm">${esc(f.name)}</span>${f.open && !S.resp ? `<button class="cmk${f.questions ? ' q' : ''}" title="${S.lang === 'ru' ? 'К следующему комментарию' : 'Next comment'}">${f.open}</button>` : ''}<span class="fill"></span>${tag}</div>`;
     if (open && !S.resp && !S.blocksHidden && S.file && S.file.path === f.path) {
       const cur = activeBlock();
       for (const [k, b] of (S.file.blocks || []).entries()) {
@@ -1467,6 +1467,22 @@ function jumpComment(dir) {
   selectComment(list[(i + dir + list.length) % list.length].id, true);
 }
 
+function jumpCommentBelow() {
+  const list = commentOrder(openComments());
+  const sc = $('#sc');
+  const top = sc.getBoundingClientRect().top;
+  const active = sc.querySelector(`.cc[data-cid="${CSS.escape(S.act || '')}"]`);
+  const activeTop = active?.getBoundingClientRect().top;
+  const threshold = activeTop >= top && activeTop < top + sc.clientHeight ? activeTop : top + 60;
+  const next = list.find((c) => {
+    if (c.id === S.act) return false;
+    const el = S.ranges.get(c.id) || sc.querySelector(`.cc[data-cid="${CSS.escape(c.id)}"]`);
+    const card = sc.querySelector(`.cc[data-cid="${CSS.escape(c.id)}"]`);
+    return (card || el) && (card || el).getBoundingClientRect().top > threshold;
+  }) || list[0];
+  if (next) selectComment(next.id, true);
+}
+
 async function send() {
   const t = T();
   const r = S.review;
@@ -2317,6 +2333,11 @@ document.addEventListener('click', (e) => {
   if (file) {
     const p = file.dataset.file;
     if (S.resp && file.classList.contains('untouched')) return;
+    if (t.closest('.cmk')) {
+      if (p === S.path) jumpCommentBelow();
+      else openFile(p).then(() => jumpCommentBelow());
+      return;
+    }
     if (p === S.path) { S.blocksHidden = !S.blocksHidden; renderTree(); }
     else openFile(p);
     return;

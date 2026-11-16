@@ -872,7 +872,7 @@ type FileView struct {
 	ResponseDeleted bool          `json:"responseDeleted"`
 	Comments        []CommentView `json:"comments"`     // открытые комментарии: без решённых и удалённых
 	AgentWorking    bool          `json:"agentWorking"` // есть «ожидает» или «в работе» — в дереве бегают точки
-	// Open и Questions — сколько открытых комментариев и вопросов агента (для отметки в дереве).
+	// Open и Questions — сколько веток и вопросов доступно в основном просмотре (для дерева).
 	Open      int `json:"open"`
 	Questions int `json:"questions"`
 	// DiskChanged — «изменён на диске»: на диске не то, что ожидается. Disk — что там лежит.
@@ -923,7 +923,15 @@ func (c *Core) view(r *Review, path string) FileView {
 	}
 	v.Comments = c.commentViews(r, f)
 	for _, cv := range v.Comments {
-		if !cv.InResponse {
+		visible := cv.Status != CommentAnswered || cv.Direct
+		if p := r.pending(); p != nil {
+			for _, m := range cv.Thread {
+				if m.Author == "agent" && m.Response == p.ID {
+					visible = true
+				}
+			}
+		}
+		if !cv.InResponse && visible {
 			v.Open++
 			if cv.Status == CommentQuestion {
 				v.Questions++

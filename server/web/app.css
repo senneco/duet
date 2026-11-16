@@ -440,6 +440,8 @@ mark.shaped { background: transparent !important }
 /* дерево: сколько открытых комментариев; синим — есть вопрос агента */
 .cmk { flex: none; margin-left: 6px; font: 600 10px/1 var(--mono); color: var(--fg3); padding: 2px 4px; border-radius: 3px; background: var(--bg-seg) }
 .cmk.q { color: #fff; background: var(--cm-q) }
+.cmk { cursor: pointer; border: 0 }
+.cmk:hover { outline: 1px solid currentColor }
 
 /* строка состояния */
 .status .seg.uns { color: var(--cm-u); cursor: pointer }
