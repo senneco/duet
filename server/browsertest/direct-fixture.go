@@ -19,6 +19,10 @@ func main() {
 	}
 	s := server.New(c, "direct-test")
 	http.HandleFunc("/fixture", func(w http.ResponseWriter, r *http.Request) {
+		dir, e := os.MkdirTemp(dir, "review-")
+		if e != nil {
+			panic(e)
+		}
 		p := dir + "/accepted.md"
 		old := "# Принятый документ\n\nИсходный текст.\n"
 		next := "# Принятый документ\n\nИсправленный текст.\n"
@@ -26,6 +30,22 @@ func main() {
 		id, _, e := c.CreateReview("Прямой ответ", []core.Submission{{Path: p, Content: old, Original: &core.Original{Content: old}}})
 		if e != nil {
 			panic(e)
+		}
+		if r.URL.Query().Has("new") {
+			if e = c.AgentStart(id); e != nil {
+				panic(e)
+			}
+			files := []core.Submission{{Path: dir + "/first.md", Content: "# Первый новый файл\n\nПервый текст.\n"}, {Path: dir + "/second.md", Content: "# Второй новый файл\n\nВторой текст.\n"}}
+			for _, f := range files {
+				if e = os.WriteFile(f.Path, []byte(f.Content), 0600); e != nil {
+					panic(e)
+				}
+			}
+			if _, e = c.AgentFinish(id, files, nil); e != nil {
+				panic(e)
+			}
+			json.NewEncoder(w).Encode(map[string]string{"id": id, "first": files[0].Path, "second": files[1].Path})
+			return
 		}
 		cm, e := c.AddComment(id, p, nil, "Уточни текст", nil, false)
 		if e != nil {

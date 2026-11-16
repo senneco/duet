@@ -164,7 +164,7 @@ func TestEditDeletedFile(t *testing.T) {
 func TestRejectRestoresDisk(t *testing.T) {
 	c, p := newProj(t)
 	a, d := p.write("a.md", "1\n"), p.write("sub/deep/d.md", "d\n")
-	r := create(t, c, Submission{Path: a, Content: "1\n", Original: orig("1\n")}, Submission{Path: d, Content: "d\n", Original: orig("d\n")})
+	r := create(t, c, Submission{Path: a, Content: "1\n", Original: orig("before\n")}, Submission{Path: d, Content: "d\n", Original: orig("d\n")})
 	cm := addC(t, c, r, a, nil, "поправь")
 	sendTake(t, c, r)
 	// Агент пишет на диск: меняет a, создаёт b, удаляет папку с d.

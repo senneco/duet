@@ -320,15 +320,14 @@ func TestDeletedFile(t *testing.T) {
 	}
 }
 
-// Новый файл в ответе: виден только после принятия ответа.
+// Новый файл без базы сразу доступен для ревью.
 func TestNewFileInResponse(t *testing.T) {
 	c, _ := open(t)
 	r := create(t, c, Submission{Path: "/a", Content: "1"})
 	respond(t, c, r, Submission{Path: "/n", Content: "n"})
-	if v := fv(t, c, r, "/n"); !v.Ripple || v.Current != "" || *v.Response != "n" {
+	if v := fv(t, c, r, "/n"); v.Ripple || v.Current != "n" || v.Response != nil {
 		t.Fatalf("%+v", v)
 	}
-	must(t, c.AcceptResponse(r))
 	if v := fv(t, c, r, "/n"); v.Current != "n" || v.HasBase || v.State != StateNew {
 		t.Fatalf("%+v", v)
 	}

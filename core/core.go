@@ -474,7 +474,10 @@ func (c *Core) finish(r *Review, files []Submission, answers []Answer) (bool, er
 	}
 	direct := p == nil
 	for _, path := range r.Paths {
-		if d.touches(c, path) && !isAccepted(c.s.Files[path]) {
+		f := c.s.Files[path]
+		// Файл, впервые появляющийся в ответе без базы, можно сразу читать целиком.
+		newFile := f.Current < 0 && f.Base < 0
+		if d.touches(c, path) && !isAccepted(f) && !newFile {
 			direct = false
 		}
 	}

@@ -63,15 +63,47 @@ func TestDirectAnswerVisibleUntilFileAccepted(t *testing.T) {
 	}
 }
 
-func TestNewFileKeepsWholeResponsePending(t *testing.T) {
+func TestNewFileAndAcceptedFileBecomeCurrent(t *testing.T) {
 	c, _ := open(t)
 	r := create(t, c, Submission{Path: "/a", Content: "old", Original: orig("old")})
 	respond(t, c, r, Submission{Path: "/a", Content: "new"}, Submission{Path: "/new", Content: "created"})
-	if rv, _ := c.Review(r); !rv.HasResponse {
-		t.Fatal("новый файл требует окна")
+	if rv, _ := c.Review(r); rv.HasResponse {
+		t.Fatal("новый файл не требует окна")
 	}
-	if v := fv(t, c, r, "/a"); v.Current != "old" {
-		t.Fatal("ответ разделён")
+	if v := fv(t, c, r, "/a"); v.Current != "new" || v.Base != "old" {
+		t.Fatalf("%+v", v)
+	}
+}
+
+func TestTwoNewFilesBecomeCurrentWithoutBase(t *testing.T) {
+	c, dir := open(t)
+	r := create(t, c, Submission{Path: "/a", Content: "old", Original: orig("old")})
+	respond(t, c, r, Submission{Path: "/new1", Content: "first"}, Submission{Path: "/new2", Content: "second"})
+	c = reopen(t, dir)
+	if rv, _ := c.Review(r); rv.HasResponse || rv.Accepted {
+		t.Fatalf("%+v", rv)
+	}
+	for path, content := range map[string]string{"/new1": "first", "/new2": "second"} {
+		v := fv(t, c, r, path)
+		if v.Absent || v.HasBase || v.Current != content || v.State == StateAccepted {
+			t.Fatalf("%+v", v)
+		}
+		must(t, c.AcceptFile(r, path))
+		if v := fv(t, c, r, path); !v.HasBase || v.Base != content || v.State != StateAccepted {
+			t.Fatalf("%+v", v)
+		}
+	}
+}
+
+func TestNewFileWithUnacceptedFileKeepsWholeResponsePending(t *testing.T) {
+	c, _ := open(t)
+	r := create(t, c, Submission{Path: "/a", Content: "old"})
+	respond(t, c, r, Submission{Path: "/a", Content: "new"}, Submission{Path: "/new", Content: "created"})
+	if rv, _ := c.Review(r); !rv.HasResponse {
+		t.Fatal("непринятый файл требует окна")
+	}
+	if v := fv(t, c, r, "/new"); !v.Absent || v.HasBase {
+		t.Fatalf("%+v", v)
 	}
 }
 
