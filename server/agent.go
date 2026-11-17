@@ -88,6 +88,21 @@ func (s *Server) agentRoutes() {
 	}
 	post("take", who((*agent.Service).Take))
 	post("status", who((*agent.Service).Status))
+	post("reviews", func(r *http.Request, dec func(any) error) (any, error) {
+		var q agent.WebReq
+		if err := dec(&q); err != nil {
+			return nil, err
+		}
+		return text(s.Agent.Reviews(q.Who, q.Paths), nil)
+	})
+	post("web", func(r *http.Request, dec func(any) error) (any, error) {
+		var q agent.WebReq
+		if err := dec(&q); err != nil {
+			return nil, err
+		}
+		id, err := s.Agent.Web(q)
+		return map[string]string{"review": id}, err
+	})
 	post("review-of", func(r *http.Request, dec func(any) error) (any, error) {
 		var q struct {
 			Session string `json:"session"`

@@ -76,7 +76,8 @@ func (e *env) browser() string {
 func (e *env) run(prog string, args ...string) (string, error) {
 	e.t.Helper()
 	cmd := exec.Command(prog, args...)
-	cmd.Env = append(os.Environ(), "DUET_HOME="+e.home, fmt.Sprintf("DUET_PORT=%d", e.port), "DUET_BROWSER="+e.browser())
+	cmd.Env = append(os.Environ(), "DUET_HOME="+e.home, fmt.Sprintf("DUET_PORT=%d", e.port), "DUET_BROWSER="+e.browser(),
+		"CODEX_THREAD_ID=", "CLAUDE_CODE_SESSION_ID=", "DUET_SESSION=")
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	done := make(chan error, 1)

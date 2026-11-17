@@ -18,6 +18,8 @@ import (
 	"strconv"
 	"syscall"
 	"time"
+
+	"github.com/senneco/duet/agent"
 )
 
 // DefaultPort — постоянный адрес duet: http://duet.localhost:4848.
@@ -189,7 +191,8 @@ func locked(path string) bool {
 
 const usage = `duet — async review of agent work.
 
-  duet web [review]   open duet in a new browser tab (a review, the review of this agent session, or the list)
+  duet web [review]   send pending file changes and open the review; outside an agent session, open the list
+  duet web --files F...  find the task's review by its files, connect, send changes and open it
   duet stop           stop the background duet
   duet install        install duet into ~/.local/bin and its skill and hooks into Claude Code and Codex
 
@@ -200,6 +203,7 @@ Agent commands (see the duet skill):
   duet original <file> --source S --command C | --file F | --text T
   duet take           take new comments and messages now
   duet status         which review this session is connected to
+  duet reviews [F...]  find reviews by task files, or list candidates in the current directory
 `
 
 // Main — точка входа команды duet. Возвращает код выхода.
@@ -235,6 +239,13 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		err = cfg.textCmd("/api/agent/take", map[string]any{"who": who()}, stdout)
 	case "status":
 		err = cfg.textCmd("/api/agent/status", map[string]any{"who": who()}, stdout)
+	case "reviews":
+		w := who()
+		paths := make([]string, 0, len(args))
+		for _, p := range args {
+			paths = append(paths, abs(w.Cwd, p))
+		}
+		err = cfg.textCmd("/api/agent/reviews", agent.WebReq{Who: w, Paths: paths}, stdout)
 	case "hook":
 		return cfg.hook(args, stdout, stderr)
 	case "wait":
@@ -259,25 +270,37 @@ func Main(args []string, stdout, stderr io.Writer) int {
 
 // web — открыть новую вкладку: ревью или список. Всегда новую, даже если вкладка duet уже есть.
 func (cfg Config) web(args []string, stdout io.Writer) error {
-	if len(args) > 1 {
-		return errors.New("usage: duet web [review]")
+	w := who()
+	q := agent.WebReq{Who: w}
+	if len(args) > 0 && args[0] == "--files" {
+		if len(args) < 2 || w.Session == "" {
+			return errors.New("usage: duet web --files <task file>... (from an agent session)")
+		}
+		for _, p := range args[1:] {
+			q.Paths = append(q.Paths, abs(w.Cwd, p))
+		}
+	} else {
+		if len(args) > 1 {
+			return errors.New("usage: duet web [review] | duet web --files <task file>...")
+		}
+		if len(args) == 1 {
+			q.Review = args[0]
+		}
 	}
 	port, err := cfg.Ensure()
 	if err != nil {
 		return err
 	}
 	link := URL(port) + "/"
-	if len(args) == 0 {
-		// Из сессии агента — ревью этой сессии.
-		if w := who(); w.Session != "" {
-			var out struct{ Review string }
-			if post(client, port, "/api/agent/review-of", map[string]string{"session": w.Session}, &out) == nil && out.Review != "" {
-				args = []string{out.Review}
-			}
+	if w.Session != "" {
+		var out struct{ Review string }
+		if err := post(agentClient, port, "/api/agent/web", q, &out); err != nil {
+			return err
 		}
+		q.Review = out.Review
 	}
-	if len(args) == 1 {
-		id := args[0]
+	if q.Review != "" {
+		id := q.Review
 		resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/api/reviews/%s", port, url.PathEscape(id)))
 		if err != nil {
 			return err
@@ -285,6 +308,9 @@ func (cfg Config) web(args []string, stdout io.Writer) error {
 		resp.Body.Close()
 		if resp.StatusCode == http.StatusNotFound {
 			return fmt.Errorf("no review %q", id)
+		}
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("could not open review %q: HTTP %d", id, resp.StatusCode)
 		}
 		link = URL(port) + "/r/" + url.PathEscape(id)
 	}

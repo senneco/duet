@@ -1,6 +1,6 @@
 ---
 name: duet
-description: Send work to the owner for review in duet and handle review comments. Use when the owner asks to put work up for review ("отдай на ревью", "send for review", "в duet"), gives a duet review link to pick up (http://duet.localhost…/r/…, "подхвати ревью"), or when a message starts with "DUET:".
+description: Send work to the owner for review in duet and handle review comments. Use when the owner asks for "duet web", "duweb", to open duet or put work up for review ("отдай на ревью", "send for review", "в duet"), gives a duet review link to pick up (http://duet.localhost…/r/…, "подхвати ревью"), or when a message starts with "DUET:".
 ---
 
 # duet
@@ -37,11 +37,16 @@ Pass the JSON as **one single-quoted argument** like this, not through a heredoc
 - Files already in the review need no resending: everything you change in them reaches the owner as your response by itself.
 - duet adds files you write with your edit tools inside your folder by itself. **Files you create or change with commands** (generators, `sed`, scripts) that are not in the review yet: send them with `duet submit`.
 
-## Restore a connection
+## Open the current task for review
 
-`duet web` only opens a page; it does not connect this session to a review. If it opens the home page or `duet status` reports no connection while you are continuing a task already assigned to a known review, run `duet connect <known review link>` yourself. The owner's earlier request to maintain that review is sufficient: do not ask again whether to reconnect or create a new review. Read the returned state and comments, then submit any missing changed or new files to that same review.
+An owner's request `duet web` (or `duweb`) authorizes showing the prepared materials of the current task for review, including restoring the connection and sending missing edits. Complete that work yourself before opening the browser. Do not stop at an empty home page or ask the owner to find a review link that duet can find.
 
-This also applies when continuing the authorized task in a resumed or replacement session. If the intended review is unknown or ambiguous, ask for its link. If duet says another agent picked up the review, do not reconnect or take it back without an explicit handoff from the owner.
+1. Use `duet reviews <task file>...` to find existing reviews containing the files prepared in this chat. `duet reviews` without paths lists candidates in the current directory, with titles, links and files. Search is read-only; it does not connect or sync disk changes. Do not read duet's internal storage or another chat's history to discover a review.
+2. If one review fits the task, use it. For already submitted files, `duet web --files <task file>...` finds the unique matching review, connects this session, sends disk changes and opens it in one command. A directory or creation date alone is not evidence. If several reviews still fit after checking the task files, ask one question with their titles and links.
+3. If files need adding to an existing review, run `duet connect <found link>` first, read the returned state and comments, then `duet submit` with missing files and their original versions. If no review fits the prepared task, submit its files with original versions to a new review. Do not ask again for permission to submit or reconnect.
+4. Run `duet web --files <task file>...` with every prepared task file to check completeness, publish outstanding disk changes and open the connected review. It refuses if a listed file has not been submitted. Write the returned review link in the chat. Success means the changes are published before the browser opens; no file is accepted by this command. Errors must be resolved before reporting success.
+
+This applies in resumed and replacement sessions too. If duet says another agent picked up the review, do not reconnect or take it back without the owner's explicit handoff.
 
 ## Continue work from chat
 
@@ -82,4 +87,6 @@ duet done '{"answers": [
 - `duet connect <link>` — pick up a review the owner gave you: you get the files, the note and the comments. You know nothing about that task yet: read them first.
 - `duet original <file> --source "git, HEAD" --command "git show HEAD:<file>"` — send the original version when duet asks for it.
 - `duet take` — take new comments and messages now. `duet status` — which review this session is connected to.
-- `duet web` — open this session's review in the browser.
+- `duet reviews [file...]` — find reviews by task files; without paths, list candidates in the current directory. Does not connect or change anything.
+- `duet web` — publish outstanding disk changes and open this session's review. An unconnected session gets actionable instructions instead of the home page.
+- `duet web --files <task file>...` — find a unique review by files, connect, check listed files are submitted, publish and open. If no review fits, submit prepared files first; if several fit, narrow by task context or ask one question with the found links.
