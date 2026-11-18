@@ -1,3 +1,4 @@
+import { subscribeEvents } from './events.js';
 // Веб-клиент duet: список ревью и ревью (дерево, отличия, принятие), клавиши, тема и язык,
 // живые обновления. Всё, что решает поведение, делает ядро; клиент показывает и передаёт действия.
 
@@ -246,7 +247,7 @@ async function openFile(path, { line = 0, off, keep = false } = {}) {
 
 // ── живые обновления ──
 
-let es = null;
+let disconnectEvents;
 let refreshTimer = 0;
 let dirty = new Set();
 let connectionProbe = 0;
@@ -269,33 +270,34 @@ async function probeConnection() {
 }
 
 function connect() {
-  es = new EventSource('/api/events');
-  es.addEventListener('hello', (e) => {
-    const { build } = JSON.parse(e.data);
-    if (S.build && build !== S.build) { location.reload(); return; }
-    S.build = build;
-    const was = S.online;
-    ++connectionProbe; clearTimeout(connectionTimer);
-    S.connection = null;
-    S.online = true;
-    if (!was) renderAll();
-    // После каждого подключения ревью открывается заново: после перезапуска duet сам ничего не сверяет.
-    if (S.review) { act('sync').catch(() => {}); refresh(null); }
-    else if (!routeId()) refresh(null);
+  disconnectEvents = subscribeEvents({
+    hello(e) {
+      const { build } = JSON.parse(e.data);
+      if (S.build && build !== S.build) { location.reload(); return; }
+      S.build = build;
+      const was = S.online;
+      ++connectionProbe; clearTimeout(connectionTimer);
+      S.connection = null;
+      S.online = true;
+      if (!was) renderAll();
+      // После каждого подключения ревью открывается заново: после перезапуска duet сам ничего не сверяет.
+      if (S.review) { act('sync').catch(() => {}); refresh(null); }
+      else if (!routeId()) refresh(null);
+    },
+    change: e => refresh(JSON.parse(e.data).reviews),
+    reset: () => refresh(null),
+    sync(e) {
+      const d = JSON.parse(e.data);
+      if (S.review && d.review === S.review.id) {
+        S.sync = d.done < d.total ? d : null;
+        renderStatus();
+      }
+    },
+    error() {
+      if (S.online) { S.online = false; S.connection = 'checking'; renderAll(); }
+      probeConnection();
+    },
   });
-  es.addEventListener('change', (e) => refresh(JSON.parse(e.data).reviews));
-  es.addEventListener('reset', () => refresh(null));
-  es.addEventListener('sync', (e) => {
-    const d = JSON.parse(e.data);
-    if (S.review && d.review === S.review.id) {
-      S.sync = d.done < d.total ? d : null;
-      renderStatus();
-    }
-  });
-  es.onerror = () => {
-    if (S.online) { S.online = false; S.connection = 'checking'; renderAll(); }
-    probeConnection();
-  };
 }
 
 function refresh(ids) {
@@ -2380,6 +2382,9 @@ window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => { shapeMarks($('#sc')); renderComments(); }, 120);
 });
+
+window.addEventListener('pagehide', () => disconnectEvents());
+window.addEventListener('pageshow', e => { if (e.persisted) connect(); });
 
 applyTheme();
 connect();
