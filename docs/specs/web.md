@@ -1,5 +1,7 @@
 # Веб-клиент: поведение
 
+Дополнение шага 7p: [полнота ревью и плагины](vcs.md) определяет отображение конфликтов, неподдерживаемых файлов и неполноты ревью. Это согласованные требования для реализации на шагах 7p1–7p3.
+
 Записано на шагах 6a (чтение и принятие), 6b (комментарии), 6c (окно ответа), 6d (правки владельца), 7a (панель «Вид») и 7b (чтение в одну колонку: «как было» по клику, соседние правки, фокус по блокам). Ход обсуждения — в `docs/changes/06a-reading/proposal.md`, `docs/changes/06b-comments/proposal.md`, `docs/changes/06c-response/proposal.md`, `docs/changes/06d-owner-edits/proposal.md`, вид — макет D `docs/changes/06a-reading/mockups/d-keyboard.html`, комментарии — `docs/changes/06b-comments/mockups/comments.html`, окно ответа — вариант E `docs/changes/06c-response/mockups/response.html`, правка — вариант C `docs/changes/06d-owner-edits/mockups/edit.html`, вид и панель «Вид» — `docs/changes/07-look/mockups/look.html` (ход — `docs/changes/07-look/proposal.md`). Устройство — `server/README.md`, раздел «Веб-клиент». Правила ядра — в `docs/specs/core.md`, адрес и живые обновления — в `docs/specs/server.md`.
 
 ## Вид
