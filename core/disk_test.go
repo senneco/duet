@@ -414,8 +414,8 @@ func TestAcceptedReviewNotWatched(t *testing.T) {
 	}
 }
 
-// 89: принятый файл переходит в новое ревью — база из исходной версии агента.
-func TestMovedAcceptedTakesNewOriginal(t *testing.T) {
+// 7p1 заменяет сценарий 89: явно принятая база сохраняется и в другом ревью.
+func TestMovedAcceptedKeepsOwnerBase(t *testing.T) {
 	c, p := newProj(t)
 	r1, a := newReview(t, c, p, "a.md", "1\n", "0\n")
 	must(t, c.AcceptFile(r1, a))
@@ -423,7 +423,7 @@ func TestMovedAcceptedTakesNewOriginal(t *testing.T) {
 	p.write("a.md", "6\n")
 	r2 := create(t, c, Submission{Path: a, Content: "6\n", Original: orig("5\n")})
 	v := fv(t, c, r2, a)
-	if v.Base != "5\n" || !v.BaseIsOriginal || v.OriginSource != "из git, HEAD" || v.Current != "6\n" {
+	if v.Base != "1\n" || v.BaseIsOriginal || v.BaseSource.Kind != "owner" || v.Current != "6\n" {
 		t.Fatalf("%+v", v)
 	}
 	// Без исходной версии база остаётся старой.

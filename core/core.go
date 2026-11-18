@@ -65,8 +65,10 @@ type File struct {
 	// Base — номер версии базы, -1 если базы нет.
 	Base int `json:"base"`
 	// BaseIsOriginal — база всё ещё исходная версия (пометка «до задачи»).
-	BaseIsOriginal bool   `json:"baseIsOriginal,omitempty"`
-	OriginSource   string `json:"originSource,omitempty"`
+	BaseIsOriginal bool         `json:"baseIsOriginal,omitempty"`
+	OriginSource   string       `json:"originSource,omitempty"`
+	BaseSource     BaseSource   `json:"baseSource"`
+	BaseHistory    []BaseRecord `json:"baseHistory,omitempty"`
 	// Current — номер текущей версии, -1 если файла ещё нет в текущей версии.
 	Current int  `json:"current"`
 	Opened  bool `json:"opened,omitempty"`
@@ -202,6 +204,9 @@ func Open(dir string) (*Core, error) {
 	} else if !os.IsNotExist(err) {
 		return nil, err
 	}
+	for _, f := range c.s.Files {
+		migrateBase(f)
+	}
 	return c, nil
 }
 
@@ -315,21 +320,14 @@ func (c *Core) addFirst(r *Review, sub Submission) {
 		old.Moved[f.Path] = r.ID
 		f.ReviewID = r.ID
 		f.Opened = false
-		// Принятый файл мог меняться мимо duet после принятия: база — исходная версия от агента.
-		if sub.Original != nil && isAccepted(f) && !same(f.Versions[f.Base], Version{Content: sub.Original.Content}) {
-			n := c.addVersion(f, Version{Content: sub.Original.Content, Author: "original"})
-			c.reanchor(f, f.Current, n, nil)
-			f.Base, f.Current = n, n
-			f.BaseIsOriginal = true
-			f.OriginSource = sub.Original.Source
-		}
 	} else {
-		f = &File{Path: sub.Path, ReviewID: r.ID, Base: -1, Current: -1}
+		f = &File{Path: sub.Path, ReviewID: r.ID, Base: -1, Current: -1, BaseSource: BaseSource{Kind: "none"}}
 		c.s.Files[sub.Path] = f
 		if sub.Original != nil {
 			f.Base = c.addVersion(f, Version{Content: sub.Original.Content, Author: "original"})
 			f.BaseIsOriginal = true
 			f.OriginSource = sub.Original.Source
+			c.recordBase(f, BaseSource{Kind: "agent", Detail: sub.Original.Source})
 		}
 	}
 	v := Version{Content: sub.Content, Deleted: sub.Deleted, Author: "agent"}
@@ -422,7 +420,7 @@ func (c *Core) finish(r *Review, files []Submission, answers []Answer) (bool, er
 			return false, fmt.Errorf("файл %s в другом ревью", sub.Path)
 		}
 		if !ok {
-			f = &File{Path: sub.Path, ReviewID: r.ID, Base: -1, Current: -1}
+			f = &File{Path: sub.Path, ReviewID: r.ID, Base: -1, Current: -1, BaseSource: BaseSource{Kind: "none"}}
 			c.s.Files[sub.Path] = f
 			r.addPath(f.Path)
 		}
@@ -710,9 +708,10 @@ func (c *Core) AcceptFile(reviewID, path string) error {
 	if _, ok := c.drift[path]; ok {
 		return &DiskChangedError{[]string{path}}
 	}
-	if f.Base != f.Current {
+	if f.Base != f.Current || f.BaseSource.Kind != "owner" {
 		f.Base = f.Current
 		f.BaseIsOriginal = false
+		c.recordBase(f, BaseSource{Kind: "owner"})
 	}
 	for _, cm := range f.Comments {
 		if cm.Status == CommentAnswered {
@@ -868,6 +867,7 @@ type FileView struct {
 	Base            string        `json:"base"`
 	BaseIsOriginal  bool          `json:"baseIsOriginal"`
 	OriginSource    string        `json:"originSource"`
+	BaseSource      BaseSource    `json:"baseSource"`
 	Current         string        `json:"current"`
 	CurrentDeleted  bool          `json:"currentDeleted"`
 	Absent          bool          `json:"absent"`   // текущей версии нет: файл есть только в непросмотренном ответе
@@ -887,6 +887,9 @@ type FileView struct {
 
 // isAccepted — текущая версия совпадает с базой, и нет комментариев «отвечен», ждущих `␣a`.
 func isAccepted(f *File) bool {
+	if f.BaseSource.Kind == "repository" || f.BaseSource.Kind == "unknown" {
+		return false
+	}
 	if f.Base < 0 || f.Current < 0 || !same(f.Versions[f.Base], f.Versions[f.Current]) {
 		return false
 	}
@@ -903,7 +906,7 @@ func (c *Core) view(r *Review, path string) FileView {
 		return FileView{Path: path, State: StateMoved, MovedTo: to}
 	}
 	f := c.s.Files[path]
-	v := FileView{Path: path, HasBase: f.Base >= 0, BaseIsOriginal: f.BaseIsOriginal, OriginSource: f.OriginSource, Blocks: f.Blocks}
+	v := FileView{Path: path, HasBase: f.Base >= 0, BaseIsOriginal: f.BaseIsOriginal, OriginSource: f.OriginSource, BaseSource: f.BaseSource, Blocks: f.Blocks}
 	if f.Base >= 0 {
 		v.Base = f.Versions[f.Base].Content
 	}

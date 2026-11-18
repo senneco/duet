@@ -247,7 +247,7 @@ func (c *Core) track(r *Review, path string) {
 		f.ReviewID = r.ID
 		f.Opened = false
 	} else {
-		f = &File{Path: path, ReviewID: r.ID, Base: -1, Current: -1}
+		f = &File{Path: path, ReviewID: r.ID, Base: -1, Current: -1, BaseSource: BaseSource{Kind: "none"}}
 		c.s.Files[path] = f
 	}
 	r.addPath(path)
@@ -264,7 +264,7 @@ func (c *Core) AskOriginal(sessionID, path string) bool {
 		return false
 	}
 	f, ok := c.s.Files[path]
-	if !ok || f.ReviewID != r.ID || f.Base >= 0 {
+	if !ok || f.ReviewID != r.ID || f.Base >= 0 || f.BaseSource.Kind != "none" {
 		return false
 	}
 	for _, p := range s.Asked {
@@ -289,12 +289,13 @@ func (c *Core) SetOriginal(reviewID, path string, o Original) error {
 	if err != nil {
 		return err
 	}
-	if f.Base >= 0 {
+	if f.Base >= 0 || f.BaseSource.Kind != "none" {
 		return ErrHasBase
 	}
 	f.Base = c.addVersion(f, Version{Content: o.Content, Author: "original"})
 	f.BaseIsOriginal = true
 	f.OriginSource = o.Source
+	c.recordBase(f, BaseSource{Kind: "agent", Detail: o.Source})
 	return c.commit(r)
 }
 
