@@ -63,7 +63,7 @@ func (c *Core) recordBase(f *File, source BaseSource) {
 
 // SetRepositoryBases применяет только исходники согласованного снимка к уже
 // зарегистрированным файлам ревью. Все пути снимка должны принадлежать ревью.
-// Новые текущие версии, выбор ревью и сквозные вызовы подключаются в шаге 7p2.
+// Сквозной путь repository.go отдельно проверяет безопасность и применяет текущие версии ответом.
 // При любой ошибке проверки ни одна база не меняется. Диск не читается и не пишется.
 func (c *Core) SetRepositoryBases(reviewID string, snapshot vcs.Snapshot) error {
 	c.mu.Lock()
@@ -112,25 +112,7 @@ func (c *Core) SetRepositoryBases(reviewID string, snapshot vcs.Snapshot) error 
 	changed := false
 	for _, e := range snapshot.Entries {
 		f := c.s.Files[filepath.Join(w.Root, filepath.FromSlash(e.Path))]
-		if f.BaseSource.Kind == "owner" {
-			continue
-		}
-		source := BaseSource{Kind: "repository", Workspace: w.ID, Revision: snapshot.Revision, Path: e.Path}
-		if source == f.BaseSource && ((e.Original.Kind == "absent" && f.Base < 0) ||
-			(e.Original.Kind == "text" && f.Base >= 0 && !f.Versions[f.Base].Deleted && f.Versions[f.Base].Content == e.Original.Text)) {
-			continue
-		}
-		f.Base = -1
-		if e.Original.Kind == "text" {
-			f.Base = c.addVersion(f, Version{Content: e.Original.Text, Author: "original"})
-		}
-		f.BaseIsOriginal = f.Base >= 0
-		f.OriginSource = fmt.Sprintf("%s, commit %s, %s", w.Provider, snapshot.Revision, e.Path)
-		if snapshot.Revision == "" {
-			f.OriginSource = w.Provider + ", без коммита, " + e.Path
-		}
-		c.recordBase(f, source)
-		changed = true
+		changed = c.applyRepositoryBase(f, *w, snapshot.Revision, e) || changed
 	}
 	if !changed {
 		return nil
@@ -138,4 +120,32 @@ func (c *Core) SetRepositoryBases(reviewID string, snapshot vcs.Snapshot) error 
 	r.Open = true
 	c.changed(r.ID)
 	return c.save()
+}
+
+// Общая операция 7p1: вызывается только после проверки принадлежности и безопасности.
+func (c *Core) applyRepositoryBase(f *File, w vcs.Workspace, revision string, e vcs.Entry) bool {
+	if !repositoryBaseChanges(f, w, revision, e) {
+		return false
+	}
+	source := BaseSource{Kind: "repository", Workspace: w.ID, Revision: revision, Path: e.Path}
+	f.Base = -1
+	if e.Original.Kind == "text" {
+		f.Base = c.addVersion(f, Version{Content: e.Original.Text, Author: "original"})
+	}
+	f.BaseIsOriginal = f.Base >= 0
+	f.OriginSource = fmt.Sprintf("%s, commit %s, %s", w.Provider, revision, e.Path)
+	if revision == "" {
+		f.OriginSource = w.Provider + ", без коммита, " + e.Path
+	}
+	c.recordBase(f, source)
+	return true
+}
+
+func repositoryBaseChanges(f *File, w vcs.Workspace, revision string, e vcs.Entry) bool {
+	if f.BaseSource.Kind == "owner" || f.BaseSource.Kind == "unknown" {
+		return false
+	}
+	source := BaseSource{Kind: "repository", Workspace: w.ID, Revision: revision, Path: e.Path}
+	return source != f.BaseSource || !((e.Original.Kind == "absent" && f.Base < 0) ||
+		(e.Original.Kind == "text" && f.Base >= 0 && !f.Versions[f.Base].Deleted && f.Versions[f.Base].Content == e.Original.Text))
 }

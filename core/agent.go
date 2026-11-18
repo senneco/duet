@@ -84,6 +84,10 @@ func (c *Core) attach(s Session, r *Review) error {
 	s.Review, s.Kicked = r.ID, ""
 	c.s.Sessions[s.ID] = &s
 	r.Agent, r.Session = true, s.ID
+	if s.Cwd != "" && r.RepositoryDir != s.Cwd {
+		r.RepositoryDir = s.Cwd
+		r.Completeness = &Completeness{Problems: []RepositoryProblem{{Code: "not-checked", Message: "проверка репозитория ещё не выполнена"}}}
+	}
 	r.Busy = true // агент сейчас выполняет команду
 	return c.commit(r)
 }
@@ -210,8 +214,8 @@ func (c *Core) WriteCheck(sessionID, path string, track bool) error {
 	if !mine && !track {
 		return nil
 	}
-	if ok && !mine && c.busy(f) {
-		return &BusyError{Busy{path, f.ReviewID}}
+	if ok && !mine {
+		return c.repositoryConflict(r, path, f.ReviewID)
 	}
 	if r.Editing {
 		return ErrEditing
@@ -370,15 +374,6 @@ func (c *Core) fromDisk(r *Review) ([]Submission, error) {
 	return out, nil
 }
 
-// diskDiffers — агент поменял файлы ревью на диске (например, командой), пока не был в заходе.
-func (c *Core) diskDiffers(r *Review) bool {
-	if c.disk == nil || r.Editing || r.Stopping {
-		return false
-	}
-	subs, err := c.fromDisk(r)
-	return err == nil && len(subs) > 0
-}
-
 // unanswered — комментарии, которые агент взял, но на которые ещё не ответил.
 func (c *Core) unanswered(r *Review, answers []Answer) []AgentComment {
 	got := map[string]bool{}
@@ -435,37 +430,10 @@ func (c *Core) Done(sessionID string, answers []Answer) (DoneResult, error) {
 	if un := c.unanswered(r, answers); len(un) > 0 {
 		return DoneResult{}, &UnansweredError{un}
 	}
-	if !r.Working {
-		if len(answers) > 0 {
-			return DoneResult{}, ErrAgentNotWorking
-		}
-		if !c.diskDiffers(r) {
-			return DoneResult{}, nil
-		}
-		r.Working, r.Turn = true, true
+	if !r.Working && len(answers) > 0 {
+		return DoneResult{}, ErrAgentNotWorking
 	}
-	res, err := c.finishDisk(r, answers)
-	if err != nil {
-		return res, err
-	}
-	return res, c.save()
-}
-
-// finishDisk — конец захода с правками с диска. Если пришли новые комментарии, агент сразу их получает.
-func (c *Core) finishDisk(r *Review, answers []Answer) (DoneResult, error) {
-	subs, err := c.fromDisk(r)
-	if err != nil {
-		return DoneResult{}, err
-	}
-	ok, err := c.finish(r, subs, answers)
-	if err != nil {
-		return DoneResult{}, err
-	}
-	res := DoneResult{Responded: ok}
-	if r.Working {
-		res.New = c.take(r)
-	}
-	return res, nil
+	return c.finishCollected(r, nil, answers)
 }
 
 // StopResult — что делать, когда агент закончил отвечать (хук Stop).
@@ -486,31 +454,20 @@ func (c *Core) Stop(sessionID string, final bool) (StopResult, error) {
 		return StopResult{}, err
 	}
 	var res StopResult
-	switch {
-	case r.Stopping:
+	if r.Stopping {
 		err = c.restore(r)
-	case r.Turn:
-		if un := c.unanswered(r, nil); len(un) > 0 {
-			if !final {
-				return StopResult{Unanswered: un}, nil
-			}
-			break
+	} else if un := c.unanswered(r, nil); len(un) > 0 {
+		if !final {
+			return StopResult{Unanswered: un}, nil
 		}
+		// Даже вынужденная остановка сохраняет диагностику; ответы не теряются.
+		previous := c.collecting
+		c.collecting = true
+		_, err = c.repositoryInputs(r, nil)
+		c.collecting = previous
+	} else {
 		var d DoneResult
-		d, err = c.finishDisk(r, nil)
-		res.Responded = d.Responded
-		if len(d.New) > 0 {
-			// Новые комментарии уже у агента в руках: пусть ответит.
-			return StopResult{Unanswered: d.New}, c.save()
-		}
-	case c.diskDiffers(r):
-		// Агент поменял файлы ревью командой, не начав заход.
-		if !r.Working {
-			r.Working = true
-		}
-		r.Turn = true
-		var d DoneResult
-		d, err = c.finishDisk(r, nil)
+		d, err = c.finishCollected(r, nil, nil)
 		res.Responded = d.Responded
 		if len(d.New) > 0 {
 			return StopResult{Unanswered: d.New}, c.save()
@@ -534,6 +491,9 @@ func (c *Core) Deliver(sessionID string) ([]AgentComment, []Notice, error) {
 	}
 	if r.Stopping {
 		return nil, nil, nil
+	}
+	if err := c.validateAcceptedNotice(r); err != nil {
+		return nil, nil, err
 	}
 	cms := c.take(r)
 	ns := r.Notices

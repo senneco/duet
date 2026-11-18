@@ -129,6 +129,9 @@ func (c *Core) TakeNotices(reviewID string) ([]Notice, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := c.validateAcceptedNotice(r); err != nil {
+		return nil, err
+	}
 	out := r.Notices
 	if len(out) == 0 {
 		return nil, nil
@@ -211,6 +214,18 @@ func (c *Core) adoptable(r *Review) bool { return c.checkChange(r) == nil && !r.
 // а если сейчас это нельзя — файл помечен «изменён на диске» до тех пор, пока станет можно.
 // Возвращает true, если правка взята.
 func (c *Core) checkFile(r *Review, f *File) bool {
+	if r.Completeness != nil {
+		for _, p := range r.Completeness.Problems {
+			if p.Path == "" {
+				return false
+			}
+		}
+	}
+	for _, p := range c.pathProblems(r, f.Path) {
+		if p.Code != "unknown-base" {
+			return false
+		}
+	}
 	exp, ok := c.expected(r, f)
 	if !ok {
 		c.undrift(r, f.Path)
@@ -316,7 +331,7 @@ func (c *Core) adopted(r *Review, any bool) {
 
 // touch — в ревью что-то происходит: оно сверяется с диском, и дальше duet за ним следит.
 func (c *Core) touch(r *Review) {
-	if c.disk == nil {
+	if c.disk == nil || c.collecting {
 		return
 	}
 	c.synced[r.ID] = true
@@ -334,8 +349,25 @@ func (c *Core) commit(r *Review) error {
 // acceptedCheck — ревью стало принятым целиком: агент получает сообщение со списком принятого.
 // Ревью, которое было принятым с самого начала (агент прислал файлы без правок), не считается.
 func (c *Core) acceptedCheck(r *Review) {
+	if c.collecting {
+		return
+	}
+	if c.repositoryDir(r) != "" && (r.Busy || r.Editing) {
+		if !c.allDone(r) || len(c.drifted(r)) > 0 {
+			r.Open = true
+			c.removeAcceptedNotices(r)
+		}
+		return
+	}
+	if r.Open && c.filesDone(r) && !r.Editing && !r.Busy && c.repositoryDir(r) != "" {
+		if _, err := c.finishCollected(r, nil, nil); err != nil {
+			r.Open = true
+			return
+		}
+	}
 	done := c.allDone(r) && len(c.drifted(r)) == 0
 	if !done {
+		c.removeAcceptedNotices(r)
 		r.Open = true
 		return
 	}

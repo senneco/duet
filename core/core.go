@@ -11,6 +11,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/senneco/duet/vcs"
 )
 
 var (
@@ -118,6 +120,10 @@ type Busy struct {
 }
 
 type Review struct {
+	Materials     []string      `json:"materials,omitempty"`
+	RepositoryDir string        `json:"repositoryDir,omitempty"`
+	Completeness  *Completeness `json:"completeness,omitempty"`
+
 	ID       string            `json:"id"`
 	Title    string            `json:"title"`
 	Created  time.Time         `json:"created"`
@@ -171,6 +177,9 @@ type Core struct {
 	path string
 	s    state
 	now  func() time.Time
+
+	provider   vcs.Provider
+	collecting bool
 	// disk — файлы проекта; nil — у файлов нет диска (страницы Вики, тесты без диска).
 	disk Disk
 	// synced — ревью, которые сверялись с диском после запуска; за ними duet следит.
@@ -188,7 +197,7 @@ func Open(dir string) (*Core, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	c := &Core{path: filepath.Join(dir, "state.json"), now: time.Now, disk: osDisk{},
+	c := &Core{provider: vcs.Registry{Home: dir}, path: filepath.Join(dir, "state.json"), now: time.Now, disk: osDisk{},
 		synced: map[string]bool{}, drift: map[string]*Version{}, stamps: map[string]string{},
 		diskTaken: map[string]*FromDisk{}}
 	c.subs = map[*Subscription]bool{}
@@ -859,6 +868,9 @@ func (c *Core) MarkOpened(reviewID, path string) error {
 
 // FileView — всё, что клиенту нужно знать о файле.
 type FileView struct {
+	Problems    []RepositoryProblem `json:"problems,omitempty"`
+	ProblemOnly bool                `json:"problemOnly,omitempty"`
+
 	Path            string        `json:"path"`
 	State           FileState     `json:"state"`
 	MovedTo         string        `json:"movedTo"`
@@ -906,7 +918,7 @@ func (c *Core) view(r *Review, path string) FileView {
 		return FileView{Path: path, State: StateMoved, MovedTo: to}
 	}
 	f := c.s.Files[path]
-	v := FileView{Path: path, HasBase: f.Base >= 0, BaseIsOriginal: f.BaseIsOriginal, OriginSource: f.OriginSource, BaseSource: f.BaseSource, Blocks: f.Blocks}
+	v := FileView{Problems: c.pathProblems(r, path), Path: path, HasBase: f.Base >= 0, BaseIsOriginal: f.BaseIsOriginal, OriginSource: f.OriginSource, BaseSource: f.BaseSource, Blocks: f.Blocks}
 	if f.Base >= 0 {
 		v.Base = f.Versions[f.Base].Content
 	}
@@ -927,6 +939,7 @@ func (c *Core) view(r *Review, path string) FileView {
 	if d, ok := c.drift[path]; ok {
 		v.DiskChanged, v.Disk, v.DiskDeleted = true, d.Content, d.Deleted
 	}
+	v.ProblemOnly = f.Current < 0 && !v.Ripple && len(v.Problems) > 0
 	v.Comments = c.commentViews(r, f)
 	for _, cv := range v.Comments {
 		visible := cv.Status != CommentAnswered || cv.Direct
@@ -973,6 +986,9 @@ func (c *Core) File(reviewID, path string) (FileView, error) {
 	if err != nil {
 		return FileView{}, err
 	}
+	if v, ok := c.problemView(r, path); ok {
+		return v, nil
+	}
 	if _, ok := r.Moved[path]; !ok {
 		if _, err := c.file(r, path); err != nil {
 			return FileView{}, err
@@ -983,6 +999,8 @@ func (c *Core) File(reviewID, path string) (FileView, error) {
 
 // ReviewView — ревью целиком.
 type ReviewView struct {
+	Completeness *Completeness `json:"completeness,omitempty"`
+
 	ID          string     `json:"id"`
 	Title       string     `json:"title"`
 	Created     time.Time  `json:"created"`
@@ -1036,6 +1054,10 @@ type Pending struct {
 
 // allDone — ревью принято целиком, если не считать расхождений с диском.
 func (c *Core) allDone(r *Review) bool {
+	return (r.Completeness == nil || r.Completeness.Complete) && c.filesDone(r)
+}
+
+func (c *Core) filesDone(r *Review) bool {
 	if r.Working || r.Stopping || r.pending() != nil {
 		return false
 	}
@@ -1055,7 +1077,7 @@ func (c *Core) allDone(r *Review) bool {
 }
 
 func (c *Core) reviewView(r *Review) ReviewView {
-	rv := ReviewView{ID: r.ID, Title: r.Title, Created: r.Created, Working: r.Working, HasResponse: r.pending() != nil, NotAdded: r.NotAdded,
+	rv := ReviewView{Completeness: completenessView(r.Completeness), ID: r.ID, Title: r.Title, Created: r.Created, Working: r.Working, HasResponse: r.pending() != nil, NotAdded: r.NotAdded,
 		Stopping: r.Stopping, Restored: r.Restored, DiskChanged: c.drifted(r), Synced: c.synced[r.ID],
 		FromDisk: c.diskTaken[r.ID], Editing: r.Editing}
 	switch c.checkChange(r) {
@@ -1073,6 +1095,7 @@ func (c *Core) reviewView(r *Review) ReviewView {
 		}
 		rv.Files = append(rv.Files, v)
 	}
+	c.addProblemViews(r, &rv)
 	pend := r.pending()
 	c.eachComment(r, func(_ *File, cm *Comment) {
 		switch {

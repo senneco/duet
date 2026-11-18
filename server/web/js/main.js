@@ -228,7 +228,7 @@ async function openFile(path, { line = 0, off, keep = false } = {}) {
   try {
     [file, chunks] = await Promise.all([
       api(`/api/reviews/${rid()}/file?path=${encodeURIComponent(path)}`),
-      api(`/api/reviews/${rid()}/diff?path=${encodeURIComponent(path)}${S.resp ? '&mode=response' : ''}`).catch(() => []),
+      S.review.files.find(f => f.path === path)?.problemOnly ? Promise.resolve([]) : api(`/api/reviews/${rid()}/diff?path=${encodeURIComponent(path)}${S.resp ? '&mode=response' : ''}`).catch(() => []),
     ]);
   } catch {
     return;
@@ -237,7 +237,7 @@ async function openFile(path, { line = 0, off, keep = false } = {}) {
   S.file = file;
   S.chunks = chunks;
   if (file.state === 'moved' && !S.reviews) await loadList();
-  if (file.state === 'new' && !S.resp) act('opened', { path }).catch(() => {});
+  if (file.state === 'new' && !file.problemOnly && !S.resp) act('opened', { path }).catch(() => {});
   renderAll();
   if (anchor) restoreAnchor(anchor);
   else if (line && off !== undefined) restoreAnchor({ n: line, off });
@@ -424,6 +424,7 @@ function renderHeader() {
 }
 
 function fileIcon(f) {
+  if (f.problems?.length) return '<span class="warn">!</span>';
   if (f.agentWorking) return SNAKE;
   if (f.ripple) return RIPPLE(f.state !== 'new');
   switch (f.state) {
@@ -439,6 +440,7 @@ function fileIcon(f) {
 
 function fileTag(f) {
   const t = T();
+  if (f.problems?.length) return `<span class="tag warn">${S.lang === 'ru' ? 'неполнота' : 'incomplete'}</span>`;
   if (f.diskChanged) return `<span class="tag own">${t.stDiskShort}</span>`;
   if (f.ripple) return `<span class="tag rpl">${S.lang === 'ru' ? 'ответ' : 'response'}</span>`;
   if (f.state === 'deleted' || f.state === 'deleted-accepted') return `<span class="tag">${t.stDeleted}</span>`;
@@ -463,7 +465,7 @@ function renderTree() {
     const gone = ['deleted', 'deleted-accepted', 'moved'].includes(f.state) ? ' gone' : '';
     const off = rset && !rset.has(f.path) ? ' untouched' : '';
     const tag = S.resp ? (f.absent ? `<span class="tag rnew">${T().rNew}</span>` : f.diskChanged ? `<span class="tag own">${T().stDiskShort}</span>` : '') : fileTag(f);
-    h += `<div class="tr${open ? ' open' : ''}${gone}${off}" data-file="${esc(f.path)}" title="${esc(f.path)}"><span class="pad"></span>${ind(r.depth)}<span class="ic">${fileIcon(f)}</span><span class="nm">${esc(f.name)}</span>${f.open && !S.resp ? `<button class="cmk${f.questions ? ' q' : ''}" title="${S.lang === 'ru' ? 'К следующему комментарию' : 'Next comment'}">${f.open}</button>` : ''}<span class="fill"></span>${tag}</div>`;
+    h += `<div class="tr${open ? ' open' : ''}${gone}${off}" data-file="${esc(f.path)}" title="${esc([f.path, ...(f.problems || []).map(p => p.message)].join('\n'))}"><span class="pad"></span>${ind(r.depth)}<span class="ic">${fileIcon(f)}</span><span class="nm">${esc(f.name)}</span>${f.open && !S.resp ? `<button class="cmk${f.questions ? ' q' : ''}" title="${S.lang === 'ru' ? 'К следующему комментарию' : 'Next comment'}">${f.open}</button>` : ''}<span class="fill"></span>${tag}</div>`;
     if (open && !S.resp && !S.blocksHidden && S.file && S.file.path === f.path) {
       const cur = activeBlock();
       for (const [k, b] of (S.file.blocks || []).entries()) {
@@ -500,7 +502,7 @@ function renderWinbar() {
   const slash = rel.lastIndexOf('/');
   const acc = isAccepted(f)
     ? `<span class="kb done">✓ ${t.accepted}</span>`
-    : f.state === 'moved' ? '' : `<button class="kb" data-act="accept">${t.accept} <kbd>␣a</kbd></button>`;
+    : f.state === 'moved' || f.problemOnly ? '' : `<button class="kb" data-act="accept">${t.accept} <kbd>␣a</kbd></button>`;
   const cm = canComment() ? `<button class="kb" data-act="comment">${t.menuComment} <kbd>␣c</kbd></button>` : '';
   const name = `<span><span class="dir">${esc(rel.slice(0, slash + 1))}</span><span class="fn">${esc(rel.slice(slash + 1))}</span></span>`;
   if (S.resp) {
@@ -523,7 +525,17 @@ function relPath(p) {
   return root ? p.slice(root.length + 1) : p;
 }
 
+function repositoryProblemsHTML(problems) {
+  return (problems || []).map(p => `<div class="repository-problem">${esc(p.message)}${p.reviewId ? ` · <a href="/r/${encodeURIComponent(p.reviewId)}" data-go="/r/${encodeURIComponent(p.reviewId)}">${S.lang === 'ru' ? 'Открыть ревью' : 'Open review'} ${esc(p.reviewId)}</a>` : ''}</div>`).join('');
+}
+
 function contentHTML() {
+  const problems = S.file.problems || [];
+  const warning = problems.length ? `<div class="notice repository-warning">${repositoryProblemsHTML(problems)}</div>` : '';
+  return warning + (S.file.problemOnly ? '' : fileContentHTML());
+}
+
+function fileContentHTML() {
   const t = T();
   const f = S.file;
   const kind = fileKind(f.path);
@@ -574,7 +586,7 @@ function renderContent() {
   if (S.missing) { sc.innerHTML = `<div class="notice">${T().noReview} <a href="/" data-go="/">${T().back}</a></div>`; S.contentKey = ''; return; }
   if (!S.file) { sc.innerHTML = ''; S.contentKey = ''; $('#map').innerHTML = ''; return; }
   const f = S.file;
-  const key = JSON.stringify([!!S.resp, f.path, f.base, f.current, f.currentDeleted, f.hasBase, f.response, f.responseDeleted, f.state === 'moved', f.baseIsOriginal, f.originSource, S.chunks, S.cols, S.doc, [...S.expanded], S.lang]);
+  const key = JSON.stringify([!!S.resp, f.path, f.problems, f.problemOnly, f.base, f.current, f.currentDeleted, f.hasBase, f.response, f.responseDeleted, f.state === 'moved', f.baseIsOriginal, f.originSource, S.chunks, S.cols, S.doc, [...S.expanded], S.lang]);
   if (key === S.contentKey) return;
   S.contentKey = key;
   sc.innerHTML = `<div class="page">${contentHTML()}</div>`;
@@ -1139,7 +1151,7 @@ function moveFocus(dir) {
 
 async function accept() {
   const f = S.file;
-  if (!f || !S.review) return;
+  if (!f || !S.review || f.problemOnly) return;
   if (isAccepted(f)) { jumpFile(1); return; }
   const t = T();
   try {
@@ -1166,6 +1178,7 @@ function summary() {
   const r = S.review;
   if (r.accepted) { toast({ ok: true, title: t.allAccepted, short: `✓ ${t.allAccepted}` }); return; }
   const left = [];
+  if (r.completeness && !r.completeness.complete) left.push(S.lang === 'ru' ? 'Полнота ревью не подтверждена' : 'Review completeness is not confirmed');
   if (r.unsent) left.push(t.leftUnsent(r.unsent));
   if (r.questions) left.push(t.leftQuestions(r.questions));
   if (r.hasResponse) left.push(t.leftResponse);
@@ -1206,6 +1219,7 @@ function closeOverlay() {
 
 function canComment() {
   const f = S.file;
+  if (f?.problemOnly) return false;
   if (S.resp) return !!(S.review && f && !f.responseDeleted && (f.response != null || !f.currentDeleted));
   return !!(S.review && f && f.state !== 'moved' && !f.currentDeleted);
 }
@@ -1226,6 +1240,11 @@ const commentById = (id) => openComments().find((c) => c.id === id);
 function renderBanner() {
   const el = $('#banner');
   const r = S.review;
+  if (r?.completeness && !r.completeness.complete) {
+    const ru = S.lang === 'ru';
+    el.innerHTML = `<span class="warn">!</span><div class="repository-summary"><b>${ru ? 'Полнота ревью не подтверждена' : 'Review completeness is not confirmed'}</b><div>${ru ? 'Доступные тексты можно читать. Полное принятие заблокировано.' : 'Available texts can be read. Full acceptance is blocked.'}</div>${repositoryProblemsHTML((r.completeness.problems || []).filter(p => !p.path))}</div><span class="sp"></span><button class="btn" data-act="recheck-repository">${ru ? 'Проверить снова' : 'Check again'}</button>`;
+    return;
+  }
   if (!r || !r.agentLost || r.stopping) { el.innerHTML = ''; return; }
   const t = T();
   el.innerHTML = `<span class="pt"></span><span><b>${t.lostTitle}</b> ${t.lostText}</span><span class="sp"></span><button class="btn err" data-act="interrupt">${t.intGo} <kbd>␣u</kbd></button>`;
@@ -1534,7 +1553,7 @@ async function interrupt() {
 // canEdit — файл можно править (revert — вернуть к базе). Запреты ядра (ответ, агент) объясняются при нажатии.
 function canEdit(revert) {
   const f = S.file;
-  if (!S.review || !f || S.resp || f.state === 'moved') return false;
+  if (!S.review || !f || f.problemOnly || S.resp || f.state === 'moved') return false;
   if (!revert) return !f.currentDeleted;
   return !!f.hasBase && (!!f.currentDeleted || f.current !== f.base);
 }
@@ -2252,6 +2271,7 @@ document.addEventListener('click', (e) => {
   }
   if (a) {
     switch (a.dataset.act) {
+      case 'recheck-repository': act('recheck-repository').then(() => refresh(null)).catch(e => toast({ title: e.message })); break;
       case 'accept': accept(); break;
       case 'cols': toggleCols(); break;
       case 'doc': toggleDoc(); break;

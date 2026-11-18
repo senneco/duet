@@ -695,3 +695,11 @@ body.focus #sc [data-blk]:not(.fcur) { opacity: .3 }
 .diagram-dialog { inset: 0; margin: auto }
 .diagram-pan { display: grid; align-items: center; justify-items: center }
 .diagram-pan > svg { flex: none; max-height: none }
+
+/* Причины неполноты используют существующие дерево и предупреждение ревью. */
+.repository-summary { min-width: 0; overflow-wrap: anywhere; }
+.repository-summary > div { font-size: 12px; margin-top: 4px; }
+.repository-warning { display: block; overflow-wrap: anywhere; }
+.repository-problem + .repository-problem { margin-top: 6px; }
+.repository-problem a { text-decoration: underline; }
+#banner .btn { flex-shrink: 0; }

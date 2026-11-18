@@ -1,10 +1,13 @@
 package core
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // ReviewMatch — найденное ревью без содержимого файлов. Поиск ничего не меняет.
@@ -55,8 +58,24 @@ func (c *Core) PrepareWeb(s Session, reviewID string, paths []string) (DoneResul
 		return DoneResult{}, err
 	}
 	for _, p := range paths {
-		f, ok := c.s.Files[p]
-		if !ok || f.ReviewID != r.ID {
+		if f := c.s.Files[p]; f != nil && f.ReviewID != r.ID {
+			return DoneResult{}, c.repositoryConflict(r, p, f.ReviewID)
+		}
+		if c.s.Files[p] == nil && c.disk != nil && s.Cwd != "" {
+			if _, statErr := os.Lstat(p); os.IsNotExist(statErr) {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				w, detectErr := c.provider.Detect(ctx, s.Cwd)
+				cancel()
+				rel := ""
+				if w != nil {
+					rel, _ = filepath.Rel(w.Root, p)
+				}
+				if detectErr == nil && (w == nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
+					return DoneResult{}, fmt.Errorf("material %s does not exist; use `duet submit` for prepared files before opening the review", p)
+				}
+			}
+		}
+		if c.s.Files[p] == nil && (c.disk == nil || s.Cwd == "") {
 			return DoneResult{}, fmt.Errorf("file %s is not in review %s; submit all task files before opening it", p, r.ID)
 		}
 	}
@@ -72,22 +91,19 @@ func (c *Core) PrepareWeb(s Session, reviewID string, paths []string) (DoneResul
 	if un := c.unanswered(r, nil); len(un) > 0 {
 		return DoneResult{}, &UnansweredError{un}
 	}
-	// Чтение с диска должно вернуть ошибку, а не превратиться в «нет правок».
-	subs, err := c.fromDisk(r)
-	if err != nil {
-		return DoneResult{}, err
+	if s.Cwd != "" {
+		r.RepositoryDir = s.Cwd
 	}
-	if len(subs) == 0 && !r.Working {
-		return DoneResult{}, nil
+	for _, p := range paths {
+		found := false
+		for _, old := range r.Materials {
+			if old == p {
+				found = true
+			}
+		}
+		if !found {
+			r.Materials = append(r.Materials, p)
+		}
 	}
-	r.Working, r.Turn = true, true
-	ok, err := c.finish(r, subs, nil)
-	if err != nil {
-		return DoneResult{}, err
-	}
-	res := DoneResult{Responded: ok}
-	if r.Working {
-		res.New = c.take(r)
-	}
-	return res, c.save()
+	return c.finishCollected(r, paths, nil)
 }

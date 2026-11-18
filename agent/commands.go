@@ -237,12 +237,30 @@ func (s *Service) Done(q DoneReq) (string, error) {
 	if q.Start != "" {
 		s.core.SetStart(se.Review, q.Start)
 	}
+	warning := ""
+	if v, e := s.core.Review(se.Review); e == nil && v.Completeness != nil && !v.Completeness.Complete {
+		warning = "\nReview completeness is not confirmed; full acceptance is blocked. See " + s.URL(se.Review) + "\n"
+		for _, p := range v.Completeness.Problems {
+			warning += "- "
+			if p.Path != "" {
+				warning += rel(se.Cwd, p.Path) + ": "
+			}
+			warning += p.Message
+			if p.ReviewID != "" {
+				warning += " (" + s.URL(p.ReviewID) + ")"
+			}
+			warning += "\n"
+		}
+	}
 	switch {
 	case len(res.New) > 0:
 		return "Answers saved. While you worked, the owner sent more comments. Tell the owner in one line which you took, " +
-			"work on them, then call `duet done` again with answers to these.\n" + comments(se.Cwd, res.New), nil
+			"work on them, then call `duet done` again with answers to these.\n" + comments(se.Cwd, res.New) + warning, nil
 	case res.Responded:
-		return "Done. The owner will see your response in duet. Tell the owner in one short line.", nil
+		return "Done. The owner will see your response in duet. Tell the owner in one short line." + warning, nil
+	}
+	if warning != "" {
+		return strings.TrimSpace(warning), nil
 	}
 	return "Nothing to finish: no taken comments and no changes to review files.", nil
 }

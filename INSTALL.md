@@ -36,3 +36,7 @@ The installer prints this at the end under "Tell the owner". Usually:
 - **Codex** asks once to trust the duet hooks: allow them.
 - If `~/.local/bin` is not in `PATH`, offer to add it to the owner's shell profile (for zsh: `export PATH="$HOME/.local/bin:$PATH"` in `~/.zshrc`) and do it if they agree.
 - To use duet: ask the agent "send it for review" ("отдай на ревью"). The agent writes a review link in the chat.
+
+## Плагины репозитория
+
+Git поддерживается без настройки. Другие системы подключаются отдельными локальными программами после установки duet: [регистрация, проверка и диагностика](docs/vcs-plugins.md). Без соответствующего плагина распознавание сторонней системы не гарантируется.
