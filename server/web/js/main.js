@@ -1,4 +1,5 @@
 import { subscribeEvents } from './events.js';
+import { updateClient } from './updates.js';
 // Веб-клиент duet: список ревью и ревью (дерево, отличия, принятие), клавиши, тема и язык,
 // живые обновления. Всё, что решает поведение, делает ядро; клиент показывает и передаёт действия.
 
@@ -73,6 +74,16 @@ const S = {
 S.theme = S.look.theme;
 S.lang = S.look.lang;
 const T = () => dict(S.lang);
+const updateUI = updateClient({
+  dirty: () => !!(S.ed || S.edit || S.resp),
+  preserve() {
+    if (!S.review || !S.path) return;
+    const a=anchorOf();
+    try { sessionStorage.setItem('duet:update-place', JSON.stringify({ review:S.review.id, path:S.path, ...a })); } catch {}
+  },
+  language: () => S.lang,
+  repaint: () => renderHeader(),
+});
 
 // ── API ──
 
@@ -196,7 +207,11 @@ async function openReview(id) {
   act0(id, 'sync');
   await loadReview(id);
   if (!S.review) { renderAll(); return; }
-  const saved = store.get('pos:' + id, null);
+  let saved = store.get('pos:' + id, null);
+  try {
+    const updatePlace=JSON.parse(sessionStorage.getItem('duet:update-place') || 'null');
+    if(updatePlace?.review===id) { saved=updatePlace; sessionStorage.removeItem('duet:update-place'); }
+  } catch {}
   const has = (p) => visibleFiles().some((f) => f.path === p);
   let path = null;
   let line = 0;
@@ -273,7 +288,7 @@ function connect() {
   disconnectEvents = subscribeEvents({
     hello(e) {
       const { build } = JSON.parse(e.data);
-      if (S.build && build !== S.build) { location.reload(); return; }
+      if (S.build && build !== S.build && updateUI.mayReload()) { location.reload(); return; }
       S.build = build;
       const was = S.online;
       ++connectionProbe; clearTimeout(connectionTimer);
@@ -419,6 +434,7 @@ function renderHeader() {
     }
     right += `<button class="tb" data-act="cols" title="␣v">${S.cols === 2 ? t.two : t.one} <kbd>␣v</kbd></button><span class="tsep"></span>`;
   }
+  right += updateUI.header();
   right += `<button class="tb${S.overlay === 'look' ? ' on' : ''}" data-act="look" title=",">${t.lookBtn} <kbd>,</kbd></button>`;
   $('#tabline').innerHTML = `${left}<span class="sp"></span>${right}`;
 }
@@ -2407,5 +2423,4 @@ window.addEventListener('pagehide', () => disconnectEvents());
 window.addEventListener('pageshow', e => { if (e.persisted) connect(); });
 
 applyTheme();
-connect();
-enter();
+updateUI.start().then(() => { connect(); enter(); });

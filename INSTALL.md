@@ -1,42 +1,65 @@
-# Install or update duet
+# Установить или обновить duet
 
-These steps are for an agent (Claude Code, Codex) whose owner gave it a link to duet and asked to install or update it. Do everything yourself; talk to the owner in their language. The same steps update an installed duet.
+Скачай архив `duet-<версия>-<система>-<архитектура>.tar.gz` из
+[GitHub Releases](https://github.com/senneco/duet/releases/latest).
+Распакуй его в отдельный каталог и запусти `sh install.sh` из этого каталога.
+Поддерживаются macOS и Linux, Intel/AMD (`amd64`) и ARM (`arm64`).
 
-duet is a local tool: the owner reviews your work in the browser and sends you comments. It installs into the owner's home folder: the `duet` command into `~/.local/bin`, the duet skill and hooks into Claude Code and Codex — only those present on this machine. The owner's other settings stay as they are; the previous settings files are kept next to them as `*.duet-backup`.
-
-## 1. Run the installer
+Установить последний выпуск можно одной командой:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/senneco/duet/main/install.sh | sh
+curl -fsSL https://github.com/senneco/duet/releases/latest/download/install.sh | sh
 ```
 
-- If `curl` gets 404, the repository is private. Use the GitHub CLI instead (it uses the owner's GitHub login):
-  ```sh
-  gh api repos/senneco/duet/contents/install.sh -H "Accept: application/vnd.github.raw" | sh
-  ```
-  If `gh` is missing or not logged in, ask the owner to log in (`gh auth login`), then run it again.
-- If you work inside a clone of duet, run `./install.sh` there: with Go it builds duet from that clone.
-- The installer needs network and writes outside your working folder: ask for the permissions it needs (in Codex, run it outside the sandbox).
+Установщик скачивает готовую сборку, проверяет SHA-256 и ставит команду, скилл и
+хуки для Claude Code и Codex. Для публичной установки Go и аккаунт GitHub не нужны.
 
-The installer downloads a ready duet for this machine (macOS or Linux), so nothing else needs installing.
-
-## 2. Check it works
+Для проверки:
 
 ```sh
 duet status
 ```
 
-It starts duet in the background and says that this session is not connected to a review: that means duet works. If `duet` is not found, use `~/.local/bin/duet status` and see step 3.
+Ответ об отсутствии подключённого ревью означает, что программа работает.
+Если команда не найдена, используй `~/.local/bin/duet` и добавь `~/.local/bin`
+в PATH оболочки владельца. После первой установки нужен новый чат с агентом;
+если Codex предложит довериться хукам duet — разреши.
 
-## 3. Tell the owner what is left
+## Обновления
 
-The installer prints this at the end under "Tell the owner". Usually:
+Duet проверяет новые выпуски в фоне не чаще раза в сутки. Уведомление появляется
+внизу справа и остаётся до закрытия; после закрытия доступна кнопка в верхней
+строке. По «Обновить» программа скачивает и проверяет готовую сборку.
+Чтение ревью продолжается. Применение ждёт завершения работы агента и сохранения
+черновиков во всех открытых вкладках. Если открыто окно ответа, сначала закрой его.
 
-- **Start a new agent session.** duet works in sessions started after the install; this one has no duet hooks yet.
-- **Codex** asks once to trust the duet hooks: allow them.
-- If `~/.local/bin` is not in `PATH`, offer to add it to the owner's shell profile (for zsh: `export PATH="$HOME/.local/bin:$PATH"` in `~/.zshrc`) and do it if they agree.
-- To use duet: ask the agent "send it for review" ("отдай на ревью"). The agent writes a review link in the chat.
+То же действие доступно в терминале:
 
-## Плагины репозитория
+```sh
+duet update
+```
 
-Git поддерживается без настройки. Другие системы подключаются отдельными локальными программами после установки duet: [регистрация, проверка и диагностика](docs/vcs-plugins.md). Без соответствующего плагина распознавание сторонней системы не гарантируется.
+`duet update --check` только проверяет выпуск. Недоступность сети не мешает
+работе установленной программы. Ошибка установки или запуска оставляет прежнюю
+установку; формат данных первого механизма обновлений совместим при откате.
+
+## Переход со старой версии
+
+Один раз повтори установочную команду: старые версии сами не знают об обновлениях.
+Если старое ядро запущено и ещё не поддерживает проверку готовности к обновлению,
+установщик попросит сначала сохранить черновики, закончить работу агентов и
+выполнить `duet stop`. После этого повтори установку. Это ограничение первого
+перехода; следующие обновления выполняются из интерфейса.
+
+## Разработка
+
+Для разработки используй `go build ./cmd/duet`. Для изолированной проверки
+установки задай `DUET_HOME`, `DUET_BIN`, `CLAUDE_CONFIG_DIR` и `CODEX_HOME`
+отдельными временными каталогами.
+
+Минимум Go 1.25.0 нужен для `os.Root.ReadFile`; верхнего ограничения и привязки
+к исправительному выпуску нет. Рекомендуется актуальный установленный Go.
+Сборка выполняется с `GOTOOLCHAIN=local`, без автоматического скачивания компилятора.
+
+Другие системы контроля версий подключаются отдельными плагинами:
+[регистрация и проверка](docs/vcs-plugins.md).

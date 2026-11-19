@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -22,6 +23,27 @@ import (
 // Serve — само ядро: держит папку данных, следит за диском и отвечает клиентам.
 // Запускается в фоне через Ensure. Если ядро для этой папки уже работает, сразу выходит.
 func (cfg Config) Serve() error {
+	updateChild := os.Getenv("DUET_UPDATE_CHILD") == "1"
+	os.Unsetenv("DUET_UPDATE_CHILD")
+	if _, err := os.Stat(cfg.journalPath()); err == nil {
+		// Во время штатного переключения блокировку держит установщик.
+		// После его аварийного завершения прямой запуск тоже восстанавливает комплект.
+		if unlock, e := fileLock(filepath.Join(cfg.Home, "installation.lock"), syscall.LOCK_EX|syscall.LOCK_NB); e == nil {
+			unlock()
+			if e = cfg.recoverUpdate(); e != nil {
+				return e
+			}
+		}
+	}
+	startupUnlock := func() {}
+	if !updateChild {
+		unlock, e := fileLock(filepath.Join(cfg.Home, "installation.lock"), syscall.LOCK_SH)
+		if e != nil {
+			return e
+		}
+		startupUnlock = unlock
+		defer startupUnlock()
+	}
 	if err := os.MkdirAll(cfg.Home, 0o755); err != nil {
 		return err
 	}
@@ -55,9 +77,12 @@ func (cfg Config) Serve() error {
 		log.Printf("port %d is busy, using %d", cfg.Port, port)
 	}
 	srv := server.New(c, Build())
+	srv.UpdateStatus = func() any { s := cfg.updateStatus(); s.Stage = ""; return s }
+	srv.StartUpdate = cfg.startUpdate
 	srv.Agent = agent.New(c, cfg.Home, func(id string) string { return URL(port) + "/r/" + id })
 	agentCtx, stopAgent := context.WithCancel(context.Background())
 	defer stopAgent()
+	go cfg.checkUpdates(agentCtx)
 	go srv.Agent.Run(agentCtx)
 	hs := &http.Server{Handler: srv, ReadHeaderTimeout: 10 * time.Second}
 	done := make(chan struct{})
@@ -86,6 +111,7 @@ func (cfg Config) Serve() error {
 		}()
 	}
 	log.Printf("duet %s on %s (pid %d)", in.Build, URL(port), in.PID)
+	startupUnlock()
 	<-done
 	// server.json убираем, только если он наш: новое ядро могло уже записать свой.
 	if data, err := os.ReadFile(cfg.infoPath()); err == nil {

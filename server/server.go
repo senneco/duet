@@ -34,7 +34,10 @@ type Server struct {
 	// OnShutdown вызывается по запросу остановки (`duet stop`), после ответа клиенту.
 	OnShutdown func()
 	// Agent — команды и хуки агентов; nil — их нет (тесты клиента).
-	Agent *agent.Service
+	Agent        *agent.Service
+	UpdateStatus func() any
+	StartUpdate  func() error
+	updates      updateState
 
 	mu   sync.Mutex
 	subs map[chan event]bool
@@ -77,6 +80,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Frame-Options", "DENY")
 	w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	finish, ok := s.updateAllowed(w, r)
+	if !ok {
+		return
+	}
+	defer finish()
 	s.mux.ServeHTTP(w, r)
 }
 
@@ -142,6 +150,7 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/reviews/{id}/{action}", s.action)
 	s.agentRoutes()
 	s.imageRoutes()
+	s.updateRoutes()
 	m.HandleFunc("POST /api/shutdown", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]bool{"ok": true})
 		if f, ok := w.(http.Flusher); ok {

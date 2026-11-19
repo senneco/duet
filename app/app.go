@@ -108,12 +108,21 @@ func (cfg Config) running() (info, bool) {
 // URL — адрес работающего ядра для владельца.
 func URL(port int) string { return fmt.Sprintf("http://duet.localhost:%d", port) }
 
-// Ensure — ядро этой сборки работает: если нет, запускается в фоне, если работает старая сборка,
-// она заменяется. Возвращает порт. Так начинается любая команда duet.
+// Ensure возвращает порт работающего ядра или запускает его в фоне.
+// Управляемая установка меняет сборку только через явное обновление.
 func (cfg Config) Ensure() (int, error) {
+	unlock, err := fileLock(filepath.Join(cfg.Home, "installation.lock"), syscall.LOCK_SH)
+	if err != nil {
+		return 0, err
+	}
+	defer unlock()
 	build := Build()
 	if in, ok := cfg.running(); ok {
 		if in.Build == build {
+			return in.Port, nil
+		}
+		// Управляемая установка меняет сервер только через явное обновление.
+		if _, err := os.Stat(filepath.Join(cfg.Home, "update-source.json")); err == nil {
 			return in.Port, nil
 		}
 		if err := cfg.stop(in); err != nil {
@@ -196,6 +205,7 @@ const usage = `duet — async review of agent work.
   duet plugin         register, list, remove or check a local VCS plugin
   duet stop           stop the background duet
   duet install        install duet into ~/.local/bin and its skill and hooks into Claude Code and Codex
+  duet update         check and apply an update; --check only checks
 
 Agent commands (see the duet skill):
   duet submit         send files for review (JSON manifest as one argument, or file arguments)
@@ -215,17 +225,59 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		cmd, args = args[0], args[1:]
 	}
 	var err error
+	finishUpdate := cmd == "install" && len(args) == 1 && args[0] == "--finish-update"
+	if cmd != "serve" && cmd != "stop" && cmd != "--update-protocol" && !finishUpdate {
+		if err = cfg.recoverUpdate(); err != nil {
+			fmt.Fprintln(stderr, "duet:", err)
+			return 1
+		}
+	}
 	switch cmd {
 	case "web":
 		err = cfg.web(args, stdout)
 	case "stop":
-		err = cfg.stopCmd(stdout)
+		var unlock func()
+		unlock, err = fileLock(filepath.Join(cfg.Home, "installation.lock"), syscall.LOCK_SH)
+		if err == nil {
+			defer unlock()
+			err = cfg.stopCmd(stdout)
+		}
 	case "serve":
 		err = cfg.Serve()
 	case "plugin":
-		err = cfg.plugin(args, stdout)
+		var unlock func()
+		unlock, err = fileLock(filepath.Join(cfg.Home, "installation.lock"), syscall.LOCK_SH)
+		if err == nil {
+			defer unlock()
+			err = cfg.plugin(args, stdout)
+		}
 	case "install":
-		err = cfg.install(stdout)
+		switch {
+		case len(args) == 2 && args[0] == "--from-release":
+			err = cfg.installPublicRelease(args[1])
+		case len(args) == 2 && args[0] == "--source-config":
+			err = cfg.installSource(args[1])
+		case len(args) == 1 && args[0] == "--finish-update":
+			err = cfg.install(stdout)
+		case len(args) == 0:
+			var unlock func()
+			unlock, err = fileLock(filepath.Join(cfg.Home, "installation.lock"), syscall.LOCK_EX)
+			if err != nil {
+				break
+			}
+			defer unlock()
+			if _, running := cfg.running(); running {
+				err = errors.New("stop duet before a manual installation, or use duet update")
+			} else {
+				err = cfg.install(stdout)
+			}
+		default:
+			err = errors.New("usage: duet install")
+		}
+	case "update":
+		err = cfg.update(args, stdout)
+	case "--update-protocol":
+		fmt.Fprintln(stdout, "1")
 	case "submit":
 		err = cfg.submit(args, stdout)
 	case "connect":

@@ -1,4 +1,9 @@
 /* duet — вид по макету D «Клавиатура» (docs/changes/06a-reading/mockups/d-keyboard.html). */
+.update-notice { position: fixed !important; z-index: 30; max-width: calc(100vw - 32px) }
+.update-notice[hidden] { display: none }
+.update-notice button:disabled { opacity: .55; cursor: wait }
+.update-button { color: var(--acc-fg) !important }
+.update-applying { cursor: progress }
 :root {
   --mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
   --serif: Charter, "Iowan Old Style", Georgia, serif;
