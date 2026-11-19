@@ -1253,12 +1253,34 @@ function openComments() {
 }
 const commentById = (id) => openComments().find((c) => c.id === id);
 
+const repositoryChecks = new Map();
+
+async function recheckRepository() {
+  const id = rid();
+  if (!id || repositoryChecks.get(id)?.pending) return;
+  repositoryChecks.set(id, { pending: true });
+  renderBanner();
+  try {
+    await api(`/api/reviews/${id}/recheck-repository`, {});
+    if (rid() === id) await refresh(null);
+    repositoryChecks.set(id, { checked: true });
+  } catch (error) {
+    repositoryChecks.set(id, { error: error.message });
+  } finally {
+    if (rid() === id) renderBanner();
+  }
+}
+
 function renderBanner() {
   const el = $('#banner');
   const r = S.review;
   if (r?.completeness && !r.completeness.complete) {
     const ru = S.lang === 'ru';
-    el.innerHTML = `<span class="warn">!</span><div class="repository-summary"><b>${ru ? 'Полнота ревью не подтверждена' : 'Review completeness is not confirmed'}</b><div>${ru ? 'Доступные тексты можно читать. Полное принятие заблокировано.' : 'Available texts can be read. Full acceptance is blocked.'}</div>${repositoryProblemsHTML((r.completeness.problems || []).filter(p => !p.path))}</div><span class="sp"></span><button class="btn" data-act="recheck-repository">${ru ? 'Проверить снова' : 'Check again'}</button>`;
+    const check = repositoryChecks.get(rid());
+    const feedback = check?.error || (check?.pending
+      ? (ru ? 'Сверяем изменения в рабочей копии…' : 'Checking changes in the working copy…')
+      : check?.checked ? (ru ? 'Проверка завершилась, но остались проблемы.' : 'The check finished with unresolved problems.') : '');
+    el.innerHTML = `<span class="warn">!</span><div class="repository-summary"><b>${ru ? 'Полнота ревью не подтверждена' : 'Review completeness is not confirmed'}</b><div>${ru ? 'Доступные тексты можно читать. Полное принятие заблокировано.' : 'Available texts can be read. Full acceptance is blocked.'}</div>${repositoryProblemsHTML((r.completeness.problems || []).filter(p => !p.path))}<div role="status">${esc(feedback)}</div></div><span class="sp"></span><button class="btn" data-act="recheck-repository" ${check?.pending ? 'disabled' : ''}>${check?.pending ? (ru ? 'Проверяем…' : 'Checking…') : (ru ? 'Проверить снова' : 'Check again')}</button>`;
     return;
   }
   if (!r || !r.agentLost || r.stopping) { el.innerHTML = ''; return; }
@@ -2287,7 +2309,7 @@ document.addEventListener('click', (e) => {
   }
   if (a) {
     switch (a.dataset.act) {
-      case 'recheck-repository': act('recheck-repository').then(() => refresh(null)).catch(e => toast({ title: e.message })); break;
+      case 'recheck-repository': recheckRepository(); break;
       case 'accept': accept(); break;
       case 'cols': toggleCols(); break;
       case 'doc': toggleDoc(); break;
