@@ -74,6 +74,7 @@ func main() {
 				_, e = c.Stop("previous", false)
 				must(e)
 			}
+			write(other, "Материал изменился после принятия")
 		}
 		if mode == "problems" {
 			bin = filepath.Join(root, "image.bin")

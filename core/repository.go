@@ -162,7 +162,9 @@ func (c *Core) repositoryInputs(r *Review, additional []string) ([]Submission, e
 		seen[path] = true
 		f := c.s.Files[path]
 		if f != nil && f.ReviewID != r.ID {
-			problem(path, "conflict", "файл принадлежит другому ревью", f.ReviewID)
+			if !isAccepted(f) || !same(f.Versions[f.Current], v) {
+				problem(path, "conflict", "файл принадлежит другому ревью", f.ReviewID)
+			}
 			return
 		}
 		if f == nil {
@@ -197,7 +199,11 @@ func (c *Core) repositoryInputs(r *Review, additional []string) ([]Submission, e
 			path = storedPath(path)
 			f := c.s.Files[path]
 			if f != nil && f.ReviewID != r.ID {
-				problem(path, "conflict", "файл принадлежит другому ревью", f.ReviewID)
+				if len(e.Diagnostics) == 0 {
+					add(path, Version{Content: e.Current.Text, Deleted: e.Current.Kind == "absent"})
+				} else {
+					problem(path, "conflict", "файл принадлежит другому ревью", f.ReviewID)
+				}
 				continue
 			}
 			if f != nil && f.BaseSource.Kind == "unknown" {
@@ -228,10 +234,6 @@ func (c *Core) repositoryInputs(r *Review, additional []string) ([]Submission, e
 	for _, path := range snap.External {
 		path = storedPath(path)
 		if blocked || seen[path] {
-			continue
-		}
-		if f := c.s.Files[path]; f != nil && f.ReviewID != r.ID {
-			problem(path, "conflict", "файл принадлежит другому ревью", f.ReviewID)
 			continue
 		}
 		d, err := c.readDisk(path)
@@ -458,6 +460,10 @@ func (c *Core) addProblemViews(r *Review, rv *ReviewView) {
 }
 
 func (c *Core) repositoryConflict(r *Review, path, other string) error {
+	return c.recordRepositoryConflict(r, path, other, "файл принадлежит другому ревью")
+}
+
+func (c *Core) recordRepositoryConflict(r *Review, path, other, reason string) error {
 	if !slices.Contains(r.Materials, path) {
 		r.Materials = append(r.Materials, path)
 	}
@@ -465,14 +471,17 @@ func (c *Core) repositoryConflict(r *Review, path, other string) error {
 		r.Completeness = &Completeness{}
 	}
 	r.Completeness.Complete = false
-	r.Completeness.Problems = append(r.Completeness.Problems, RepositoryProblem{Path: path, Code: "conflict", Message: "файл принадлежит другому ревью", ReviewID: other})
+	problem := RepositoryProblem{Path: path, Code: "conflict", Message: reason, ReviewID: other}
+	if !slices.Contains(r.Completeness.Problems, problem) {
+		r.Completeness.Problems = append(r.Completeness.Problems, problem)
+	}
 	r.Open = true
 	c.removeAcceptedNotices(r)
 	c.changed(r.ID)
 	if err := c.save(); err != nil {
 		return err
 	}
-	return fmt.Errorf("файл %s принадлежит ревью %s; автоматический перенос запрещён", path, other)
+	return fmt.Errorf("файл %s, ревью %s: %s", path, other, reason)
 }
 
 // Одинаковая защита для обеих точек выдачи сообщений.

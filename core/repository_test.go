@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -185,7 +186,6 @@ func TestRepositoryConflictPreservesOtherReview(t *testing.T) {
 	other := baseWrite(t, root, "other", "text")
 	id2 := create(t, c, Submission{Path: other, Content: "text"})
 	cm := comment(t, c, id2, other, "keep elsewhere")
-	must(t, c.AcceptFile(id2, other))
 	before, _ := json.Marshal(c.s.Files[other])
 	reviewBefore, _ := json.Marshal(c.s.Reviews[id2])
 	_, err := c.Done("s", nil)
@@ -441,6 +441,12 @@ func TestRepositoryRootAliasPreservesOwnershipAndBases(t *testing.T) {
 	if f := fv(t, c, id, aliasA); f.Base != "original" || f.Current != "changed" {
 		t.Fatal(f)
 	}
+	if hasProblem(rv(t, c, id), "conflict", aliasB) {
+		t.Fatal("unchanged accepted file blocked review through an alias")
+	}
+	baseWrite(t, root, "b", "changed after acceptance")
+	_, err = c.Done("s", nil)
+	must(t, err)
 	if !hasProblem(rv(t, c, id), "conflict", aliasB) {
 		t.Fatal(rv(t, c, id))
 	}
@@ -472,8 +478,7 @@ func TestRepositoryNoRepeatedAcceptanceOnEmptyTurn(t *testing.T) {
 func TestRepositoryExplicitExternalConflictSurvivesRecheck(t *testing.T) {
 	c, id, root, a := repositoryReview(t)
 	external := baseWrite(t, t.TempDir(), "external", "foreign")
-	other := create(t, c, Submission{Path: external, Content: "foreign"})
-	must(t, c.AcceptFile(other, external))
+	create(t, c, Submission{Path: external, Content: "foreign"})
 	_, err := c.PrepareWeb(Session{ID: "s", Cwd: root}, id, []string{external})
 	if err == nil {
 		t.Fatal("foreign explicit material allowed")
@@ -557,6 +562,7 @@ func TestRecoverRepositoryKeepsAcceptedBaseAndComments(t *testing.T) {
 	must(t, err)
 	cm := comment(t, c, source, path, "сохраняется после переноса")
 	must(t, c.AcceptFile(source, path))
+	baseWrite(t, root, "a.md", "changed after acceptance")
 	next := baseWrite(t, root, "tasks.md", "# Задачи")
 	target := create(t, c, Submission{Path: next, Content: "# Задачи"})
 	_, err = c.PrepareWeb(Session{ID: "next", Cwd: root}, target, []string{next})
@@ -565,7 +571,7 @@ func TestRecoverRepositoryKeepsAcceptedBaseAndComments(t *testing.T) {
 	must(t, err)
 	must(t, c.RecoverRepository(target, source))
 	file := fv(t, c, target, path)
-	if file.State != StateAccepted || len(file.Comments) != 1 || file.Comments[0].ID != cm {
+	if file.Base != "review\n" || len(file.Comments) != 1 || file.Comments[0].ID != cm {
 		t.Fatalf("file after recovery: %+v", file)
 	}
 	if v := rv(t, c, target); !v.Completeness.Complete {
@@ -576,5 +582,39 @@ func TestRecoverRepositoryKeepsAcceptedBaseAndComments(t *testing.T) {
 	}
 	if matches := c.ReviewsForWorkspace(root); len(matches) != 1 || matches[0].ID != target {
 		t.Fatalf("matches: %+v", matches)
+	}
+}
+
+func TestAcceptedFileCanBeEditedFromAnotherReview(t *testing.T) {
+	c, source, root, path := repositoryReview(t)
+	_, err := c.Stop("s", false)
+	must(t, err)
+	cm := comment(t, c, source, path, "комментарий сохраняется")
+	must(t, c.AcceptFile(source, path))
+
+	next := baseWrite(t, root, "tasks.md", "# Задачи")
+	target := create(t, c, Submission{Path: next, Content: "# Задачи"})
+	_, err = c.PrepareWeb(Session{ID: "next", Cwd: root}, target, []string{next})
+	must(t, err)
+	if v := rv(t, c, target); !v.Completeness.Complete || len(v.Files) != 1 {
+		t.Fatalf("unchanged accepted file blocked review: %+v", v)
+	}
+	must(t, c.SetBusy("s", true))
+	if err := c.WriteCheck("next", path, true); err == nil || !strings.Contains(err.Error(), "агент другого ревью работает") {
+		t.Fatalf("concurrent agent was not protected: %v", err)
+	}
+	must(t, c.SetBusy("s", false))
+	must(t, c.WriteCheck("next", path, true))
+	if moved := fv(t, c, source, path); moved.MovedTo != target {
+		t.Fatalf("file did not move: %+v", moved)
+	}
+
+	baseWrite(t, root, "a.md", "new version")
+	_, err = c.Stop("next", false)
+	must(t, err)
+	file := fv(t, c, target, path)
+	if file.Base != "review\n" || file.Current != "new version" || file.State == StateAccepted ||
+		len(file.Comments) != 1 || file.Comments[0].ID != cm {
+		t.Fatalf("new version or history lost: %+v", file)
 	}
 }

@@ -198,7 +198,7 @@ func (c *Core) Owns(sessionID, path string) bool {
 
 // WriteCheck — агент сессии собирается записать файл ревью (или файл, который duet добавит в ревью).
 // Если можно, заход начинается, в том числе поверх непросмотренного ответа. Иначе — ошибка:
-// владелец правит, «прервать», файл занят в другом ревью (*BusyError).
+// владелец правит, «прервать», файл требует внимания в другом ревью.
 func (c *Core) WriteCheck(sessionID, path string, track bool) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -214,11 +214,28 @@ func (c *Core) WriteCheck(sessionID, path string, track bool) error {
 	if !mine && !track {
 		return nil
 	}
-	if ok && !mine {
-		return c.repositoryConflict(r, path, f.ReviewID)
-	}
 	if r.Editing {
 		return ErrEditing
+	}
+	if ok && !mine {
+		source := c.s.Reviews[f.ReviewID]
+		var reason string
+		switch {
+		case source.Editing:
+			reason = "в другом ревью открыт редактор"
+		case source.Stopping:
+			reason = "в другом ревью идёт остановка агента"
+		case source.Busy || source.Working:
+			reason = "агент другого ревью работает"
+		case c.busy(f):
+			reason = "по файлу есть непросмотренный ответ"
+		case !isAccepted(f):
+			reason = "файл ещё не принят"
+		}
+		if reason != "" {
+			return c.recordRepositoryConflict(r, path, f.ReviewID, reason)
+		}
+		c.removeAcceptedNotices(source)
 	}
 	r.Busy = true
 	if !r.Working {
