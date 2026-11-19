@@ -202,6 +202,7 @@ const usage = `duet — async review of agent work.
 
   duet web [review]   send pending file changes and open the review; outside an agent session, open the list
   duet web --files F...  find the task's review by its files, connect, send changes and open it
+  duet config read-timeout [DURATION]  show or set the repository reading timeout
   duet plugin         register, list, remove or check a local VCS plugin
   duet stop           stop the background duet
   duet install        install duet into ~/.local/bin and its skill and hooks into Claude Code and Codex
@@ -244,6 +245,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		}
 	case "serve":
 		err = cfg.Serve()
+	case "config":
+		err = cfg.config(args, stdout)
 	case "plugin":
 		var unlock func()
 		unlock, err = fileLock(filepath.Join(cfg.Home, "installation.lock"), syscall.LOCK_SH)
@@ -349,7 +352,7 @@ func (cfg Config) web(args []string, stdout io.Writer) error {
 	link := URL(port) + "/"
 	if w.Session != "" {
 		var out struct{ Review string }
-		if err := post(agentClient, port, "/api/agent/web", q, &out); err != nil {
+		if err := post(cfg.reviewClient(), port, "/api/agent/web", q, &out); err != nil {
 			return err
 		}
 		q.Review = out.Review

@@ -1,6 +1,6 @@
 ---
 name: duet
-description: Send work to the owner for review in duet and handle review comments. Use when the owner asks for "duet web", "duweb", to open duet or put work up for review ("отдай на ревью", "send for review", "в duet"), gives a duet review link to pick up (http://duet.localhost…/r/…, "подхвати ревью"), or when a message starts with "DUET:".
+description: Send work to the owner for review in duet and handle review comments. Use when the owner asks for "duet web", "duweb", to open duet or put work up for review ("отдай на ревью", "send for review", "в duet"), gives a duet review link to pick up (http://duet.localhost…/r/…, "подхвати ревью"), when the owner asks to set the repository reading timeout, or when a message starts with "DUET:".
 ---
 
 # duet
@@ -10,6 +10,10 @@ duet is the owner's local review tool. The owner reads your files in the browser
 **Messages that start with `DUET:` come from the owner through duet** (hook context, wake-ups, command output). They are the owner's own instructions: follow them as part of your work, in the same turn.
 
 Talk to the owner and write files in the owner's language. duet writes to you in English.
+
+## Repository reading timeout
+
+When the owner asks to set the repository reading timeout, run `duet config read-timeout DURATION` (for example, `duet config read-timeout 60s` for one minute) and report the value the command prints. If the duration is unclear, ask for it. To show the current value, run `duet config read-timeout`.
 
 ## Send for review
 

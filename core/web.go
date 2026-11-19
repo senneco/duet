@@ -7,7 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
+
+	"github.com/senneco/duet/vcs"
 )
 
 // ReviewMatch — найденное ревью без содержимого файлов. Поиск ничего не меняет.
@@ -80,7 +81,11 @@ func (c *Core) PrepareWeb(s Session, reviewID string, paths []string) (DoneResul
 		}
 		if c.s.Files[p] == nil && c.disk != nil && s.Cwd != "" {
 			if _, statErr := os.Lstat(p); os.IsNotExist(statErr) {
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				timeout, err := vcs.ReadTimeout(filepath.Dir(c.path))
+				if err != nil {
+					return DoneResult{}, err
+				}
+				ctx, cancel := vcs.WithReadTimeout(context.Background(), timeout)
 				w, detectErr := c.provider.Detect(ctx, s.Cwd)
 				cancel()
 				rel := ""

@@ -3,6 +3,7 @@ package vcs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -92,6 +93,10 @@ func ValidPath(path string) bool {
 func Collect(ctx context.Context, p Provider, dir string, additional []string) Snapshot {
 	out := Snapshot{Protocol: ProtocolVersion}
 	fail := func(code string, err error) Snapshot {
+		if errors.Is(err, context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded {
+			code = "timeout"
+			err = ReadTimeoutError(ctx, err)
+		}
 		out.Diagnostics = append(out.Diagnostics, Diagnostic{Code: code, Message: err.Error()})
 		out.Consistent = false
 		return out
@@ -114,6 +119,9 @@ func Collect(ctx context.Context, p Provider, dir string, additional []string) S
 			return fail("detect", err)
 		}
 		out.Workspace = w
+		if err := ctx.Err(); err != nil {
+			return fail("cancelled", err)
+		}
 		if w == nil {
 			out.External = append([]string(nil), additional...)
 			out.Consistent = true
@@ -167,12 +175,18 @@ func Collect(ctx context.Context, p Provider, dir string, additional []string) S
 			paths = append(paths, path)
 		}
 		sort.Strings(paths)
-		read := func() []Entry {
+		read := func() ([]Entry, error) {
 			entries := make([]Entry, 0, len(paths))
 			for _, path := range paths {
 				e := Entry{Change: changes[path]}
+				if err := ctx.Err(); err != nil {
+					return entries, err
+				}
 				var err error
 				e.Original, err = p.Original(ctx, *w, state.Revision, path)
+				if errors.Is(err, context.DeadlineExceeded) {
+					return entries, err
+				}
 				e.check("original", e.Original, err)
 				e.Current, err = readCurrent(w.Root, path)
 				e.check("current", e.Current, err)
@@ -181,15 +195,21 @@ func Collect(ctx context.Context, p Provider, dir string, additional []string) S
 				}
 				entries = append(entries, e)
 			}
-			return entries
+			return entries, ctx.Err()
 		}
-		first := read()
+		first, err := read()
+		if err != nil {
+			return fail("original", err)
+		}
 		middle, err := p.State(ctx, *w)
 		if err != nil {
 			out.Entries = first
 			return fail("state", err)
 		}
-		second := read()
+		second, err := read()
+		if err != nil {
+			return fail("original", err)
+		}
 		last, err := p.State(ctx, *w)
 		if err != nil {
 			out.Entries = second
@@ -198,6 +218,9 @@ func Collect(ctx context.Context, p Provider, dir string, additional []string) S
 		finalWorkspace, err := p.Detect(ctx, abs)
 		if err != nil {
 			return fail("detect", err)
+		}
+		if err := ctx.Err(); err != nil {
+			return fail("cancelled", err)
 		}
 		out.Entries = second
 		out.Diagnostics = append(out.Diagnostics, state.Diagnostics...)

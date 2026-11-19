@@ -50,7 +50,11 @@ func (c *Core) repositoryInputs(r *Review, additional []string) ([]Submission, e
 	for _, f := range c.files(r) {
 		paths = append(paths, f.Path)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	timeout, err := vcs.ReadTimeout(filepath.Dir(c.path))
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := vcs.WithReadTimeout(context.Background(), timeout)
 	defer cancel()
 	snap := vcs.Collect(ctx, c.provider, dir, paths)
 	// Старые записи и прямые клиенты могут использовать другое имя того же корня.

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -23,9 +24,10 @@ type Request struct {
 	Path      string     `json:"path,omitempty"`
 }
 type Reply struct {
-	Protocol int             `json:"protocol"`
-	Result   json.RawMessage `json:"result,omitempty"`
-	Error    string          `json:"error,omitempty"`
+	Protocol  int             `json:"protocol"`
+	Result    json.RawMessage `json:"result,omitempty"`
+	Error     string          `json:"error,omitempty"`
+	ErrorCode string          `json:"error_code,omitempty"`
 }
 type Capabilities struct {
 	Operations []string `json:"operations"`
@@ -69,8 +71,11 @@ func (p Executable) call(ctx context.Context, q Request, dst any) error {
 	if !filepath.IsAbs(p.Path) {
 		return fmt.Errorf("plugin %s: executable path must be absolute", p.Name)
 	}
-	ctx, cancel := context.WithTimeout(ctx, PluginTimeout)
-	defer cancel()
+	if _, ok := ctx.Deadline(); !ok || q.Operation == "hello" {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, PluginTimeout)
+		defer cancel()
+	}
 	q.Protocol = ProtocolVersion
 	input, err := json.Marshal(q)
 	if err != nil {
@@ -79,6 +84,8 @@ func (p Executable) call(ctx context.Context, q Request, dst any) error {
 	cmd := exec.CommandContext(ctx, p.Path)
 	// Каталог запуска не влияет на поиск исполняемой программы.
 	cmd.Dir = filepath.Dir(p.Path)
+	deadline, _ := ctx.Deadline()
+	cmd.Env = append(cmd.Environ(), "DUET_PLUGIN_TIMEOUT_MS="+strconv.FormatInt(max(0, time.Until(deadline).Milliseconds()), 10))
 	cmd.Stdin = bytes.NewReader(input)
 	out := &limitedBuffer{limit: MaxPluginOutput}
 	stderr := &limitedBuffer{limit: 64 << 10}
@@ -96,6 +103,12 @@ func (p Executable) call(ctx context.Context, q Request, dst any) error {
 	}
 	if reply.Protocol != ProtocolVersion {
 		return fmt.Errorf("plugin %s: unsupported protocol %d (expected %d)", p.Name, reply.Protocol, ProtocolVersion)
+	}
+	if reply.ErrorCode == "timeout" && reply.Error != "" && len(reply.Result) == 0 {
+		return fmt.Errorf("plugin %s (%s): %w", p.Name, q.Operation, context.DeadlineExceeded)
+	}
+	if reply.ErrorCode != "" {
+		return fmt.Errorf("plugin %s: invalid error code %q", p.Name, reply.ErrorCode)
 	}
 	if reply.Error != "" {
 		if len(reply.Result) != 0 {

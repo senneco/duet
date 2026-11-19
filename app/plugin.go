@@ -66,17 +66,28 @@ func (cfg Config) plugin(args []string, out io.Writer) error {
 			if _, err := os.Stat(dir); err != nil {
 				return err
 			}
-			s := vcs.Collect(ctx, p, dir, nil)
+			timeout, err := vcs.ReadTimeout(cfg.Home)
+			if err != nil {
+				return err
+			}
+			readCtx, cancelRead := vcs.WithReadTimeout(context.Background(), timeout)
+			defer cancelRead()
+			s := vcs.Collect(readCtx, p, dir, nil)
 			if err := json.NewEncoder(out).Encode(s); err != nil {
 				return err
+			}
+			for _, diagnostic := range s.Diagnostics {
+				if diagnostic.Code == "timeout" {
+					return fmt.Errorf("%s", diagnostic.Message)
+				}
 			}
 			if s.Workspace == nil || !s.Complete() {
 				return fmt.Errorf("plugin check did not produce a complete repository snapshot; see diagnostics")
 			}
 			// Проверяем и выбор зарегистрированного провайдера.
-			w, err := r.Detect(ctx, s.Workspace.Root)
+			w, err := r.Detect(readCtx, s.Workspace.Root)
 			if err != nil {
-				return err
+				return vcs.ReadTimeoutError(readCtx, err)
 			}
 			if w == nil || w.Provider != p.Name {
 				return fmt.Errorf("plugin selection differs from check")

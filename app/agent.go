@@ -184,7 +184,7 @@ func ancestor(name string) int {
 
 func (cfg Config) textCmd(path string, in any, stdout io.Writer) error {
 	var out struct{ Text string }
-	if err := cfg.call(agentClient, path, in, &out); err != nil {
+	if err := cfg.call(cfg.reviewClient(), path, in, &out); err != nil {
 		return err
 	}
 	fmt.Fprintln(stdout, strings.TrimRight(out.Text, "\n"))
@@ -423,7 +423,7 @@ func (cfg Config) hook(args []string, stdout, stderr io.Writer) int {
 		ag = args[0]
 	}
 	var out agent.HookResp
-	if err := cfg.call(agentClient, "/api/agent/hook", agent.HookReq{Agent: ag, Payload: data}, &out); err != nil {
+	if err := cfg.call(cfg.reviewClient(), "/api/agent/hook", agent.HookReq{Agent: ag, Payload: data}, &out); err != nil {
 		return 0 // duet недоступен — агенту не мешаем
 	}
 	fmt.Fprint(stdout, out.Stdout)
