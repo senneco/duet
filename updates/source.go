@@ -361,6 +361,11 @@ func extract(archive, dest string) error {
 		if e != nil {
 			return e
 		}
+		// GitHub archives start with a global PAX comment containing the commit.
+		// archive/tar exposes this metadata as a header without a filesystem entry.
+		if h.Typeflag == tar.TypeXGlobalHeader {
+			continue
+		}
 		name := strings.TrimSuffix(h.Name, "/")
 		parts := strings.SplitN(name, "/", 2)
 		if root == "" {

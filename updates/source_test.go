@@ -52,6 +52,26 @@ func TestSourceArchiveRejectsEscapesAndLinks(t *testing.T) {
 		})
 	}
 }
+func TestSourceArchiveWithGlobalPAXHeader(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "source.tar.gz")
+	archive(t, input, []*tar.Header{
+		{Name: "pax_global_header", Typeflag: tar.TypeXGlobalHeader, PAXRecords: map[string]string{"comment": strings.Repeat("a", 40)}},
+		{Name: "repo/", Typeflag: tar.TypeDir},
+		{Name: "repo/go.mod", Typeflag: tar.TypeReg},
+	})
+	out := filepath.Join(dir, "out")
+	if err := extract(input, out); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "go.mod")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "pax_global_header")); !os.IsNotExist(err) {
+		t.Fatalf("metadata written as a file: %v", err)
+	}
+}
+
 func TestDuplicateSourceFileRejected(t *testing.T) {
 	d := t.TempDir()
 	a := filepath.Join(d, "a.tgz")
