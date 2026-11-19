@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/senneco/duet/vcs"
 )
@@ -485,4 +486,95 @@ func TestRepositoryExplicitExternalConflictSurvivesRecheck(t *testing.T) {
 		t.Fatal("explicit material forgotten")
 	}
 	noAccepted(t, c, id)
+}
+
+type delayedRepositoryProvider struct {
+	vcs.Provider
+	started chan struct{}
+	resume  chan struct{}
+}
+
+func (p delayedRepositoryProvider) Detect(ctx context.Context, dir string) (*vcs.Workspace, error) {
+	select {
+	case <-p.started:
+	default:
+		close(p.started)
+	}
+	select {
+	case <-p.resume:
+		return p.Provider.Detect(ctx, dir)
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func TestRepositoryCheckAllowsReadingAndSavingComments(t *testing.T) {
+	c, id, _, path := repositoryReview(t)
+	_, err := c.Stop("s", false)
+	must(t, err)
+	provider := delayedRepositoryProvider{c.provider, make(chan struct{}), make(chan struct{})}
+	c.provider = provider
+	defer func() {
+		if provider.resume != nil {
+			close(provider.resume)
+		}
+	}()
+	check := make(chan error, 1)
+	go func() { check <- c.RecheckRepository(id) }()
+	select {
+	case <-provider.started:
+	case err := <-check:
+		t.Fatalf("check did not start: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("check did not start")
+	}
+	result := make(chan error, 1)
+	go func() {
+		if _, err := c.File(id, path); err != nil {
+			result <- err
+			return
+		}
+		_, err := c.AddComment(id, path, nil, "сохранён во время проверки", nil, false)
+		result <- err
+	}()
+	select {
+	case err := <-result:
+		must(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("repository check blocked reading or commenting")
+	}
+	close(provider.resume)
+	provider.resume = nil
+	must(t, <-check)
+	if comments := fv(t, c, id, path).Comments; len(comments) != 1 {
+		t.Fatalf("comments: %+v", comments)
+	}
+}
+
+func TestRecoverRepositoryKeepsAcceptedBaseAndComments(t *testing.T) {
+	c, source, root, path := repositoryReview(t)
+	_, err := c.Stop("s", false)
+	must(t, err)
+	cm := comment(t, c, source, path, "сохраняется после переноса")
+	must(t, c.AcceptFile(source, path))
+	next := baseWrite(t, root, "tasks.md", "# Задачи")
+	target := create(t, c, Submission{Path: next, Content: "# Задачи"})
+	_, err = c.PrepareWeb(Session{ID: "next", Cwd: root}, target, []string{next})
+	must(t, err)
+	_, err = c.Stop("next", false)
+	must(t, err)
+	must(t, c.RecoverRepository(target, source))
+	file := fv(t, c, target, path)
+	if file.State != StateAccepted || len(file.Comments) != 1 || file.Comments[0].ID != cm {
+		t.Fatalf("file after recovery: %+v", file)
+	}
+	if v := rv(t, c, target); !v.Completeness.Complete {
+		t.Fatalf("recovery incomplete: %+v", v.Completeness)
+	}
+	if moved := fv(t, c, source, path); moved.MovedTo != target {
+		t.Fatalf("moved: %+v", moved)
+	}
+	if matches := c.ReviewsForWorkspace(root); len(matches) != 1 || matches[0].ID != target {
+		t.Fatalf("matches: %+v", matches)
+	}
 }

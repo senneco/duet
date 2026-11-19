@@ -56,6 +56,29 @@ try {
  assert.equal(v.completeness.complete,false);
  assert(v.completeness.problems.some(p=>p.code==='detect' && !p.path));
  await page.screenshot({path:'/tmp/duet-7p2-provider-error.png',fullPage:true});
+ // Перенос из предыдущего ревью сохраняет комментарий и остаётся в текущей вкладке.
+ await page.goto(url+'/fixture?mode=recover');f=JSON.parse(await page.locator('body').innerText());
+ await page.goto(url+'/r/'+f.id);
+ await page.locator('[data-act="recover-repository"]').click();
+ await page.waitForFunction(id=>fetch('/api/reviews/'+id).then(r=>r.json()).then(r=>r.completeness.complete),f.id);
+ await page.locator('#tree').getByText('another-review.md',{exact:true}).click();
+ const recovered = await page.evaluate(({ id, other })=>fetch('/api/reviews/'+id+'/file?path='+encodeURIComponent(other)).then(r=>r.json()),f);
+ assert(recovered.comments.some(c=>JSON.stringify(c).includes('Сохранить комментарий')));
+ await page.locator('#winbar [data-act="comment"]').click();
+ await page.locator('#ced textarea').fill('Один комментарий');
+ let requests = 0;
+ let release;
+ const pending = new Promise(resolve=>{release=resolve;});
+ await page.route('**/api/reviews/*/comment', async route => {
+   requests++;
+   await pending;
+   await route.continue();
+ });
+ await page.locator('[data-eact="save"]').evaluate(button=>{button.click();button.click();});
+ await page.locator('#ced [role="status"]').getByText('Сохраняем…').waitFor();
+ release();
+ await page.locator('#ced').waitFor({state:'detached'});
+ assert.equal(requests, 1);
  assert.deepEqual(errors,[]);
  console.log('Полнота: бинарный файл, конфликт, старая база, повторная проверка, поздний файл и стабильное окно ответа — успешно.');
 } finally {await browser.close();}

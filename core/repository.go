@@ -2,6 +2,8 @@ package core
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -37,14 +39,22 @@ func (c *Core) repositoryDir(r *Review) string {
 	return ""
 }
 
-// repositoryInputs выполняется под блокировкой ядра. Текущие версии передаются
-// finish из одного итогового снимка, без повторного чтения путей при применении.
+var errRepositoryChanged = errors.New("ревью изменилось во время проверки репозитория; повторите проверку")
+var errRepositoryChecking = errors.New("проверка этого ревью уже выполняется")
+
+// repositoryInputs освобождает блокировку на время чтения репозитория.
+// Состояние ревью проверяется перед применением снимка.
 func (c *Core) repositoryInputs(r *Review, additional []string) ([]Submission, error) {
 	dir := c.repositoryDir(r)
 	if c.disk == nil || dir == "" {
 		return c.fromDisk(r)
 	}
-	r.RepositoryDir = dir
+	if c.repositoryChecks == nil {
+		c.repositoryChecks = make(map[string]bool)
+	}
+	if c.repositoryChecks[r.ID] {
+		return nil, errRepositoryChecking
+	}
 	paths := append([]string(nil), additional...)
 	paths = append(paths, r.Materials...)
 	for _, f := range c.files(r) {
@@ -56,7 +66,19 @@ func (c *Core) repositoryInputs(r *Review, additional []string) ([]Submission, e
 	}
 	ctx, cancel := vcs.WithReadTimeout(context.Background(), timeout)
 	defer cancel()
-	snap := vcs.Collect(ctx, c.provider, dir, paths)
+	before, err := json.Marshal(r)
+	if err != nil {
+		return nil, err
+	}
+	type fileState struct{ base, current, versions int }
+	fileStates := make(map[string]fileState)
+	for _, f := range c.files(r) {
+		fileStates[f.Path] = fileState{f.Base, f.Current, len(f.Versions)}
+	}
+	provider := c.provider
+	c.repositoryChecks[r.ID] = true
+	c.mu.Unlock()
+	snap := vcs.Collect(ctx, provider, dir, paths)
 	// Старые записи и прямые клиенты могут использовать другое имя того же корня.
 	// Нормализуем только сам корень, не ссылки внутри проверяемого дерева.
 	if snap.Workspace != nil {
@@ -67,9 +89,24 @@ func (c *Core) repositoryInputs(r *Review, additional []string) ([]Submission, e
 			paths[i] = p
 		}
 		if normalized {
-			snap = vcs.Collect(ctx, c.provider, dir, paths)
+			snap = vcs.Collect(ctx, provider, dir, paths)
 		}
 	}
+	c.mu.Lock()
+	delete(c.repositoryChecks, r.ID)
+	after, err := json.Marshal(r)
+	if err != nil {
+		return nil, err
+	}
+	if string(before) != string(after) || dir != c.repositoryDir(r) {
+		return nil, errRepositoryChanged
+	}
+	for _, f := range c.files(r) {
+		if fileStates[f.Path] != (fileState{f.Base, f.Current, len(f.Versions)}) {
+			return nil, errRepositoryChanged
+		}
+	}
+	r.RepositoryDir = dir
 	aliases := map[string]string{}
 	collisions := map[string]bool{}
 	if snap.Workspace != nil {
@@ -246,10 +283,10 @@ func (c *Core) finishCollected(r *Review, additional []string, answers []Answer)
 		}
 	}
 
-	previous := c.collecting
-	c.collecting = true
-	defer func() { c.collecting = previous }()
 	subs, err := c.repositoryInputs(r, additional)
+	if errors.Is(err, errRepositoryChanged) || errors.Is(err, errRepositoryChecking) {
+		return DoneResult{}, err
+	}
 	if err != nil {
 		if saveErr := c.save(); saveErr != nil {
 			return DoneResult{}, saveErr
@@ -296,6 +333,73 @@ func (c *Core) RecheckRepository(id string) error {
 		return ErrStopping
 	}
 	if _, err = c.finishCollected(r, nil, nil); err != nil {
+		return err
+	}
+	return c.commit(r)
+}
+
+// RecoverRepository moves confirmed conflicts into the current review without changing its agent.
+func (c *Core) RecoverRepository(id, sourceID string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r, err := c.review(id)
+	if err != nil {
+		return err
+	}
+	source, err := c.review(sourceID)
+	if err != nil {
+		return err
+	}
+	if source == r || r.Completeness == nil || source.Completeness == nil ||
+		r.Completeness.Workspace == nil || source.Completeness.Workspace == nil ||
+		*r.Completeness.Workspace != *source.Completeness.Workspace {
+		return errors.New("ревью должны принадлежать одной проверенной рабочей копии")
+	}
+	for _, review := range []*Review{r, source} {
+		if review.Editing {
+			return ErrEditing
+		}
+		if review.Stopping {
+			return ErrStopping
+		}
+		if review.Busy || review.Working {
+			return ErrAgentWorking
+		}
+		if c.repositoryChecks[review.ID] {
+			return errRepositoryChecking
+		}
+	}
+	var paths []string
+	for _, problem := range r.Completeness.Problems {
+		if problem.Code != "conflict" || problem.ReviewID != source.ID {
+			continue
+		}
+		f := c.s.Files[problem.Path]
+		if f == nil || f.ReviewID != source.ID {
+			return errRepositoryChanged
+		}
+		if c.busy(f) {
+			return ErrUnviewedResponse
+		}
+		paths = append(paths, f.Path)
+	}
+	if len(paths) == 0 {
+		return errors.New("нет конфликтующих файлов для переноса")
+	}
+	for _, path := range paths {
+		c.track(r, path)
+	}
+	source.Completeness.Complete = false
+	source.Completeness.Problems = append(source.Completeness.Problems, RepositoryProblem{
+		Code: "moved", Message: "файлы перенесены в текущее ревью", ReviewID: r.ID,
+	})
+	c.removeAcceptedNotices(source)
+	c.changed(source.ID)
+	c.changed(r.ID)
+	if err := c.save(); err != nil {
+		return err
+	}
+	if _, err := c.finishCollected(r, nil, nil); err != nil {
 		return err
 	}
 	return c.commit(r)

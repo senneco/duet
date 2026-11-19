@@ -1255,13 +1255,14 @@ const commentById = (id) => openComments().find((c) => c.id === id);
 
 const repositoryChecks = new Map();
 
-async function recheckRepository() {
+async function recheckRepository(source) {
   const id = rid();
   if (!id || repositoryChecks.get(id)?.pending) return;
   repositoryChecks.set(id, { pending: true });
   renderBanner();
   try {
-    await api(`/api/reviews/${id}/recheck-repository`, {});
+    const action = source ? 'recover-repository' : 'recheck-repository';
+    await api(`/api/reviews/${id}/${action}`, source ? { id: source } : {});
     if (rid() === id) await refresh(null);
     repositoryChecks.set(id, { checked: true });
   } catch (error) {
@@ -1280,7 +1281,10 @@ function renderBanner() {
     const feedback = check?.error || (check?.pending
       ? (ru ? 'Сверяем изменения в рабочей копии…' : 'Checking changes in the working copy…')
       : check?.checked ? (ru ? 'Проверка завершилась, но остались проблемы.' : 'The check finished with unresolved problems.') : '');
-    el.innerHTML = `<span class="warn">!</span><div class="repository-summary"><b>${ru ? 'Полнота ревью не подтверждена' : 'Review completeness is not confirmed'}</b><div>${ru ? 'Доступные тексты можно читать. Полное принятие заблокировано.' : 'Available texts can be read. Full acceptance is blocked.'}</div>${repositoryProblemsHTML((r.completeness.problems || []).filter(p => !p.path))}<div role="status">${esc(feedback)}</div></div><span class="sp"></span><button class="btn" data-act="recheck-repository" ${check?.pending ? 'disabled' : ''}>${check?.pending ? (ru ? 'Проверяем…' : 'Checking…') : (ru ? 'Проверить снова' : 'Check again')}</button>`;
+    const problems = r.completeness.problems || [];
+    const sources = [...new Set(problems.filter(p => p.code === 'conflict' && p.reviewId).map(p => p.reviewId))];
+    const recover = sources.map(source => `<button class="btn" data-act="recover-repository" data-source="${esc(source)}" ${check?.pending ? 'disabled' : ''}>${ru ? 'Перенести файлы из' : 'Move files from'} ${esc(source)}</button>`).join('');
+    el.innerHTML = `<span class="warn">!</span><div class="repository-summary"><b>${ru ? 'Полнота ревью не подтверждена' : 'Review completeness is not confirmed'}</b><div>${ru ? 'Доступные тексты можно читать. Полное принятие заблокировано.' : 'Available texts can be read. Full acceptance is blocked.'}</div>${repositoryProblemsHTML(problems.filter(p => !p.path))}<div role="status">${esc(feedback)}</div></div><span class="sp"></span>${recover}<button class="btn" data-act="recheck-repository" ${check?.pending ? 'disabled' : ''}>${check?.pending ? (ru ? 'Проверяем…' : 'Checking…') : (ru ? 'Проверить снова' : 'Check again')}</button>`;
     return;
   }
   if (!r || !r.agentLost || r.stopping) { el.innerHTML = ''; return; }
@@ -1321,8 +1325,8 @@ function renderComments() {
     const mine = S.ed && S.ed.id === c.id;
     let html = cardHTML(c, {
       t, n: i + 1, on: S.act === c.id, inResp: !!S.resp,
-      edit: mine && S.ed.kind === 'edit' ? editorHTML(S.ed, t) : '',
-      reply: mine && S.ed.kind === 'reply' ? editorHTML(S.ed, t) : '',
+      edit: mine && S.ed.kind === 'edit' ? editorHTML(S.ed, t, S.lang) : '',
+      reply: mine && S.ed.kind === 'reply' ? editorHTML(S.ed, t, S.lang) : '',
     });
     if (S.ask && S.ask.id === c.id) {
       const q = S.ask.kind === 'draft' ? t.cDeleteReplyQ : t.cDeleteQ;
@@ -1342,13 +1346,13 @@ function renderComments() {
       if (box) {
         const d = document.createElement('div');
         d.className = `cc-slot cc-whole ${box.classList.contains('doc') ? 'cc-doc' : 'cc-code'}`;
-        d.innerHTML = editorHTML(S.ed, t);
+        d.innerHTML = editorHTML(S.ed, t, S.lang);
         const hd = box.querySelector(':scope > .hd');
         const first = box.querySelector(':scope > .cc-whole');
         if (first) first.before(d); else if (hd) hd.after(d); else box.prepend(d);
       }
     } else {
-      sc.insertAdjacentHTML('beforeend', editorHTML(S.ed, t));
+      sc.insertAdjacentHTML('beforeend', editorHTML(S.ed, t, S.lang));
       const e = sc.lastElementChild;
       e.style.left = S.ed.x + 'px';
       e.style.top = S.ed.y + 'px';
@@ -1413,6 +1417,7 @@ function closeEditor() {
 }
 
 function escEditor() {
+  if (S.ed?.saving) return;
   keepEditor();
   const ed = S.ed;
   if (ed.ask) { ed.ask = null; ed.focus = true; renderComments(); return; }
@@ -1422,27 +1427,32 @@ function escEditor() {
 }
 
 async function saveEditor() {
-  keepEditor();
   const ed = S.ed;
-  const t = T();
+  if (!ed || ed.saving) return;
+  keepEditor();
   const text = (ed.text || '').trim();
   if (!text && !(ed.images || []).length) return;
+  ed.saving = true;
+  renderComments();
   try {
     if (ed.kind === 'new') {
       const b = { path: S.file.path, text, images: ed.images, inResponse: !!S.resp };
       if (ed.target && ed.target.range) b.range = ed.target.range;
       if (ed.target && ed.target.was) { b.range = { start: ed.target.at, end: ed.target.at }; b.was = ed.target.was; }
       const r = await act('comment', b);
-      S.act = r.id;
+      if (S.ed === ed) S.act = r.id;
     } else if (ed.kind === 'edit') {
       await act('comment-edit', { id: ed.id, text, images: ed.images });
     } else {
       await act('reply', { id: ed.id, text, images: ed.images });
     }
   } catch (e) {
+    ed.saving = false;
+    if (S.ed === ed) renderComments();
     commentError(e);
     return;
   }
+  if (S.ed !== ed) return;
   S.ed = null;
   S.sel = null;
   S.menuSel = false;
@@ -2309,6 +2319,7 @@ document.addEventListener('click', (e) => {
   }
   if (a) {
     switch (a.dataset.act) {
+      case 'recover-repository': recheckRepository(t.closest('[data-source]')?.dataset.source); break;
       case 'recheck-repository': recheckRepository(); break;
       case 'accept': accept(); break;
       case 'cols': toggleCols(); break;
@@ -2361,6 +2372,7 @@ document.addEventListener('click', (e) => {
   }
   const eact = t.closest('[data-eact]');
   if (eact && S.ed) {
+    if (S.ed.saving) return;
     switch (eact.dataset.eact) {
       case 'save': saveEditor(); break;
       case 'cancel': escEditor(); break;

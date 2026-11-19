@@ -178,8 +178,8 @@ type Core struct {
 	s    state
 	now  func() time.Time
 
-	provider   vcs.Provider
-	collecting bool
+	provider         vcs.Provider
+	repositoryChecks map[string]bool
 	// disk — файлы проекта; nil — у файлов нет диска (страницы Вики, тесты без диска).
 	disk Disk
 	// synced — ревью, которые сверялись с диском после запуска; за ними duet следит.

@@ -83,17 +83,19 @@ export function cardHTML(c, o) {
 }
 
 // editorHTML — окно комментария или ответа. ed: whole, images [путь], ask — «выбросить?», reply.
-export function editorHTML(ed, t) {
+export function editorHTML(ed, t, lang) {
   const pics = (ed.images || []).length
     ? `<div class="imgs">${ed.images.map((p, i) => `<span class="thumb"><img src="${esc(imageUrl(p))}" alt=""><button data-eact="unimg" data-i="${i}" title="×">×</button></span>`).join('')}</div>`
     : '';
-  const ft = ed.ask
+  const ft = ed.saving
+    ? `<div class="ft" role="status">${lang === 'ru' ? 'Сохраняем…' : 'Saving…'}</div>`
+    : ed.ask
     ? `<div class="ft ask"><span class="q">${ed.kind === 'reply' || ed.draft ? t.cDeleteReplyQ : t.cDeleteQ}</span><span class="sp"></span><button class="btn err" data-eact="discard">${t.cDelete} <kbd>↵</kbd></button><button class="btn2" data-eact="back">${t.cCancel} <kbd>esc</kbd></button></div>`
     : `<div class="ft"><span class="hint">${t.cImgHint}</span><span class="sp"></span><button class="btn2" data-eact="cancel">${t.cCancel} <kbd>esc</kbd></button><button class="btn" data-eact="save">${t.cSave} <kbd>⌘↵</kbd></button></div>`;
   const cls = ['ced'];
   if (ed.whole) cls.push('whole');
   if (ed.kind !== 'new') cls.push('incard');
-  return `<div class="${cls.join(' ')}" id="ced">${ed.whole && ed.kind === 'new' ? `<div class="wh">${t.cWhole}</div>` : ''}<textarea placeholder="${esc(ed.kind === 'reply' ? t.cReplyPh : t.cPlaceholder)}"${ed.ask ? ' readonly' : ''}></textarea>${pics}${ft}</div>`;
+  return `<div class="${cls.join(' ')}" id="ced">${ed.whole && ed.kind === 'new' ? `<div class="wh">${t.cWhole}</div>` : ''}<textarea placeholder="${esc(ed.kind === 'reply' ? t.cReplyPh : t.cPlaceholder)}"${ed.ask || ed.saving ? ' readonly' : ''}></textarea>${pics}${ft}</div>`;
 }
 
 // ── места в тексте ──

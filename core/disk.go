@@ -331,7 +331,7 @@ func (c *Core) adopted(r *Review, any bool) {
 
 // touch — в ревью что-то происходит: оно сверяется с диском, и дальше duet за ним следит.
 func (c *Core) touch(r *Review) {
-	if c.disk == nil || c.collecting {
+	if c.disk == nil || c.repositoryChecks[r.ID] {
 		return
 	}
 	c.synced[r.ID] = true
@@ -349,7 +349,7 @@ func (c *Core) commit(r *Review) error {
 // acceptedCheck — ревью стало принятым целиком: агент получает сообщение со списком принятого.
 // Ревью, которое было принятым с самого начала (агент прислал файлы без правок), не считается.
 func (c *Core) acceptedCheck(r *Review) {
-	if c.collecting {
+	if c.repositoryChecks[r.ID] {
 		return
 	}
 	if c.repositoryDir(r) != "" && (r.Busy || r.Editing) {
@@ -412,6 +412,9 @@ func (c *Core) Poll() {
 		return
 	}
 	for id := range c.synced {
+		if c.repositoryChecks[id] {
+			continue
+		}
 		r := c.s.Reviews[id]
 		if !c.watched(r) {
 			c.recheck(r, nil)

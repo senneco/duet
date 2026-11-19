@@ -59,7 +59,8 @@ func main() {
 		must(e)
 		id, _, e = c.CreateReview("Полнота репозитория", []core.Submission{{Path: path, Content: "# Документ\n\nТекст для проверки.\n", Original: &core.Original{Content: "Неверный исходник"}}})
 		must(e)
-		if r.URL.Query().Get("mode") == "problems" {
+		mode := r.URL.Query().Get("mode")
+		if mode == "problems" || mode == "recover" {
 			other = filepath.Join(root, "another-review.md")
 			write(other, "Чужой материал")
 			otherID, _, e = c.CreateReview("Другое ревью", []core.Submission{{Path: other, Content: "Чужой материал"}})
@@ -67,6 +68,14 @@ func main() {
 			_, e = c.AddComment(otherID, other, nil, "Сохранить комментарий", nil, false)
 			must(e)
 			must(c.AcceptFile(otherID, other))
+			if mode == "recover" {
+				_, e = c.PrepareWeb(core.Session{ID: "previous", Cwd: root}, otherID, []string{other})
+				must(e)
+				_, e = c.Stop("previous", false)
+				must(e)
+			}
+		}
+		if mode == "problems" {
 			bin = filepath.Join(root, "image.bin")
 			write(bin, "a\x00b")
 			// Старый формат: исходник не позволяет доказать принятие при равенстве.

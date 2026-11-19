@@ -57,9 +57,14 @@ func (c *Core) ReviewsForWorkspace(cwd string) []ReviewMatch {
 	}
 	var matches []ReviewMatch
 	for _, r := range c.s.Reviews {
-		if filepath.Clean(r.RepositoryDir) == filepath.Clean(cwd) {
-			matches = append(matches, ReviewMatch{ID: r.ID, Title: r.Title})
+		if filepath.Clean(r.RepositoryDir) != filepath.Clean(cwd) {
+			continue
 		}
+		// Старое ревью, из которого переехали все файлы, больше не кандидат.
+		if len(r.Moved) > 0 && len(c.files(r)) == 0 {
+			continue
+		}
+		matches = append(matches, ReviewMatch{ID: r.ID, Title: r.Title})
 	}
 	sort.Slice(matches, func(i, j int) bool { return matches[i].ID < matches[j].ID })
 	return matches

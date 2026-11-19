@@ -461,10 +461,7 @@ func (c *Core) Stop(sessionID string, final bool) (StopResult, error) {
 			return StopResult{Unanswered: un}, nil
 		}
 		// Даже вынужденная остановка сохраняет диагностику; ответы не теряются.
-		previous := c.collecting
-		c.collecting = true
 		_, err = c.repositoryInputs(r, nil)
-		c.collecting = previous
 	} else {
 		var d DoneResult
 		d, err = c.finishCollected(r, nil, nil)
@@ -472,6 +469,9 @@ func (c *Core) Stop(sessionID string, final bool) (StopResult, error) {
 		if len(d.New) > 0 {
 			return StopResult{Unanswered: d.New}, c.save()
 		}
+	}
+	if err == errRepositoryChanged || err == errRepositoryChecking {
+		return res, err
 	}
 	r.Busy = false
 	if e := c.commit(r); err == nil {

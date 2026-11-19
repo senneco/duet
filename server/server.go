@@ -217,6 +217,8 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 	var err error
 	var out any = map[string]bool{"ok": true}
 	switch r.PathValue("action") {
+	case "recover-repository":
+		err = c.RecoverRepository(id, b.ID)
 	case "recheck-repository":
 		err = s.core.RecheckRepository(id)
 	case "sync":
