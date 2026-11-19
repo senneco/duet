@@ -41,7 +41,7 @@ func TestWebReplacementSession(t *testing.T) {
 	cid := e.owner("r1", "comment", map[string]any{"path": path, "text": "Не потерять"})["id"]
 	// Второе ревью в той же папке исключает выбор только по каталогу и времени.
 	os.WriteFile(filepath.Join(dir, "b.md"), []byte("b\n"), 0o644)
-	second := e.agentRun(dir, "other", "", "submit", "b.md")
+	second := e.agentRun(dir, "other", "", "submit", "--new", "b.md")
 	if second.code != 0 {
 		t.Fatal(second)
 	}

@@ -23,7 +23,7 @@ func (s *Service) reviewMatches(w Who, matches []core.ReviewMatch) string {
 	if len(matches) == 0 {
 		b.WriteString("No matching reviews.\n")
 	}
-	b.WriteString("Use the files of the current task to choose; do not choose by date or directory alone. If no review fits, submit the prepared files with their original versions using `duet submit`, then open it. Ask the owner only if the task files still leave several suitable reviews.\n")
+	b.WriteString("Use the files of the current task to choose; do not choose by date. If no review fits, submit the prepared files with their original versions using `duet submit`, then open it. Ask the owner only if the task files still leave several suitable reviews.\n")
 	return b.String()
 }
 
@@ -47,7 +47,10 @@ func (s *Service) Web(q WebReq) (string, error) {
 	}
 	if id == "" {
 		matches := s.core.FindReviews(q.Paths, q.Who.Cwd)
-		if len(q.Paths) == 0 || len(matches) != 1 {
+		if len(q.Paths) == 0 || len(matches) == 0 {
+			matches = s.core.ReviewsForWorkspace(q.Who.Cwd)
+		}
+		if len(matches) != 1 {
 			return "", problem("duet: this session is not connected. Run `duet web --files <task file>...` with the prepared task files.\n%s", s.reviewMatches(q.Who, matches))
 		}
 		id = matches[0].ID

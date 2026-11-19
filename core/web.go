@@ -47,6 +47,23 @@ func (c *Core) FindReviews(paths []string, cwd string) []ReviewMatch {
 	return out
 }
 
+// ReviewsForWorkspace ограничивает автоматический выбор каталогом запуска агента.
+func (c *Core) ReviewsForWorkspace(cwd string) []ReviewMatch {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !filepath.IsAbs(cwd) {
+		return nil
+	}
+	var matches []ReviewMatch
+	for _, r := range c.s.Reviews {
+		if filepath.Clean(r.RepositoryDir) == filepath.Clean(cwd) {
+			matches = append(matches, ReviewMatch{ID: r.ID, Title: r.Title})
+		}
+	}
+	sort.Slice(matches, func(i, j int) bool { return matches[i].ID < matches[j].ID })
+	return matches
+}
+
 // PrepareWeb подключает сессию и передаёт изменения с диска до открытия браузера.
 // Проверки и передача выполняются под одной блокировкой: поиск мог устареть,
 // файлы могли переехать, а владелец — начать правку или прервать работу.

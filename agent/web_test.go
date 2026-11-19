@@ -80,3 +80,24 @@ func TestRepositoryCollectionThroughService(t *testing.T) {
 		t.Fatal(text, err)
 	}
 }
+
+func TestNewChatContinuesReviewInSameWorkspace(t *testing.T) {
+	f := setup(t, "claude")
+	f.hook("Stop", nil)
+	w := Who{Session: "s2", Agent: "claude", Cwd: f.dir}
+	if id, err := f.s.Web(WebReq{Who: w}); err != nil || id != f.r {
+		t.Fatalf("web returned %q, %v, want %s", id, err, f.r)
+	}
+	f.c.Detach(w.Session)
+	w.Session = "s3"
+	path := filepath.Join(f.dir, "plan.md")
+	if err := os.WriteFile(path, []byte("plan"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.s.Submit(SubmitReq{Who: w, Files: []SubmitFile{{Path: path, Content: "plan"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if id := f.s.ReviewOf(w.Session); id != f.r {
+		t.Fatalf("submit joined %q, want %s", id, f.r)
+	}
+}

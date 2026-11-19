@@ -70,7 +70,35 @@ func (s *Service) Submit(q SubmitReq) (string, error) {
 	cwd := q.Who.Cwd
 	se, ok := s.core.SessionInfo(q.Who.Session)
 	var b strings.Builder
-	if !ok || se.Review == "" || q.New {
+	id := ""
+	if !q.New {
+		if ok && se.Kicked != "" {
+			return "", problem("duet: another agent picked up this review. Do not take it back without the owner's explicit handoff.")
+		}
+		if ok {
+			id = se.Review
+		}
+		if id == "" {
+			paths := make([]string, 0, len(subs))
+			for _, sub := range subs {
+				paths = append(paths, sub.Path)
+			}
+			var matches []core.ReviewMatch
+			if len(paths) > 0 {
+				matches = s.core.FindReviews(paths, cwd)
+			}
+			if len(matches) == 0 {
+				matches = s.core.ReviewsForWorkspace(cwd)
+			}
+			if len(matches) > 1 {
+				return "", problem("duet: several reviews match. Connect to the task review, or explicitly create a new review.\n%s", s.reviewMatches(q.Who, matches))
+			}
+			if len(matches) == 1 {
+				id = matches[0].ID
+			}
+		}
+	}
+	if id == "" {
 		if len(subs) == 0 {
 			return "", problem("duet: nothing to submit: list the files.")
 		}
@@ -93,7 +121,6 @@ func (s *Service) Submit(q SubmitReq) (string, error) {
 		writeNotAdded(&b, cwd, notAdded)
 		return b.String(), nil
 	}
-	id := se.Review
 	if err := s.core.Attach(q.Who.session(), id); err != nil {
 		return "", s.attachErr(err)
 	}
