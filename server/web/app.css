@@ -393,12 +393,12 @@ mark.shaped { background: transparent !important }
 .btn2 { display: inline-flex; align-items: center; gap: 7px; padding: 5px 7px 5px 10px; border-radius: 6px; font: 500 12.5px/1 var(--sans); color: var(--fg2) }
 .btn2:hover { background: var(--bg-seg); color: var(--fg) }
 
-/* отметка текста с комментарием */
-::highlight(cm-unsent) { text-decoration: underline 2px var(--cm-u); text-underline-offset: 4px }
-::highlight(cm-waiting), ::highlight(cm-working) { text-decoration: underline 2px var(--fg3); text-underline-offset: 4px }
-::highlight(cm-answered) { text-decoration: underline 2px var(--acc); text-underline-offset: 4px }
-::highlight(cm-question) { text-decoration: underline 2px var(--cm-q); text-underline-offset: 4px }
-::highlight(cm-on) { background-color: color-mix(in srgb, var(--acc) 22%, transparent) }
+/* Диапазон комментария может пересекать карточки и строки старой версии. */
+[data-p^="n"]::highlight(cm-unsent) { text-decoration: underline 2px var(--cm-u); text-underline-offset: 4px }
+[data-p^="n"]::highlight(cm-waiting), [data-p^="n"]::highlight(cm-working) { text-decoration: underline 2px var(--fg3); text-underline-offset: 4px }
+[data-p^="n"]::highlight(cm-answered) { text-decoration: underline 2px var(--acc); text-underline-offset: 4px }
+[data-p^="n"]::highlight(cm-question) { text-decoration: underline 2px var(--cm-q); text-underline-offset: 4px }
+[data-p^="n"]::highlight(cm-on) { background-color: color-mix(in srgb, var(--acc) 22%, transparent) }
 
 /* карточки */
 .cc-slot { cursor: auto }
