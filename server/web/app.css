@@ -708,3 +708,6 @@ body.focus #sc [data-blk]:not(.fcur) { opacity: .3 }
 .repository-problem + .repository-problem { margin-top: 6px; }
 .repository-problem a { text-decoration: underline; }
 #banner .btn { flex-shrink: 0; }
+
+.diff-group { width: 100%; text-align: left; margin-top: 6px; border-top: 1px solid var(--line); padding-top: 4px }
+.winbar .repository-diff { color: var(--fg2); white-space: nowrap }

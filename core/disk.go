@@ -183,6 +183,9 @@ func (c *Core) writeDisk(path string, v Version) error {
 		c.stamps[path] = st
 	}
 	delete(c.drift, path)
+	if f := c.s.Files[path]; f != nil {
+		c.invalidateRepositoryDiff(c.s.Reviews[f.ReviewID], path)
+	}
 	return err
 }
 
@@ -252,6 +255,7 @@ func (c *Core) checkFile(r *Review, f *File) bool {
 
 // adopt — то, что лежит на диске, становится текущей версией как правка владельца.
 func (c *Core) adopt(r *Review, f *File, d Version) {
+	c.invalidateRepositoryDiff(r, f.Path)
 	delete(c.drift, f.Path)
 	d.Author = "owner"
 	n := f.Base

@@ -14,8 +14,7 @@ export function commonDir(paths) {
 }
 
 // buildTree — дерево: { dirs: [{name, key, node}], files: [FileView] }.
-export function buildTree(files) {
-  const root = commonDir(files.map((f) => f.path));
+export function buildTree(files, root = commonDir(files.map((f) => f.path))) {
   const top = { dirs: new Map(), files: [] };
   for (const f of files) {
     const rel = root ? f.path.slice(root.length + 1) : f.path.replace(/^\//, '');

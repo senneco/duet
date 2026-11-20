@@ -79,6 +79,24 @@ try {
  release();
  await page.locator('#ced').waitFor({state:'detached'});
  assert.equal(requests, 1);
+
+ // Откат скрывает файл сразу, но окно ответа и ветка остаются доступны.
+ await page.goto(url+'/fixture');
+ f=JSON.parse(await page.locator('body').innerText());
+ await page.goto(url+'/r/'+f.id);
+ await page.locator('#winbar').getByText('В итоговом diff',{exact:true}).waitFor();
+ await page.evaluate(()=>fetch('/advance?mode=rollback'));
+ const outside = page.locator('#tree [data-outside]');
+ await outside.waitFor();
+ assert.equal(await outside.getAttribute('aria-expanded'), 'false');
+ assert.equal(await page.locator('#tree [data-file]').count(), 0);
+ await page.locator('#tabline [data-act="response"]').click();
+ await page.locator('#sc').getByText('Исходный текст.',{exact:true}).waitFor();
+ await page.locator('[data-act="resp-accept"]').click();
+ await outside.click();
+ await page.locator('#tree [data-file]').click();
+ await page.locator('#winbar').getByText('Вне итогового diff',{exact:true}).waitFor();
+ await page.locator('#sc').getByText('Вернул исходный текст',{exact:true}).waitFor();
  assert.deepEqual(errors,[]);
  console.log('Полнота: бинарный файл, конфликт, старая база, повторная проверка, поздний файл и стабильное окно ответа — успешно.');
 } finally {await browser.close();}

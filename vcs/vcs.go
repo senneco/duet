@@ -61,6 +61,7 @@ type Provider interface {
 
 type Entry struct {
 	Change
+	InDiff      bool         `json:"-"`
 	Original    Content      `json:"original"`
 	Current     Content      `json:"current"`
 	Diagnostics []Diagnostic `json:"diagnostics,omitempty"`
@@ -156,6 +157,7 @@ func Collect(ctx context.Context, p Provider, dir string, additional []string) S
 				}
 			}
 		}
+		materials := make(map[string]bool)
 		for _, path := range additional {
 			if !filepath.IsAbs(path) {
 				path = filepath.Join(abs, path)
@@ -168,6 +170,7 @@ func Collect(ctx context.Context, p Provider, dir string, additional []string) S
 			}
 			if _, exists := changes[rel]; !exists {
 				changes[rel] = Change{Path: rel, Status: "material"}
+				materials[rel] = true
 			}
 		}
 		paths := make([]string, 0, len(changes))
@@ -178,7 +181,7 @@ func Collect(ctx context.Context, p Provider, dir string, additional []string) S
 		read := func() ([]Entry, error) {
 			entries := make([]Entry, 0, len(paths))
 			for _, path := range paths {
-				e := Entry{Change: changes[path]}
+				e := Entry{Change: changes[path], InDiff: !materials[path]}
 				if err := ctx.Err(); err != nil {
 					return entries, err
 				}

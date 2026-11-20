@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>duet — итоговый diff</title>
+<link rel="stylesheet" href="../../../../server/web/app.css">
+<style>
+  body { display: flex; flex-direction: column; overflow: auto; min-height: 100% }
+  .demo { padding: 20px 24px; background: var(--bg-pop); border-bottom: 1px solid var(--line); display: grid; gap: 12px }
+  h1 { font-size: 19px }
+  .controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap }
+  button { text-align: left }
+  #response[hidden] { display: none }
+
+  .control, .action { padding: 7px 11px; border-radius: 6px; border: 1px solid var(--line2); font-size: 13px }
+  .control:hover, .action:hover, .row:hover { background: var(--bg-seg) }
+  .control[aria-pressed=true], .action { background: var(--acc-soft); color: var(--acc-fg) }
+  .workspace { display: grid; grid-template-columns: minmax(260px, 310px) minmax(0, 1fr); flex: 1 }
+  aside { background: var(--bg-side); border-right: 1px solid var(--line); padding: 16px 10px }
+  .section { color: var(--fg2); font-size: 12px; font-weight: 600; padding: 9px 8px }
+  .row { display: grid; grid-template-columns: 1fr auto; gap: 3px 8px; width: 100%; padding: 8px; border-radius: 6px; font-size: 13px }
+  .row[aria-current=true] { background: var(--sel) }
+  .row small { grid-column: 1 / -1; color: var(--fg2) }
+  .name, pre { font-family: var(--mono) }
+  .branch { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 5px }
+  .hint { color: var(--fg2); font-size: 13px; line-height: 1.5 }
+  .status { font-size: 12px; font-weight: 600 }
+  .neutral { color: var(--fg2) }
+  main { padding: 24px; min-width: 0 }
+  article { max-width: 780px; margin: 0 auto; background: var(--bg-pop); border: 1px solid var(--line); border-radius: 8px; overflow: hidden }
+  article header, .notice, .thread, article footer { padding: 14px 18px }
+  article header, .notice { display: grid; gap: 5px; border-bottom: 1px solid var(--line) }
+  article h2 { font-size: 16px; overflow-wrap: anywhere }
+  .notice { background: var(--acc-soft) }
+  .thread, article footer { border-top: 1px solid var(--line) }
+  .thread p + p { margin-top: 8px }
+  pre { padding: 16px 0; font-size: 13px; line-height: 1.8; overflow: auto }
+  pre span { display: block; padding: 0 18px }
+  .removed { background: var(--del-bg); color: var(--del-fg) }
+  .added { background: var(--add-bg); color: var(--add-fg) }
+  @media (max-width: 680px) {
+    .workspace { grid-template-columns: 1fr }
+    aside { border-right: 0; border-bottom: 1px solid var(--line) }
+    main { padding: 14px }
+  }
+</style>
+<body class="light">
+<section class="demo" aria-labelledby="demo-title">
+  <h1 id="demo-title">Файл после отката</h1>
+  <div class="controls" aria-label="Вариант поведения">
+    <button class="control" data-variant="a">А · Убрать после просмотра ответа</button>
+    <button class="control" data-variant="b">Б · Убрать сразу после отката</button>
+  </div>
+  <div class="controls" aria-label="Шаг сценария">
+    <button class="control" data-step="0">1. Оставить комментарий</button>
+    <button class="control" data-step="1">2. Агент откатил файл</button>
+    <button class="control" data-step="2">3. Ответ просмотрен</button>
+  </div>
+  <p class="hint" id="guide"></p>
+</section>
+<div class="tabline"><span class="logo">duet</span><span class="sep">/</span><span class="ttl">Настройки уведомлений</span><span class="sp"></span><button class="tb" id="response"></button></div>
+<div class="workspace">
+  <aside aria-label="Дерево файлов" id="tree"></aside>
+  <main id="content"></main>
+</div>
+<script>
+  const previews = { a: newPreview(), b: newPreview() };
+  let variant = 'a';
+
+  function newPreview() {
+    return { step: 0, file: 'config', reply: false, expanded: false };
+  }
+
+  const files = {
+    config: 'config.ts',
+    settings: 'settings.ts',
+    readme: 'README.md',
+  };
+
+  function row(file, status, tone, detail = '') {
+    const current = previews[variant].file === file && !previews[variant].reply;
+    return `<button class="row" data-file="${file}" aria-current="${current}">
+      <span class="name">${files[file]}</span><span class="status ${tone}">${status}</span>
+      ${detail ? `<small>${detail}</small>` : ''}
+    </button>`;
+  }
+
+  function render() {
+    const { step, file, reply, expanded } = previews[variant];
+    const pending = step === 1;
+    const rolledBack = step > 0;
+    const keepVisible = pending && variant === 'a';
+
+    document.querySelectorAll('[data-variant], [data-step]').forEach(button => {
+      const pressed = button.dataset.variant === variant || button.dataset.step === String(step);
+      button.setAttribute('aria-pressed', pressed);
+    });
+    document.querySelector('#guide').textContent = [
+      'Комментарий к config.ts отправлен. Нажми «Агент откатил файл», чтобы получить ответ.',
+      keepVisible
+        ? 'config.ts остался в дереве рядом с изменениями. Открой ответ, чтобы посмотреть откат.'
+        : 'config.ts уже ушёл в свёрнутую группу. Ответ можно открыть сверху.',
+      'Раскрой «Вне итогового diff», чтобы снова открыть config.ts и прочитать переписку.',
+    ][step];
+
+    document.querySelector('#response').innerHTML = pending
+      ? '<kbd>␣ r</kbd> Открыть ответ'
+      : 'Ответ агента';
+    document.querySelector('#response').hidden = !rolledBack;
+
+    document.querySelector('#tree').innerHTML = `
+      <div class="section">В итоговом diff · ${rolledBack ? 2 : 3}</div>
+      ${!rolledBack ? row('config', 'Изменён', 'neutral', 'Комментарий отправлен') : ''}
+      ${row('settings', 'Принят', 'ok', 'Изменён в репозитории')}
+      ${row('readme', 'Новый', 'neutral')}
+      ${keepVisible ? `<div class="branch"><div class="section">Непросмотренный ответ</div>
+        ${row('config', 'Откат', 'warn', 'Вне итогового diff')}</div>` : ''}
+      ${rolledBack && !keepVisible ? `<div class="branch">
+        <button class="section" data-group aria-expanded="${expanded}">${expanded ? '▾' : '▸'} Вне итогового diff · 1</button>
+        ${expanded ? row('config', 'Без изменений', 'neutral') : ''}
+      </div>` : ''}`;
+
+    const comment = '<p><strong>Ты</strong> · Оставь исходный таймаут.</p>';
+    const answer = '<p><strong>Агент</strong> · Вернул таймаут к 30 секундам.</p>';
+    const code = lines => `<pre>${lines}</pre>`;
+    let title = files[file];
+    let status = '';
+    let body = '';
+    let thread = '';
+    let footer = '';
+
+    if (reply) {
+      title = 'Ответ агента → config.ts';
+      status = 'Вне итогового diff · содержимое совпадает с текущим коммитом';
+      body = code('<span class="removed">− export const timeout = 60;</span><span class="added">+ export const timeout = 30;</span>');
+      thread = comment + answer;
+      footer = pending
+        ? '<button class="action" data-reviewed>Отметить ответ просмотренным</button>'
+        : '<button class="control" data-close>Закрыть ответ</button>';
+    } else if (file === 'config') {
+      status = rolledBack ? 'Вне итогового diff · содержимое совпадает с текущим коммитом' : 'В итоговом diff · изменён';
+      body = rolledBack
+        ? code('<span>export const timeout = 30;</span>')
+        : code('<span class="removed">− export const timeout = 30;</span><span class="added">+ export const timeout = 60;</span>');
+      thread = comment + (step === 2 ? answer : '');
+      if (pending) footer = '<button class="action" data-open>Открыть ответ</button>';
+    } else if (file === 'settings') {
+      status = 'В итоговом diff · изменён';
+      body = '<div class="notice hint">Файл принят. После принятия правок не было.</div>' +
+        code('<span>export const notifications = true;</span>');
+    } else {
+      status = 'В итоговом diff · новый файл';
+      body = code('<span class="added">+ # Настройки уведомлений</span>');
+    }
+
+    document.querySelector('#content').innerHTML = `<article>
+      <header><h2 class="name">${title}</h2><p class="hint">${status}</p></header>
+      ${body}
+      ${thread ? `<div class="thread hint">${thread}</div>` : ''}
+      ${footer ? `<footer>${footer}</footer>` : ''}
+    </article>`;
+  }
+
+  function goTo(step) {
+    const preview = previews[variant];
+    const keepVisible = step === 1 && variant === 'a';
+    Object.assign(preview, {
+      step,
+      file: step === 0 || keepVisible ? 'config' : 'settings',
+      reply: false,
+      expanded: false,
+    });
+  }
+
+  document.addEventListener('click', event => {
+    const button = event.target.closest('button');
+    if (!button) return;
+    const preview = previews[variant];
+    if (button.hasAttribute('data-variant')) variant = button.dataset.variant;
+    else if (button.hasAttribute('data-step')) goTo(Number(button.dataset.step));
+    else if (button.hasAttribute('data-file')) {
+      preview.file = button.dataset.file;
+      preview.reply = false;
+    } else if (button.hasAttribute('data-group')) {
+      preview.expanded = !preview.expanded;
+      if (!preview.expanded && preview.file === 'config') preview.file = 'settings';
+    } else if (button.id === 'response' || button.hasAttribute('data-open')) preview.reply = true;
+    else if (button.hasAttribute('data-reviewed')) goTo(2);
+    else if (button.hasAttribute('data-close')) preview.reply = false;
+    render();
+    if (button.hasAttribute('data-group')) document.querySelector('[data-group]').focus();
+  });
+
+  render();
+</script>
+</body>
+</html>

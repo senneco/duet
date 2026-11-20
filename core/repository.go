@@ -20,6 +20,7 @@ type Completeness struct {
 	Workspace *vcs.Workspace      `json:"workspace,omitempty"`
 	Revision  string              `json:"revision,omitempty"`
 	Problems  []RepositoryProblem `json:"problems,omitempty"`
+	Diff      map[string]string   `json:"diff,omitempty"`
 }
 
 type RepositoryProblem struct {
@@ -190,6 +191,7 @@ func (c *Core) repositoryInputs(r *Review, additional []string) ([]Submission, e
 	}
 	if snap.Workspace != nil {
 		w := *snap.Workspace
+		status.Diff = make(map[string]string)
 		for _, e := range snap.Entries {
 			path := filepath.Join(w.Root, filepath.FromSlash(e.Path))
 			if collisions[path] {
@@ -226,6 +228,14 @@ func (c *Core) repositoryInputs(r *Review, additional []string) ([]Submission, e
 				problem(path, "deferred-base", "исходник изменился; сначала просмотрите ответ, затем повторите проверку", "")
 			} else {
 				c.applyRepositoryBase(f, w, snap.Revision, e)
+			}
+			switch {
+			case e.InDiff && e.Original.Kind == "absent" && e.Current.Kind == "text":
+				status.Diff[path] = "added"
+			case e.InDiff:
+				status.Diff[path] = "changed"
+			case e.Original.Kind == e.Current.Kind && e.Original.Text == e.Current.Text:
+				status.Diff[path] = "unchanged"
 			}
 			add(path, Version{Content: e.Current.Text, Deleted: e.Current.Kind == "absent"})
 		}
@@ -522,11 +532,18 @@ func pathInRoot(root, path string) string {
 	return path
 }
 
+func (c *Core) invalidateRepositoryDiff(r *Review, path string) {
+	if r != nil && r.Completeness != nil {
+		delete(r.Completeness.Diff, path)
+	}
+}
+
 func completenessView(in *Completeness) *Completeness {
 	if in == nil {
 		return nil
 	}
 	out := *in
+	out.Diff = nil
 	out.Problems = append([]RepositoryProblem(nil), in.Problems...)
 	if in.Workspace != nil {
 		w := *in.Workspace

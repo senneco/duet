@@ -25,10 +25,10 @@ const imgs = (m) => (m.images && m.images.length ? `<div class="mimg">${m.images
 // shownComments — какие комментарии файла на экране и где. resp — открыто окно ответа: комментарии
 // на своих местах в версии из ответа (c.resp), включая написанные в окне. Иначе — без написанных
 // в окне, а ответ агента из непросмотренного ответа (pending — его номер) спрятан: «откройте ответ».
-export function shownComments(list, { resp, pending } = {}) {
+export function shownComments(list, { resp, pending, showAnswered } = {}) {
   if (resp) return list.filter((c) => c.resp && (c.status !== 'answered' ||
     (pending && (c.thread || []).some((m) => m.author === 'agent' && m.response === pending)))).map((c) => ({ ...c, ...c.resp }));
-  return list.filter((c) => !c.inResponse && (c.status !== 'answered' || c.direct ||
+  return list.filter((c) => !c.inResponse && (c.status !== 'answered' || c.direct || showAnswered ||
     (pending && (c.thread || []).some((m) => m.author === 'agent' && m.response === pending)))).map((c) => (pending && (c.thread || []).some((m) => m.author === 'agent' && m.response === pending)
     ? { ...c, pend: true, thread: c.thread.filter((m) => m.response !== pending) } : c));
 }

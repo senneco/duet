@@ -9,7 +9,7 @@ import { esc, fileKind, splitLines } from './util.js';
 import { langOf } from './syntax.js';
 import { dict, defaultLang, fmtDate } from './i18n.js';
 import { loadLook, next, optionByKey, isOption, paint, LOOK_CLASSES, panelHTML } from './look.js';
-import { buildTree, flatten, fileOrder, isAccepted, counts } from './tree.js';
+import { commonDir, buildTree, flatten, fileOrder, isAccepted, counts } from './tree.js';
 import { renderCode, renderDoc, renderDocPlain, renderLines } from './view.js';
 import { target, commentOrder, oldToNew } from './anchors.js';
 import { editLinesHTML, editSelection, lineOf, indentUnit } from './edit.js';
@@ -42,6 +42,7 @@ const S = {
   theme: '', // = look.theme
   lang: '', // = look.lang
   collapsed: new Set(),
+  outsideExpanded: false,
   blocksHidden: false,
   expanded: new Set(),
   overlay: '', // menu | help
@@ -131,6 +132,7 @@ async function enter() {
     return;
   }
   S.collapsed = new Set(store.get('collapsed:' + id, []));
+  S.outsideExpanded = false;
   renderAll();
   await openReview(id);
 }
@@ -178,13 +180,30 @@ function diskNotice(id) {
 
 // Файлы, которых нет в текущей версии (есть только в ответе), видны только в окне ответа.
 const shown = (files) => files.filter((f) => !f.absent);
-const visibleFiles = () => (S.review ? (S.resp ? S.review.files : shown(S.review.files)) : []);
+const outsideDiff = (f) => f.repositoryDiff === 'unchanged';
+const visibleFiles = () => {
+  const files = S.review?.files || [];
+  return S.resp ? files : shown(files).filter(f => S.outsideExpanded || !outsideDiff(f));
+};
 const pendingResp = () => (S.review && S.review.response) || null;
 
 function rebuildTree() {
-  const { tree } = buildTree(visibleFiles());
+  const files = visibleFiles();
+  const root = commonDir((S.review?.files || []).map(f => f.path));
+  const { tree } = buildTree(files.filter(f => S.resp || !outsideDiff(f)), root);
   S.tree = tree;
-  S.order = fileOrder(tree);
+  S.outsideTree = buildTree(files.filter(f => !S.resp && outsideDiff(f)), root).tree;
+  S.order = [...fileOrder(tree), ...fileOrder(S.outsideTree)];
+}
+
+function repositoryDiffText(f) {
+  const ru = S.lang === 'ru';
+  switch (f.repositoryDiff) {
+    case 'added': return ru ? 'В итоговом diff · новый файл' : 'In final diff · new file';
+    case 'changed': return ru ? 'В итоговом diff' : 'In final diff';
+    case 'unchanged': return ru ? 'Вне итогового diff' : 'Outside final diff';
+    default: return '';
+  }
 }
 
 // Файлы ответа в порядке дерева.
@@ -218,7 +237,7 @@ async function openReview(id) {
   let off;
   if (saved && has(saved.path)) { path = saved.path; line = saved.n; off = saved.off; }
   else {
-    const start = S.review.files.find((f) => f.path === S.review.start);
+    const start = S.order.find((f) => f.path === S.review.start);
     const fresh = S.order.find((f) => f.state === 'new');
     path = (start && start.state === 'new' ? start : fresh || S.order[0] || {}).path || null;
   }
@@ -335,7 +354,11 @@ function refresh(ids) {
       return;
     }
     if (S.path && visibleFiles().some((f) => f.path === S.path)) await openFile(S.path, { keep: true });
-    else renderAll();
+    else if (S.order[0]) await openFile(S.order[0].path);
+    else {
+      S.path = S.file = S.chunks = null;
+      renderAll();
+    }
   }, 60);
 }
 
@@ -434,6 +457,9 @@ function renderHeader() {
     }
     right += `<button class="tb" data-act="cols" title="␣v">${S.cols === 2 ? t.two : t.one} <kbd>␣v</kbd></button><span class="tsep"></span>`;
   }
+  if (pendingResp() && !S.resp && !S.file?.ripple) {
+    right += `<button class="tb rsp" data-act="response">${t.rOpen} <kbd>␣r</kbd></button>`;
+  }
   right += updateUI.header();
   right += `<button class="tb${S.overlay === 'look' ? ' on' : ''}" data-act="look" title=",">${t.lookBtn} <kbd>,</kbd></button>`;
   $('#tabline').innerHTML = `${left}<span class="sp"></span>${right}`;
@@ -471,7 +497,18 @@ function renderTree() {
   let h = '';
   const rset = S.resp ? new Set((pendingResp() || {}).files || []) : null;
   el.classList.toggle('rmode', !!S.resp);
-  for (const r of flatten(S.tree, S.collapsed)) {
+  const rows = flatten(S.tree, S.collapsed);
+  const outsideCount = S.resp ? 0 : shown(S.review.files).filter(outsideDiff).length;
+  if (outsideCount) {
+    rows.push({ outside: true });
+    if (S.outsideExpanded) rows.push(...flatten(S.outsideTree, S.collapsed).map(row => ({ ...row, depth: row.depth + 1 })));
+  }
+  for (const r of rows) {
+    if (r.outside) {
+      const label = S.lang === 'ru' ? 'Вне итогового diff' : 'Outside final diff';
+      h += `<button class="tr dir diff-group" data-outside aria-expanded="${S.outsideExpanded}"><span class="pad"></span><span class="ic">${S.outsideExpanded ? '▾' : '▸'}</span><span class="nm">${label} · ${outsideCount}</span></button>`;
+      continue;
+    }
     if (r.dir) {
       h += `<div class="tr dir" data-dir="${esc(r.key)}"><span class="pad"></span>${ind(r.depth)}<span class="ic">${r.open ? '▾' : '▸'}</span><span class="nm">${esc(r.name)}</span></div>`;
       continue;
@@ -490,7 +527,7 @@ function renderTree() {
       }
     }
   }
-  if (!visibleFiles().length) h = `<div class="empty">${T().noFiles}</div>`;
+  if (!rows.length) h = `<div class="empty">${T().noFiles}</div>`;
   el.innerHTML = h;
   const open = el.querySelector('.tr.open');
   if (open && (open.offsetTop < el.scrollTop || open.offsetTop > el.scrollTop + el.clientHeight - 30)) el.scrollTop = open.offsetTop - 80;
@@ -520,6 +557,8 @@ function renderWinbar() {
     ? `<span class="kb done">✓ ${t.accepted}</span>`
     : f.state === 'moved' || f.problemOnly ? '' : `<button class="kb" data-act="accept">${t.accept} <kbd>␣a</kbd></button>`;
   const cm = canComment() ? `<button class="kb" data-act="comment">${t.menuComment} <kbd>␣c</kbd></button>` : '';
+  const diff = repositoryDiffText(f);
+  const diffLabel = diff ? `<span class="st repository-diff">${diff}</span>` : '';
   const name = `<span><span class="dir">${esc(rel.slice(0, slash + 1))}</span><span class="fn">${esc(rel.slice(slash + 1))}</span></span>`;
   if (S.resp) {
     const P = (x, cls = '') => `<span class="pill${cls}">${x}</span>`;
@@ -528,12 +567,12 @@ function renderWinbar() {
     else if (f.absent && !f.hasBase) vs = `${P(t.rResp, ' rs')} <span class="rnew">${t.rNew}</span>`;
     else vs = `${P(f.absent ? t.beforeTask : t.rCurrent)} → ${P(t.rResp, ' rs')}`;
     const held = f.diskChanged ? `<span class="dnote">${t.diskHeld}</span>` : '';
-    el.innerHTML = `${name}<span class="vs">${vs}</span>${held}<span class="sp"></span>${cm}`;
+    el.innerHTML = `${name}<span class="vs">${vs}</span>${diffLabel}${held}<span class="sp"></span>${cm}`;
     return;
   }
   const rb = f.ripple && pendingResp() ? `<button class="kb rsp" data-act="response">${t.rHint} <kbd>␣r</kbd></button>` : '';
   const ed = canEdit() ? `<button class="kb" data-act="edit">${t.edit} <kbd>␣e</kbd></button>` : '';
-  el.innerHTML = `${name}<span class="st">${stateText(f)}</span><span class="sp"></span>${rb}${ed}${cm}${acc}`;
+  el.innerHTML = `${name}<span class="st">${stateText(f)}</span>${diffLabel}<span class="sp"></span>${rb}${ed}${cm}${acc}`;
 }
 
 function relPath(p) {
@@ -1249,7 +1288,7 @@ function openComments() {
   const f = S.file;
   const list = f && f.state !== 'moved' ? f.comments || [] : [];
   const p = pendingResp();
-  return shownComments(list, { resp: !!S.resp, pending: p ? p.id : 0 });
+  return shownComments(list, { resp: !!S.resp, pending: p ? p.id : 0, showAnswered: f && outsideDiff(f) });
 }
 const commentById = (id) => openComments().find((c) => c.id === id);
 
@@ -1911,7 +1950,10 @@ async function closeResp() {
   S.path = null;
   if (has(back.path)) await openFile(back.path, back.anchor ? { line: back.anchor.n, off: back.anchor.off } : {});
   else if (S.order[0]) await openFile(S.order[0].path);
-  else renderAll();
+  else {
+    S.file = S.chunks = null;
+    renderAll();
+  }
 }
 
 function toggleResp() {
@@ -2391,6 +2433,13 @@ document.addEventListener('click', (e) => {
   const card = t.closest('.cc');
   if (card && !t.closest('.ced, a')) {
     if (S.act !== card.dataset.cid) selectComment(card.dataset.cid);
+    return;
+  }
+  if (t.closest('[data-outside]')) {
+    S.outsideExpanded = !S.outsideExpanded;
+    rebuildTree();
+    renderTree();
+    $('#tree [data-outside]')?.focus();
     return;
   }
   const dir = t.closest('[data-dir]');

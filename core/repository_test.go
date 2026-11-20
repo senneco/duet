@@ -87,13 +87,16 @@ func TestRepositoryWebIncludesRootAndMaterials(t *testing.T) {
 	if f := fv(t, c, id, a); f.Base != "old a" || f.Comments[0].ID != cm {
 		t.Fatal(f)
 	}
-	if f := fv(t, c, id, b); f.Base != "old b" || f.Response == nil || *f.Response != "old b" {
+	if f := fv(t, c, id, b); f.RepositoryDiff != "changed" || f.Base != "old b" || f.Response == nil || *f.Response != "old b" {
 		t.Fatal(f)
 	}
 	if f := fv(t, c, id, gone); f.Base != "old gone" || !f.ResponseDeleted {
 		t.Fatal(f)
 	}
-	if f := fv(t, c, id, extra); f.BaseSource.Kind != "none" {
+	if f := fv(t, c, id, extra); f.RepositoryDiff != "" || f.BaseSource.Kind != "none" {
+		t.Fatal(f)
+	}
+	if f := fv(t, c, id, fresh); f.RepositoryDiff != "added" {
 		t.Fatal(f)
 	}
 	noAccepted(t, c, id)
@@ -616,5 +619,44 @@ func TestAcceptedFileCanBeEditedFromAnotherReview(t *testing.T) {
 	if file.Base != "review\n" || file.Current != "new version" || file.State == StateAccepted ||
 		len(file.Comments) != 1 || file.Comments[0].ID != cm {
 		t.Fatalf("new version or history lost: %+v", file)
+	}
+}
+
+func TestRepositoryDiffAfterRollback(t *testing.T) {
+	for _, accept := range []bool{true, false} {
+		t.Run(map[bool]string{true: "просмотр", false: "отклонение"}[accept], func(t *testing.T) {
+			c, id, root, path := repositoryReview(t)
+			if f := fv(t, c, id, path); f.RepositoryDiff != "changed" {
+				t.Fatal(f)
+			}
+			cm := comment(t, c, id, path, "Вернуть исходный текст")
+			must(t, c.Send(id, false))
+			c.Deliver("s")
+			baseWrite(t, root, "a.md", "committed\n")
+			_, err := c.Done("s", []Answer{{CommentID: cm, Text: "Вернул"}})
+			must(t, err)
+			if f := fv(t, c, id, path); f.RepositoryDiff != "unchanged" || !f.Ripple ||
+				f.Response == nil || *f.Response != "committed\n" {
+				t.Fatal(f)
+			}
+			if !accept {
+				must(t, c.RejectResponse(id))
+				if f := fv(t, c, id, path); f.RepositoryDiff == "unchanged" || f.Current != "review\n" {
+					t.Fatal(f)
+				}
+				return
+			}
+			must(t, c.AcceptResponse(id))
+			if f := fv(t, c, id, path); f.RepositoryDiff != "unchanged" || len(f.Comments) != 1 {
+				t.Fatal(f)
+			}
+			_, err = c.Stop("s", false)
+			must(t, err)
+			baseWrite(t, root, "a.md", "changed again\n")
+			must(t, c.RecheckRepository(id))
+			if f := fv(t, c, id, path); f.RepositoryDiff != "changed" {
+				t.Fatal(f)
+			}
+		})
 	}
 }

@@ -868,8 +868,9 @@ func (c *Core) MarkOpened(reviewID, path string) error {
 
 // FileView — всё, что клиенту нужно знать о файле.
 type FileView struct {
-	Problems    []RepositoryProblem `json:"problems,omitempty"`
-	ProblemOnly bool                `json:"problemOnly,omitempty"`
+	Problems       []RepositoryProblem `json:"problems,omitempty"`
+	ProblemOnly    bool                `json:"problemOnly,omitempty"`
+	RepositoryDiff string              `json:"repositoryDiff,omitempty"`
 
 	Path            string        `json:"path"`
 	State           FileState     `json:"state"`
@@ -939,10 +940,21 @@ func (c *Core) view(r *Review, path string) FileView {
 	if d, ok := c.drift[path]; ok {
 		v.DiskChanged, v.Disk, v.DiskDeleted = true, d.Content, d.Deleted
 	}
+	if r.Completeness != nil && !v.DiskChanged && len(v.Problems) == 0 {
+		v.RepositoryDiff = r.Completeness.Diff[path]
+		if v.RepositoryDiff == "unchanged" {
+			for _, problem := range r.Completeness.Problems {
+				if problem.Path == "" {
+					v.RepositoryDiff = ""
+					break
+				}
+			}
+		}
+	}
 	v.ProblemOnly = f.Current < 0 && !v.Ripple && len(v.Problems) > 0
 	v.Comments = c.commentViews(r, f)
 	for _, cv := range v.Comments {
-		visible := cv.Status != CommentAnswered || cv.Direct
+		visible := cv.Status != CommentAnswered || cv.Direct || v.RepositoryDiff == "unchanged"
 		if p := r.pending(); p != nil {
 			for _, m := range cv.Thread {
 				if m.Author == "agent" && m.Response == p.ID {

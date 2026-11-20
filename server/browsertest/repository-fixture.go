@@ -104,6 +104,14 @@ func main() {
 		mu.Lock()
 		defer mu.Unlock()
 		switch r.URL.Query().Get("mode") {
+		case "rollback":
+			cm, e := c.AddComment(id, path, nil, "Вернуть исходный текст", nil, false)
+			must(e)
+			must(c.Send(id, false))
+			c.Deliver("browser")
+			write(path, "# Документ\n\nИсходный текст.\n")
+			_, e = c.Done("browser", []core.Answer{{CommentID: cm, Text: "Вернул исходный текст"}})
+			must(e)
 		case "response":
 			must(c.SetBusy("browser", true))
 			write(path, "# Документ\n\nПервый ответ.\n")
