@@ -423,6 +423,7 @@ func (c *Core) Disconnect(reviewID string) error {
 
 // disconnect — агента больше нет: «ожидает» возвращаются владельцу, «в работе» остаются.
 func (c *Core) disconnect(r *Review) {
+	r.cancelBackgroundStop()
 	if s, ok := c.s.Sessions[r.Session]; ok && s.Review == r.ID {
 		delete(c.s.Sessions, s.ID)
 	}

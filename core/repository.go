@@ -65,7 +65,12 @@ func (c *Core) repositoryInputs(r *Review, additional []string) ([]Submission, e
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := vcs.WithReadTimeout(context.Background(), timeout)
+	parent := context.Background()
+	work := r.backgroundStop
+	if work != nil && work.running {
+		parent = work.ctx
+	}
+	ctx, cancel := vcs.WithReadTimeout(parent, timeout)
 	defer cancel()
 	before, err := json.Marshal(r)
 	if err != nil {
@@ -95,6 +100,9 @@ func (c *Core) repositoryInputs(r *Review, additional []string) ([]Submission, e
 	}
 	c.mu.Lock()
 	delete(c.repositoryChecks, r.ID)
+	if parent.Err() != nil {
+		return nil, errRepositoryChanged
+	}
 	after, err := json.Marshal(r)
 	if err != nil {
 		return nil, err
@@ -285,6 +293,10 @@ func (c *Core) removeAcceptedNotices(r *Review) {
 
 // Один путь для web, done, stop и проверки перед полным принятием.
 func (c *Core) finishCollected(r *Review, additional []string, answers []Answer) (DoneResult, error) {
+	return c.finishCollectedTurn(r, additional, answers, true)
+}
+
+func (c *Core) finishCollectedTurn(r *Review, additional []string, answers []Answer, deliverComments bool) (DoneResult, error) {
 	for _, a := range answers {
 		_, cm, err := c.comment(r, a.CommentID)
 		if err != nil {
@@ -321,7 +333,7 @@ func (c *Core) finishCollected(r *Review, additional []string, answers []Answer)
 		return DoneResult{}, err
 	}
 	res := DoneResult{Responded: ok}
-	if r.Working {
+	if r.Working && deliverComments {
 		res.New = c.take(r)
 	}
 	return res, c.save()

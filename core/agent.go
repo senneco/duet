@@ -1,9 +1,12 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
+	"time"
 )
 
 var (
@@ -84,6 +87,7 @@ func (c *Core) attach(s Session, r *Review) error {
 	s.Review, s.Kicked = r.ID, ""
 	c.s.Sessions[s.ID] = &s
 	r.Agent, r.Session = true, s.ID
+	r.cancelBackgroundStop()
 	if s.Cwd != "" && r.RepositoryDir != s.Cwd {
 		r.RepositoryDir = s.Cwd
 		r.Completeness = &Completeness{Problems: []RepositoryProblem{{Code: "not-checked", Message: "проверка репозитория ещё не выполнена"}}}
@@ -176,6 +180,9 @@ func (c *Core) SetBusy(sessionID string, busy bool) error {
 	_, r, err := c.sessionReview(sessionID)
 	if err != nil {
 		return err
+	}
+	if busy {
+		r.cancelBackgroundStop()
 	}
 	if r.Busy == busy {
 		return nil
@@ -470,7 +477,83 @@ func (c *Core) Stop(sessionID string, final bool) (StopResult, error) {
 	if err != nil {
 		return StopResult{}, err
 	}
+	return c.stop(r, final, true)
+}
+
+type backgroundStop struct {
+	ctx     context.Context
+	cancel  context.CancelFunc
+	running bool
+}
+
+func (r *Review) cancelBackgroundStop() {
+	if r.backgroundStop != nil {
+		r.backgroundStop.cancel()
+		r.backgroundStop = nil
+	}
+}
+
+// StopInBackground проверяет взятые комментарии сразу, а сбор поручает ядру.
+func (c *Core) StopInBackground(sessionID string, final bool) (StopResult, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	_, r, err := c.sessionReview(sessionID)
+	if err != nil {
+		return StopResult{}, err
+	}
+	if !r.Stopping && !final {
+		if un := c.unanswered(r, nil); len(un) > 0 {
+			return StopResult{Unanswered: un}, nil
+		}
+	}
+	if r.backgroundStop == nil {
+		if !r.Busy {
+			r.Busy = true
+			if err := c.commit(r); err != nil {
+				return StopResult{}, err
+			}
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		work := &backgroundStop{ctx: ctx, cancel: cancel}
+		r.backgroundStop = work
+		go c.runBackgroundStop(r, work, final)
+	}
+	return StopResult{}, nil
+}
+
+func (c *Core) runBackgroundStop(r *Review, work *backgroundStop, final bool) {
+	defer work.cancel()
+	for {
+		c.mu.Lock()
+		if r.backgroundStop != work {
+			c.mu.Unlock()
+			return
+		}
+		work.running = true
+		_, err := c.stop(r, final, false)
+		work.running = false
+		retry := err == errRepositoryChanged || err == errRepositoryChecking
+		if !retry && r.backgroundStop == work {
+			r.backgroundStop = nil
+		}
+		c.mu.Unlock()
+		if !retry {
+			if err != nil {
+				log.Printf("duet: завершение хода в ревью %s: %v", r.ID, err)
+			}
+			return
+		}
+		select {
+		case <-work.ctx.Done():
+			return
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
+func (c *Core) stop(r *Review, final, deliverComments bool) (StopResult, error) {
 	var res StopResult
+	var err error
 	if r.Stopping {
 		err = c.restore(r)
 	} else if un := c.unanswered(r, nil); len(un) > 0 {
@@ -481,7 +564,7 @@ func (c *Core) Stop(sessionID string, final bool) (StopResult, error) {
 		_, err = c.repositoryInputs(r, nil)
 	} else {
 		var d DoneResult
-		d, err = c.finishCollected(r, nil, nil)
+		d, err = c.finishCollectedTurn(r, nil, nil, deliverComments)
 		res.Responded = d.Responded
 		if len(d.New) > 0 {
 			return StopResult{Unanswered: d.New}, c.save()

@@ -97,7 +97,11 @@ func (s *Service) Hook(q HookReq) HookResp {
 		}
 		return s.deliverNow(id, cwd, p.Event, extra)
 	case "Stop":
-		res, err := s.core.Stop(id, p.StopHookActive)
+		stop := s.core.Stop
+		if q.Agent == "codex" {
+			stop = s.core.StopInBackground
+		}
+		res, err := stop(id, p.StopHookActive)
 		if err != nil || len(res.Unanswered) == 0 {
 			return HookResp{}
 		}

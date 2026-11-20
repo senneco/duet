@@ -120,6 +120,8 @@ type Busy struct {
 }
 
 type Review struct {
+	backgroundStop *backgroundStop
+
 	Materials     []string      `json:"materials,omitempty"`
 	RepositoryDir string        `json:"repositoryDir,omitempty"`
 	Completeness  *Completeness `json:"completeness,omitempty"`

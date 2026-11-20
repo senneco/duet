@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -514,6 +515,87 @@ func (p delayedRepositoryProvider) Detect(ctx context.Context, dir string) (*vcs
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
+}
+
+func TestBackgroundStopPublishesAfterRepositoryCheck(t *testing.T) {
+	c, id, root, path := repositoryReview(t)
+	added := baseWrite(t, root, "from-stop.md", "found in the background\n")
+	provider := delayedRepositoryProvider{c.provider, make(chan struct{}), make(chan struct{})}
+	c.provider = provider
+	resume := sync.OnceFunc(func() { close(provider.resume) })
+	defer resume()
+
+	returned := make(chan error, 1)
+	go func() {
+		_, err := c.StopInBackground("s", false)
+		returned <- err
+	}()
+	select {
+	case err := <-returned:
+		must(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop waited for the repository provider")
+	}
+	select {
+	case <-provider.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the background repository check did not start")
+	}
+	if !c.Busy("s") {
+		t.Fatal("the review was released while collection was running")
+	}
+	resume()
+	waitForBackgroundStop(t, c, id)
+	if c.Busy("s") {
+		t.Fatal("the session stayed busy after publication")
+	}
+	if _, err := c.File(id, added); err != nil {
+		t.Fatal("missing repository change:", err)
+	}
+	cm := comment(t, c, id, path, "please answer before stopping")
+	must(t, c.Send(id, false))
+	_, _, err := c.Deliver("s")
+	must(t, err)
+	res, err := c.StopInBackground("s", false)
+	must(t, err)
+	if len(res.Unanswered) != 1 || res.Unanswered[0].ID != cm {
+		t.Fatalf("Stop did not block on the delivered comment: %+v", res)
+	}
+}
+
+func TestBackgroundStopCannotFinishNewTurn(t *testing.T) {
+	c, id, root, _ := repositoryReview(t)
+	added := baseWrite(t, root, "next-turn.md", "still being edited\n")
+	provider := delayedRepositoryProvider{c.provider, make(chan struct{}), make(chan struct{})}
+	c.provider = provider
+	defer close(provider.resume)
+	_, err := c.StopInBackground("s", false)
+	must(t, err)
+	select {
+	case <-provider.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the background repository check did not start")
+	}
+	must(t, c.SetBusy("s", true))
+	waitForBackgroundStop(t, c, id)
+	if _, err := c.File(id, added); err == nil || !c.Busy("s") {
+		t.Fatal("the previous Stop published changes or released the new turn")
+	}
+}
+
+func waitForBackgroundStop(t *testing.T, c *Core, id string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		c.mu.Lock()
+		done := c.s.Reviews[id].backgroundStop == nil && !c.repositoryChecks[id]
+		c.mu.Unlock()
+		if done {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("the background Stop did not finish")
 }
 
 func TestRepositoryCheckAllowsReadingAndSavingComments(t *testing.T) {
