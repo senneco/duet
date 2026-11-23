@@ -238,7 +238,7 @@ func TestExplicitAcceptanceWhenAlreadyEqualIsDurable(t *testing.T) {
 	}
 }
 
-func TestLegacyBaseMigrationPreservesDataAndDiagnosesAmbiguity(t *testing.T) {
+func TestLegacyOriginalKeepsComparisonWithoutBlockingReview(t *testing.T) {
 	c, dir := open(t)
 	r := create(t, c, Submission{Path: "/none", Content: "new"}, Submission{Path: "/owner", Content: "accepted", Original: orig("old")}, Submission{Path: "/original", Content: "draft", Original: orig("old")}, Submission{Path: "/equal", Content: "same", Original: orig("same")})
 	must(t, c.AcceptFile(r, "/owner"))
@@ -271,12 +271,9 @@ func TestLegacyBaseMigrationPreservesDataAndDiagnosesAmbiguity(t *testing.T) {
 		t.Fatal("legacy history changed")
 	}
 	snap := vcs.Snapshot{Protocol: 1, Consistent: true, Workspace: &vcs.Workspace{Provider: "test", Root: "/", ID: "test-root"}, Entries: []vcs.Entry{{Change: vcs.Change{Path: "original"}, Original: vcs.Content{Kind: "text", Text: "repository"}}}}
-	var sourceErr *BaseSourceError
-	if err := c.SetRepositoryBases(r, snap); !errors.As(err, &sourceErr) {
-		t.Fatalf("missing diagnostic: %v", err)
-	}
-	if sourceErr.Reason == "" || fv(t, c, r, "/original").Base != "old" {
-		t.Fatal("ambiguous base guessed")
+	must(t, c.SetRepositoryBases(r, snap))
+	if fv(t, c, r, "/original").Base != "old" || fv(t, c, r, "/equal").State == StateAccepted {
+		t.Fatal("legacy comparison or acceptance changed")
 	}
 	must(t, c.AcceptFile(r, "/original"))
 	c = reopen(t, dir)

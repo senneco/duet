@@ -10,7 +10,8 @@ try {
  let f=JSON.parse(await page.locator('body').innerText());
  await page.addInitScript(()=>localStorage.setItem('duet:lang',JSON.stringify('ru')));
  await page.goto(url+'/r/'+f.id);
- await page.locator('#banner').getByText('Полнота ревью не подтверждена').waitFor();
+ await page.locator('#banner').getByText('Проверка изменений',{exact:true}).waitFor();
+ assert.match(await page.locator('#banner').textContent(),/image\.bin/);
  await page.locator('#tree').getByText('image.bin',{exact:true}).click();
  await page.waitForFunction(()=>document.querySelector('#sc').textContent.includes('бинарный'));
  assert.equal(await page.locator('#winbar [data-act="accept"]').count(),0);
@@ -19,14 +20,15 @@ try {
  await page.locator('#sc a[href="/r/'+f.otherID+'"]').waitFor();
  await page.screenshot({path:'/tmp/duet-7p2-conflict.png',fullPage:true});
  await page.locator('#tree').getByText('document.md',{exact:true}).click();
- await page.waitForFunction(()=>document.querySelector('#sc').textContent.includes('старый формат'));
+ await page.locator('#winbar').getByText('document.md',{exact:true}).waitFor();
+ await page.locator('#sc .repository-warning').waitFor({state:'detached'});
  await page.screenshot({path:'/tmp/duet-7p2-unknown.png',fullPage:true});
  await page.locator('#winbar [data-act="accept"]').click();
  let v=await page.evaluate(id=>fetch('/api/reviews/'+id).then(r=>r.json()),f.id);assert.equal(v.accepted,false);
  await page.evaluate(()=>fetch('/advance?mode=fix'));
  await page.locator('[data-act="recheck-repository"]').click();
- await page.waitForFunction(id=>fetch('/api/reviews/'+id).then(r=>r.json()).then(r=>r.completeness.complete && r.accepted),f.id);
- await page.waitForFunction(()=>!document.querySelector('#banner').textContent.includes('Полнота'));
+ await page.waitForFunction(id=>fetch('/api/reviews/'+id).then(r=>r.json()).then(r=>r.completeness.complete && !r.accepted),f.id);
+ await page.waitForFunction(()=>!document.querySelector('#banner').textContent.trim());
  // Поздний файл обнаруживается прямо перед новым сообщением о полном принятии.
  await page.goto(url+'/fixture');f=JSON.parse(await page.locator('body').innerText());
  await page.goto(url+'/r/'+f.id);
@@ -51,7 +53,7 @@ try {
  await page.goto(url+'/fixture');f=JSON.parse(await page.locator('body').innerText());
  await page.goto(url+'/r/'+f.id);
  await page.evaluate(()=>fetch('/advance?mode=failure'));
- await page.locator('#banner').getByText('Полнота ревью не подтверждена').waitFor();
+ await page.locator('#banner').getByText('Проверка изменений',{exact:true}).waitFor();
  v=await page.evaluate(id=>fetch('/api/reviews/'+id).then(r=>r.json()),f.id);
  assert.equal(v.completeness.complete,false);
  assert(v.completeness.problems.some(p=>p.code==='detect' && !p.path));
@@ -59,11 +61,16 @@ try {
  // Перенос из предыдущего ревью сохраняет комментарий и остаётся в текущей вкладке.
  await page.goto(url+'/fixture?mode=recover');f=JSON.parse(await page.locator('body').innerText());
  await page.goto(url+'/r/'+f.id);
- await page.locator('[data-act="recover-repository"]').click();
+ assert.equal(await page.locator('#banner').textContent(),'');
  await page.waitForFunction(id=>fetch('/api/reviews/'+id).then(r=>r.json()).then(r=>r.completeness.complete),f.id);
  await page.locator('#tree').getByText('another-review.md',{exact:true}).click();
  const recovered = await page.evaluate(({ id, other })=>fetch('/api/reviews/'+id+'/file?path='+encodeURIComponent(other)).then(r=>r.json()),f);
  assert(recovered.comments.some(c=>JSON.stringify(c).includes('Сохранить комментарий')));
+ assert.equal(recovered.response, 'Исправленный материал');
+ await page.locator('#winbar [data-act="response"]').click();
+ await page.locator('#sc .cc .m.ag').filter({hasText:'Исправил по замечанию'}).waitFor();
+ await page.locator('[data-act="resp-accept"]').click();
+ await page.locator('#winbar [data-act="accept"]').waitFor();
  await page.locator('#winbar [data-act="comment"]').click();
  await page.locator('#ced textarea').fill('Один комментарий');
  let requests = 0;
@@ -96,7 +103,7 @@ try {
  await outside.click();
  await page.locator('#tree [data-file]').click();
  await page.locator('#winbar').getByText('Вне итогового diff',{exact:true}).waitFor();
- await page.locator('#sc').getByText('Вернул исходный текст',{exact:true}).waitFor();
+ await page.locator('#sc .cc .m.ag').filter({hasText:'Вернул исходный текст'}).waitFor();
  assert.deepEqual(errors,[]);
  console.log('Полнота: бинарный файл, конфликт, старая база, повторная проверка, поздний файл и стабильное окно ответа — успешно.');
 } finally {await browser.close();}

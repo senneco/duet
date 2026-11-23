@@ -703,6 +703,8 @@ body.focus #sc [data-blk]:not(.fcur) { opacity: .3 }
 
 /* Причины неполноты используют существующие дерево и предупреждение ревью. */
 .repository-summary { min-width: 0; overflow-wrap: anywhere; }
+.repository-summary details { max-height: 25vh; overflow: auto; }
+.repository-summary summary { cursor: pointer; }
 .repository-summary > div { font-size: 12px; margin-top: 4px; }
 .repository-warning { display: block; overflow-wrap: anywhere; }
 .repository-problem + .repository-problem { margin-top: 6px; }

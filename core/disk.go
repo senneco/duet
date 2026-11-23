@@ -404,6 +404,14 @@ func (c *Core) Sync(reviewID string, progress func(done, total int)) error {
 		c.synced[r.ID] = true
 		c.changed(r.ID)
 	}
+	if check := r.Completeness; check != nil && !check.Complete && !r.Busy && !r.Working && !r.Editing && !r.Stopping &&
+		!c.repositoryChecks[r.ID] && slices.ContainsFunc(check.Problems, func(p RepositoryProblem) bool {
+		return p.Code == "conflict" || p.Code == "deferred-base"
+	}) {
+		if _, err := c.finishCollected(r, nil, nil); err != nil {
+			return err
+		}
+	}
 	c.recheck(r, progress)
 	return nil
 }

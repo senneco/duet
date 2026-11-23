@@ -482,7 +482,7 @@ function fileIcon(f) {
 
 function fileTag(f) {
   const t = T();
-  if (f.problems?.length) return `<span class="tag warn">${S.lang === 'ru' ? 'неполнота' : 'incomplete'}</span>`;
+  if (f.problems?.length) return `<span class="tag warn">${S.lang === 'ru' ? 'проверить' : 'check'}</span>`;
   if (f.diskChanged) return `<span class="tag own">${t.stDiskShort}</span>`;
   if (f.ripple) return `<span class="tag rpl">${S.lang === 'ru' ? 'ответ' : 'response'}</span>`;
   if (f.state === 'deleted' || f.state === 'deleted-accepted') return `<span class="tag">${t.stDeleted}</span>`;
@@ -1233,7 +1233,7 @@ function summary() {
   const r = S.review;
   if (r.accepted) { toast({ ok: true, title: t.allAccepted, short: `✓ ${t.allAccepted}` }); return; }
   const left = [];
-  if (r.completeness && !r.completeness.complete) left.push(S.lang === 'ru' ? 'Полнота ревью не подтверждена' : 'Review completeness is not confirmed');
+  if (r.completeness && !r.completeness.complete) left.push(r.completeness.problems?.[0]?.message || (S.lang === 'ru' ? 'Нужно проверить изменения' : 'Changes need checking'));
   if (r.unsent) left.push(t.leftUnsent(r.unsent));
   if (r.questions) left.push(t.leftQuestions(r.questions));
   if (r.hasResponse) left.push(t.leftResponse);
@@ -1321,9 +1321,14 @@ function renderBanner() {
       ? (ru ? 'Сверяем изменения в рабочей копии…' : 'Checking changes in the working copy…')
       : check?.checked ? (ru ? 'Проверка завершилась, но остались проблемы.' : 'The check finished with unresolved problems.') : '');
     const problems = r.completeness.problems || [];
-    const sources = [...new Set(problems.filter(p => p.code === 'conflict' && p.reviewId).map(p => p.reviewId))];
-    const recover = sources.map(source => `<button class="btn" data-act="recover-repository" data-source="${esc(source)}" ${check?.pending ? 'disabled' : ''}>${ru ? 'Перенести файлы из' : 'Move files from'} ${esc(source)}</button>`).join('');
-    el.innerHTML = `<span class="warn">!</span><div class="repository-summary"><b>${ru ? 'Полнота ревью не подтверждена' : 'Review completeness is not confirmed'}</b><div>${ru ? 'Доступные тексты можно читать. Полное принятие заблокировано.' : 'Available texts can be read. Full acceptance is blocked.'}</div>${repositoryProblemsHTML(problems.filter(p => !p.path))}<div role="status">${esc(feedback)}</div></div><span class="sp"></span>${recover}<button class="btn" data-act="recheck-repository" ${check?.pending ? 'disabled' : ''}>${check?.pending ? (ru ? 'Проверяем…' : 'Checking…') : (ru ? 'Проверить снова' : 'Check again')}</button>`;
+    const describe = p => {
+      const root = r.completeness.workspace?.root;
+      const path = root && p.path?.startsWith(root + '/') ? p.path.slice(root.length + 1) : p.path;
+      return repositoryProblemsHTML([{ ...p, message: path ? path + ' — ' + p.message : p.message }]);
+    };
+    const [first, ...rest] = problems;
+    const more = rest.length ? `<details><summary>${ru ? 'Ещё' : 'More'} (${rest.length})</summary>${rest.map(describe).join('')}</details>` : '';
+    el.innerHTML = `<span class="warn">!</span><div class="repository-summary"><b>${ru ? 'Проверка изменений' : 'Checking changes'}</b>${first ? describe(first) : ''}${more}<div role="status">${esc(feedback)}</div></div><span class="sp"></span><button class="btn" data-act="recheck-repository" ${check?.pending ? 'disabled' : ''}>${check?.pending ? (ru ? 'Проверяем…' : 'Checking…') : (ru ? 'Проверить снова' : 'Check again')}</button>`;
     return;
   }
   if (!r || !r.agentLost || r.stopping) { el.innerHTML = ''; return; }

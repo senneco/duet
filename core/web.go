@@ -82,7 +82,14 @@ func (c *Core) PrepareWeb(s Session, reviewID string, paths []string) (DoneResul
 	}
 	for _, p := range paths {
 		if f := c.s.Files[p]; f != nil && f.ReviewID != r.ID {
-			return DoneResult{}, c.repositoryConflict(r, p, f.ReviewID)
+			root := s.Cwd
+			if check := r.Completeness; check != nil && check.Workspace != nil {
+				root = check.Workspace.Root
+			}
+			rel, relErr := filepath.Rel(root, pathInRoot(root, p))
+			if s.Cwd == "" || !filepath.IsAbs(root) || relErr != nil || !filepath.IsLocal(rel) {
+				return DoneResult{}, c.repositoryConflict(r, p, f.ReviewID)
+			}
 		}
 		if c.s.Files[p] == nil && c.disk != nil && s.Cwd != "" {
 			if _, statErr := os.Lstat(p); os.IsNotExist(statErr) {

@@ -5,6 +5,7 @@ import "testing"
 func TestDirectResponsePreservesBaseAndHistory(t *testing.T) {
 	c, dir := open(t)
 	r := create(t, c, Submission{Path: "/a", Content: "old", Original: orig("old")}, Submission{Path: "/other", Content: "unreviewed"})
+	must(t, c.AcceptFile(r, "/a"))
 	respond(t, c, r, Submission{Path: "/a", Content: "new"})
 	if rv, _ := c.Review(r); rv.HasResponse || rv.Accepted {
 		t.Fatalf("%+v", rv)
@@ -37,6 +38,7 @@ func TestDirectAnswerVisibleUntilFileAccepted(t *testing.T) {
 		t.Run(map[bool]string{false: "answer", true: "question"}[question], func(t *testing.T) {
 			c, _ := open(t)
 			r := create(t, c, Submission{Path: "/a", Content: doc, Original: orig(doc)})
+			must(t, c.AcceptFile(r, "/a"))
 			id := addC(t, c, r, "/a", sel(doc, "два"), "замечание")
 			sendTake(t, c, r)
 			_, err := c.AgentFinish(r, nil, []Answer{{CommentID: id, Text: "ответ", Question: question}})
@@ -66,6 +68,7 @@ func TestDirectAnswerVisibleUntilFileAccepted(t *testing.T) {
 func TestNewFileAndAcceptedFileBecomeCurrent(t *testing.T) {
 	c, _ := open(t)
 	r := create(t, c, Submission{Path: "/a", Content: "old", Original: orig("old")})
+	must(t, c.AcceptFile(r, "/a"))
 	respond(t, c, r, Submission{Path: "/a", Content: "new"}, Submission{Path: "/new", Content: "created"})
 	if rv, _ := c.Review(r); rv.HasResponse {
 		t.Fatal("новый файл не требует окна")
@@ -110,6 +113,7 @@ func TestNewFileWithUnacceptedFileKeepsWholeResponsePending(t *testing.T) {
 func TestDirectResponseKeepsExternalDiskEditUnaccepted(t *testing.T) {
 	c, p := newProj(t)
 	r, a := newReview(t, c, p, "a.md", "old\n", "old\n")
+	must(t, c.AcceptFile(r, a))
 	must(t, c.AgentStart(r))
 	p.write("a.md", "new\n")
 	_, err := c.AgentFinish(r, []Submission{{Path: a, Content: "new\n"}}, nil)

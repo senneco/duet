@@ -78,7 +78,7 @@ func TestOriginalBecomesBase(t *testing.T) {
 	if !a.HasBase || a.Base != "old" || !a.BaseIsOriginal || a.OriginSource != "из git, HEAD" || a.State == StateAccepted {
 		t.Fatalf("%+v", a)
 	}
-	if b := fv(t, c, r, "/b"); b.State != StateAccepted {
+	if b := fv(t, c, r, "/b"); b.State != StateNew {
 		t.Fatalf("%+v", b)
 	}
 }
@@ -130,13 +130,13 @@ func TestAcceptResponse(t *testing.T) {
 	}
 }
 
-// Ответ, после которого файл совпал с базой, не снимает принятие.
+// Совпадение с исходником после ответа не является принятием файла.
 func TestAcceptResponseBackToBase(t *testing.T) {
 	c, _ := open(t)
 	r := create(t, c, Submission{Path: "/a", Content: "2", Original: orig("1")})
 	respond(t, c, r, Submission{Path: "/a", Content: "1"})
 	must(t, c.AcceptResponse(r))
-	if v := fv(t, c, r, "/a"); v.State != StateAccepted {
+	if v := fv(t, c, r, "/a"); v.State != StateNew {
 		t.Fatalf("%+v", v)
 	}
 }
@@ -225,7 +225,7 @@ func TestRevertToBase(t *testing.T) {
 	c, _ := open(t)
 	r := create(t, c, Submission{Path: "/a", Content: "2", Original: orig("1")})
 	must(t, c.RevertToBase(r, "/a"))
-	if v := fv(t, c, r, "/a"); v.Current != "1" || v.State != StateAccepted {
+	if v := fv(t, c, r, "/a"); v.Current != "1" || v.State != StateNew {
 		t.Fatalf("%+v", v)
 	}
 }
@@ -237,7 +237,7 @@ func TestFileMovesWithState(t *testing.T) {
 	must(t, c.MarkOpened(r1, "/a"))
 	r2 := create(t, c, Submission{Path: "/a", Content: "3", Original: orig("ignored")})
 	v := fv(t, c, r2, "/a")
-	if v.Base != "1" || v.Current != "3" || v.State != StateNew {
+	if v.Base != "1" || v.Current != "3" || v.State != StateOpened {
 		t.Fatalf("%+v", v)
 	}
 	old := fv(t, c, r1, "/a")
@@ -273,19 +273,18 @@ func TestBusyFileNotMoved(t *testing.T) {
 	respond(t, c, r1, Submission{Path: "/a", Content: "2"})
 	r2, notAdded, err := c.CreateReview("второе", []Submission{{Path: "/a", Content: "9"}, {Path: "/b", Content: "9"}})
 	must(t, err)
-	if len(notAdded) != 1 || notAdded[0].Path != "/a" || notAdded[0].ReviewID != r1 {
-		t.Fatalf("%+v", notAdded)
+	if len(notAdded) != 0 {
+		t.Fatal(notAdded)
 	}
-	rv, _ := c.Review(r2)
-	if len(rv.Files) != 1 || rv.Files[0].Path != "/b" || len(rv.NotAdded) != 1 {
-		t.Fatalf("%+v", rv)
+	if v := fv(t, c, r2, "/a"); v.Current != "1" || v.Response == nil || *v.Response != "9" {
+		t.Fatal(v)
 	}
-	if v := fv(t, c, r1, "/a"); v.Current != "1" || !v.Ripple {
-		t.Fatalf("%+v", v)
+	if rv(t, c, r1).HasResponse {
+		t.Fatal("старое ревью всё ещё управляет ответом")
 	}
 	// агент работает в ревью — файл тоже занят
-	must(t, c.AcceptResponse(r1))
-	must(t, c.AgentStart(r1))
+	must(t, c.AcceptResponse(r2))
+	must(t, c.AgentStart(r2))
 	if _, na, _ := c.CreateReview("третье", []Submission{{Path: "/a", Content: "9"}}); len(na) != 1 {
 		t.Fatal("файл ушёл из работающего ревью")
 	}

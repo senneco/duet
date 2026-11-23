@@ -66,6 +66,9 @@ func TestApplyRollsBackFailedInstallationAndStartup(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if err := os.WriteFile(filepath.Join(e.home, "a"), []byte("accepted"), 0600); err != nil {
+				t.Fatal(err)
+			}
 			id, _, err := c.CreateReview("keep", []core.Submission{{Path: filepath.Join(e.home, "a"), Content: "accepted", Original: &core.Original{Content: "accepted", Source: "test"}}})
 			if err != nil {
 				t.Fatal(err)

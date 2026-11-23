@@ -190,6 +190,7 @@ func TestRepositoryConflictPreservesOtherReview(t *testing.T) {
 	other := baseWrite(t, root, "other", "text")
 	id2 := create(t, c, Submission{Path: other, Content: "text"})
 	cm := comment(t, c, id2, other, "keep elsewhere")
+	must(t, c.AgentStart(id2))
 	before, _ := json.Marshal(c.s.Files[other])
 	reviewBefore, _ := json.Marshal(c.s.Reviews[id2])
 	_, err := c.Done("s", nil)
@@ -230,7 +231,7 @@ func TestRepositoryUnsupportedRecoveryAndOldBase(t *testing.T) {
 	_, err := c.Stop("s", false)
 	must(t, err)
 	v := rv(t, c, id)
-	if !hasProblem(v, "unsupported", bin) || !hasProblem(v, "unknown-base", a) {
+	if !hasProblem(v, "unsupported", bin) || hasProblem(v, "unknown-base", a) {
 		t.Fatal(v)
 	}
 	if f.Base != oldBase || !reflect.DeepEqual(f.BaseHistory, history) {
@@ -326,7 +327,7 @@ func TestRepositoryPendingDefersBaseButKeepsResponseRules(t *testing.T) {
 	if f.Base != before.Base || f.Current != before.Current || f.Response == nil || *f.Response != "answer two\n" {
 		t.Fatal(f)
 	}
-	if !hasProblem(rv(t, c, id), "deferred-base", a) {
+	if !rv(t, c, id).Completeness.Complete {
 		t.Fatal(rv(t, c, id))
 	}
 	must(t, c.AcceptResponse(id))
@@ -451,11 +452,9 @@ func TestRepositoryRootAliasPreservesOwnershipAndBases(t *testing.T) {
 	baseWrite(t, root, "b", "changed after acceptance")
 	_, err = c.Done("s", nil)
 	must(t, err)
-	if !hasProblem(rv(t, c, id), "conflict", aliasB) {
-		t.Fatal(rv(t, c, id))
-	}
-	if c.s.Files[aliasB].ReviewID != other || c.s.Files[a] != nil || c.s.Files[b] != nil {
-		t.Fatal("ownership changed")
+	if !rv(t, c, id).Completeness.Complete || c.s.Files[aliasB].ReviewID != id ||
+		fv(t, c, other, aliasB).MovedTo != id || c.s.Files[a] != nil || c.s.Files[b] != nil {
+		t.Fatal("путь перенесён с дублированием или проверка не завершилась")
 	}
 }
 
@@ -654,7 +653,7 @@ func TestRecoverRepositoryKeepsAcceptedBaseAndComments(t *testing.T) {
 	must(t, err)
 	_, err = c.Stop("next", false)
 	must(t, err)
-	must(t, c.RecoverRepository(target, source))
+	must(t, c.RecheckRepository(target))
 	file := fv(t, c, target, path)
 	if file.Base != "review\n" || len(file.Comments) != 1 || file.Comments[0].ID != cm {
 		t.Fatalf("file after recovery: %+v", file)
@@ -679,12 +678,12 @@ func TestAcceptedFileCanBeEditedFromAnotherReview(t *testing.T) {
 
 	next := baseWrite(t, root, "tasks.md", "# Задачи")
 	target := create(t, c, Submission{Path: next, Content: "# Задачи"})
+	must(t, c.SetBusy("s", true))
 	_, err = c.PrepareWeb(Session{ID: "next", Cwd: root}, target, []string{next})
 	must(t, err)
-	if v := rv(t, c, target); !v.Completeness.Complete || len(v.Files) != 1 {
-		t.Fatalf("unchanged accepted file blocked review: %+v", v)
+	if !hasProblem(rv(t, c, target), "conflict", path) {
+		t.Fatal("параллельная работа не видна")
 	}
-	must(t, c.SetBusy("s", true))
 	if err := c.WriteCheck("next", path, true); err == nil || !strings.Contains(err.Error(), "агент другого ревью работает") {
 		t.Fatalf("concurrent agent was not protected: %v", err)
 	}

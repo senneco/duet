@@ -42,11 +42,11 @@ func migrateBase(f *File) {
 		source = BaseSource{Kind: "none"}
 	case f.Base >= 0 && f.Base < len(f.Versions):
 		author := f.Versions[f.Base].Author
-		if f.BaseIsOriginal && author == "original" {
+		if legacyOriginal(f) {
 			// Старый AcceptFile не менял флаг при Current == Base. Это могло
 			// случиться и до последующих правок, поэтому даже различие текстов
 			// сейчас не доказывает, что владелец никогда не принимал исходник.
-			source.Detail = "исходник агента; старый формат не записывал принятие при совпадении с базой"
+			source.Detail = "старый исходник без записи о принятии"
 		} else if !f.BaseIsOriginal && (author == "agent" || author == "owner" || author == "disk") {
 			source = BaseSource{Kind: "owner"}
 		}
@@ -54,6 +54,14 @@ func migrateBase(f *File) {
 	f.BaseSource = source
 	// Миграция добавляет метаданные, но не меняет старые версии и комментарии.
 	f.BaseHistory = append(f.BaseHistory, BaseRecord{Version: f.Base, Source: source})
+}
+
+func legacyOriginal(f *File) bool {
+	return f.BaseIsOriginal && f.Base >= 0 && f.Base < len(f.Versions) && f.Versions[f.Base].Author == "original"
+}
+
+func unresolvedBase(f *File) bool {
+	return f.BaseSource.Kind == "unknown" && !legacyOriginal(f)
 }
 
 func (c *Core) recordBase(f *File, source BaseSource) {
@@ -105,7 +113,7 @@ func (c *Core) SetRepositoryBases(reviewID string, snapshot vcs.Snapshot) error 
 		if len(e.Diagnostics) > 0 || e.Original.Kind != "text" && e.Original.Kind != "absent" {
 			return fmt.Errorf("исходник %s недоступен", path)
 		}
-		if f.BaseSource.Kind == "unknown" {
+		if unresolvedBase(f) {
 			return &BaseSourceError{Path: path, Reason: f.BaseSource.Detail}
 		}
 	}

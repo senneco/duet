@@ -225,24 +225,10 @@ func (c *Core) WriteCheck(sessionID, path string, track bool) error {
 		return ErrEditing
 	}
 	if ok && !mine {
-		source := c.s.Reviews[f.ReviewID]
-		var reason string
-		switch {
-		case source.Editing:
-			reason = "в другом ревью открыт редактор"
-		case source.Stopping:
-			reason = "в другом ревью идёт остановка агента"
-		case source.Busy || source.Working:
-			reason = "агент другого ревью работает"
-		case c.busy(f):
-			reason = "по файлу есть непросмотренный ответ"
-		case !isAccepted(f):
-			reason = "файл ещё не принят"
-		}
+		reason := c.transferBlock(f)
 		if reason != "" {
 			return c.recordRepositoryConflict(r, path, f.ReviewID, reason)
 		}
-		c.removeAcceptedNotices(source)
 	}
 	r.Busy = true
 	if !r.Working {
@@ -266,14 +252,7 @@ func (e *BusyError) Error() string {
 func (c *Core) track(r *Review, path string) {
 	f, ok := c.s.Files[path]
 	if ok {
-		old := c.s.Reviews[f.ReviewID]
-		if old.Moved == nil {
-			old.Moved = map[string]string{}
-		}
-		old.Moved[path] = r.ID
-		c.changed(old.ID)
-		f.ReviewID = r.ID
-		f.Opened = false
+		c.moveFile(r, f)
 	} else {
 		f = &File{Path: path, ReviewID: r.ID, Base: -1, Current: -1, BaseSource: BaseSource{Kind: "none"}}
 		c.s.Files[path] = f

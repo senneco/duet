@@ -61,6 +61,7 @@ func (c *Core) repositoryInputs(r *Review, additional []string) ([]Submission, e
 	for _, f := range c.files(r) {
 		paths = append(paths, f.Path)
 	}
+	discussions := c.discussionPaths(r)
 	timeout, err := vcs.ReadTimeout(filepath.Dir(c.path))
 	if err != nil {
 		return nil, err
@@ -84,7 +85,7 @@ func (c *Core) repositoryInputs(r *Review, additional []string) ([]Submission, e
 	provider := c.provider
 	c.repositoryChecks[r.ID] = true
 	c.mu.Unlock()
-	snap := vcs.Collect(ctx, provider, dir, paths)
+	snap := vcs.CollectWithMaterials(ctx, provider, dir, paths, discussions)
 	// Старые записи и прямые клиенты могут использовать другое имя того же корня.
 	// Нормализуем только сам корень, не ссылки внутри проверяемого дерева.
 	if snap.Workspace != nil {
@@ -95,7 +96,7 @@ func (c *Core) repositoryInputs(r *Review, additional []string) ([]Submission, e
 			paths[i] = p
 		}
 		if normalized {
-			snap = vcs.Collect(ctx, provider, dir, paths)
+			snap = vcs.CollectWithMaterials(ctx, provider, dir, paths, discussions)
 		}
 	}
 	c.mu.Lock()
@@ -198,6 +199,10 @@ func (c *Core) repositoryInputs(r *Review, additional []string) ([]Submission, e
 		problem("", "deferred", "проверка не применена: открыт редактор или идёт остановка", "")
 	}
 	if snap.Workspace != nil {
+		successors := map[string]bool{}
+		for _, id := range r.Moved {
+			successors[id] = true
+		}
 		w := *snap.Workspace
 		status.Diff = make(map[string]string)
 		for _, e := range snap.Entries {
@@ -209,14 +214,22 @@ func (c *Core) repositoryInputs(r *Review, additional []string) ([]Submission, e
 			path = storedPath(path)
 			f := c.s.Files[path]
 			if f != nil && f.ReviewID != r.ID {
-				if len(e.Diagnostics) == 0 {
-					add(path, Version{Content: e.Current.Text, Deleted: e.Current.Kind == "absent"})
-				} else {
-					problem(path, "conflict", "файл принадлежит другому ревью", f.ReviewID)
+				source := c.s.Reviews[f.ReviewID]
+				// Фоновая проверка прежнего ревью не забирает файлы обратно.
+				if (r.Moved[path] != "" || successors[source.ID]) && !slices.Contains(additional, path) {
+					problem(path, "moved", "Ревью файла продолжается здесь", source.ID)
+					continue
 				}
-				continue
+				if blocked || len(e.Diagnostics) > 0 {
+					continue
+				}
+				if reason := c.transferBlock(f); reason != "" {
+					problem(path, "conflict", reason, source.ID)
+					continue
+				}
+				c.moveFile(r, f)
 			}
-			if f != nil && f.BaseSource.Kind == "unknown" {
+			if f != nil && unresolvedBase(f) {
 				problem(path, "unknown-base", f.BaseSource.Detail, "")
 			}
 			if blocked {
@@ -232,9 +245,8 @@ func (c *Core) repositoryInputs(r *Review, additional []string) ([]Submission, e
 				r.addPath(path)
 				delete(r.Moved, path)
 			}
-			if r.pending() != nil && repositoryBaseChanges(f, w, snap.Revision, e) {
-				problem(path, "deferred-base", "исходник изменился; сначала просмотрите ответ, затем повторите проверку", "")
-			} else {
+			// Сохраняем сравнение в окне ответа. Сам файл уже успешно прочитан.
+			if p := r.pending(); p == nil || !p.touches(c, path) {
 				c.applyRepositoryBase(f, w, snap.Revision, e)
 			}
 			switch {
@@ -268,7 +280,7 @@ func (c *Core) repositoryInputs(r *Review, additional []string) ([]Submission, e
 		add(path, d)
 	}
 	for _, f := range c.files(r) {
-		if f.BaseSource.Kind == "unknown" {
+		if unresolvedBase(f) {
 			problem(f.Path, "unknown-base", f.BaseSource.Detail, "")
 		}
 	}
@@ -402,8 +414,8 @@ func (c *Core) RecoverRepository(id, sourceID string) error {
 		if f == nil || f.ReviewID != source.ID {
 			return errRepositoryChanged
 		}
-		if c.busy(f) {
-			return ErrUnviewedResponse
+		if reason := c.transferBlock(f); reason != "" {
+			return errors.New(reason)
 		}
 		paths = append(paths, f.Path)
 	}
@@ -413,12 +425,6 @@ func (c *Core) RecoverRepository(id, sourceID string) error {
 	for _, path := range paths {
 		c.track(r, path)
 	}
-	source.Completeness.Complete = false
-	source.Completeness.Problems = append(source.Completeness.Problems, RepositoryProblem{
-		Code: "moved", Message: "файлы перенесены в текущее ревью", ReviewID: r.ID,
-	})
-	c.removeAcceptedNotices(source)
-	c.changed(source.ID)
 	c.changed(r.ID)
 	if err := c.save(); err != nil {
 		return err
@@ -438,7 +444,7 @@ func (c *Core) pathProblems(r *Review, path string) []RepositoryProblem {
 			}
 		}
 	}
-	if f := c.s.Files[path]; f != nil && f.ReviewID == r.ID && f.BaseSource.Kind == "unknown" {
+	if f := c.s.Files[path]; f != nil && f.ReviewID == r.ID && unresolvedBase(f) {
 		found := false
 		for _, p := range out {
 			if p.Code == "unknown-base" {
@@ -452,6 +458,9 @@ func (c *Core) pathProblems(r *Review, path string) []RepositoryProblem {
 	return out
 }
 func (c *Core) problemView(r *Review, path string) (FileView, bool) {
+	if r.Moved[path] != "" {
+		return FileView{}, false
+	}
 	if f := c.s.Files[path]; f != nil && f.ReviewID == r.ID {
 		return FileView{}, false
 	}

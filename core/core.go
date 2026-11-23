@@ -88,15 +88,18 @@ const (
 	ResponseRejected ResponseStatus = "rejected"
 	// ResponseInterrupted — заход прерван владельцем, сделанное выброшено.
 	ResponseInterrupted ResponseStatus = "interrupted"
+	ResponseMoved       ResponseStatus = "moved"
 )
 
 // Response — ответ агента: новые версии файлов поверх текущей.
 type Response struct {
-	ID      int               `json:"id"`
-	Files   map[string]int    `json:"files"`             // путь → номер версии
-	Answers map[string]Answer `json:"answers,omitempty"` // комментарий → ответ агента
-	Status  ResponseStatus    `json:"status"`
-	At      time.Time         `json:"at"`
+	OriginReview string            `json:"originReview,omitempty"`
+	OriginID     int               `json:"originId,omitempty"`
+	ID           int               `json:"id"`
+	Files        map[string]int    `json:"files"`             // путь → номер версии
+	Answers      map[string]Answer `json:"answers,omitempty"` // комментарий → ответ агента
+	Status       ResponseStatus    `json:"status"`
+	At           time.Time         `json:"at"`
 }
 
 // touches — ответ касается файла: меняет его или отвечает на его комментарий.
@@ -218,6 +221,7 @@ func Open(dir string) (*Core, error) {
 	for _, f := range c.s.Files {
 		migrateBase(f)
 	}
+	c.clearLegacyWarnings()
 	return c, nil
 }
 
@@ -263,18 +267,6 @@ func (c *Core) addVersion(f *File, v Version) int {
 
 func same(a, b Version) bool { return a.Deleted == b.Deleted && (a.Deleted || a.Content == b.Content) }
 
-// busy — файл нельзя забрать из его ревью: агент там работает или есть непросмотренный ответ по файлу.
-func (c *Core) busy(f *File) bool {
-	r := c.s.Reviews[f.ReviewID]
-	if r.Working {
-		return true
-	}
-	if p := r.pending(); p != nil {
-		return p.touches(c, f.Path)
-	}
-	return false
-}
-
 // CreateReview — агент отдаёт работу на ревью. Присланные версии сразу становятся текущими.
 // Возвращает id ревью и файлы, которые не добавлены, потому что заняты в другом ревью.
 func (c *Core) CreateReview(title string, files []Submission) (string, []Busy, error) {
@@ -284,7 +276,7 @@ func (c *Core) CreateReview(title string, files []Submission) (string, []Busy, e
 	r := &Review{ID: fmt.Sprintf("r%d", c.s.Seq), Title: title, Created: c.now(), Agent: true}
 	c.s.Reviews[r.ID] = r
 	for _, sub := range files {
-		if f, ok := c.s.Files[sub.Path]; ok && f.ReviewID != r.ID && c.busy(f) {
+		if f, ok := c.s.Files[sub.Path]; ok && f.ReviewID != r.ID && c.transferBlock(f) != "" {
 			r.NotAdded = append(r.NotAdded, Busy{sub.Path, f.ReviewID})
 			continue
 		}
@@ -302,13 +294,18 @@ func (c *Core) AddFiles(reviewID string, files []Submission) ([]Busy, error) {
 	if err != nil {
 		return nil, err
 	}
+	for _, sub := range files {
+		if f := c.s.Files[sub.Path]; f != nil && f.ReviewID == r.ID {
+			return nil, fmt.Errorf("файл %s уже в ревью, изменения присылаются ответом", sub.Path)
+		}
+	}
 	var notAdded []Busy
 	for _, sub := range files {
 		if f, ok := c.s.Files[sub.Path]; ok {
 			if f.ReviewID == r.ID {
-				return nil, fmt.Errorf("файл %s уже в ревью, изменения присылаются ответом", sub.Path)
+				continue
 			}
-			if c.busy(f) {
+			if c.transferBlock(f) != "" {
 				b := Busy{sub.Path, f.ReviewID}
 				notAdded = append(notAdded, b)
 				r.NotAdded = append(r.NotAdded, b)
@@ -323,14 +320,9 @@ func (c *Core) AddFiles(reviewID string, files []Submission) ([]Busy, error) {
 func (c *Core) addFirst(r *Review, sub Submission) {
 	f, ok := c.s.Files[sub.Path]
 	if ok {
-		// Переход из старого ревью со всем состоянием.
-		old := c.s.Reviews[f.ReviewID]
-		if old.Moved == nil {
-			old.Moved = map[string]string{}
+		if f.ReviewID != r.ID {
+			c.moveFile(r, f)
 		}
-		old.Moved[f.Path] = r.ID
-		f.ReviewID = r.ID
-		f.Opened = false
 	} else {
 		f = &File{Path: sub.Path, ReviewID: r.ID, Base: -1, Current: -1, BaseSource: BaseSource{Kind: "none"}}
 		c.s.Files[sub.Path] = f
@@ -342,7 +334,12 @@ func (c *Core) addFirst(r *Review, sub Submission) {
 		}
 	}
 	v := Version{Content: sub.Content, Deleted: sub.Deleted, Author: "agent"}
-	if f.Current >= 0 && same(f.Versions[f.Current], v) {
+	if pending := r.pending(); pending != nil && pending.touches(c, sub.Path) {
+		if expected, exists := c.expected(r, f); !exists || !same(expected, v) {
+			n := c.addVersion(f, v)
+			c.mergeInto(r, pending, &Response{At: c.now(), Files: map[string]int{sub.Path: n}})
+		}
+	} else if f.Current >= 0 && same(f.Versions[f.Current], v) {
 		// не плодим одинаковых версий
 	} else if f.Base >= 0 && f.Current < 0 && same(f.Versions[f.Base], v) {
 		f.Current = f.Base
@@ -408,7 +405,7 @@ func (c *Core) finish(r *Review, files []Submission, answers []Answer) (bool, er
 	p := r.pending()
 	d := r.Draft
 	if d == nil {
-		d = &Response{ID: len(r.Responses) + 1, Files: map[string]int{}, Answers: map[string]Answer{}, Status: ResponsePending}
+		d = &Response{ID: r.nextResponseID(), Files: map[string]int{}, Answers: map[string]Answer{}, Status: ResponsePending}
 	}
 	if d.Answers == nil {
 		d.Answers = map[string]Answer{}
@@ -549,6 +546,9 @@ func (c *Core) mergeInto(r *Review, p, d *Response) {
 			cm.Changed = cm.Changed || changed
 			cm.Removed = cm.Removed || removed
 		}
+	}
+	if p.Answers == nil {
+		p.Answers = map[string]Answer{}
 	}
 	for id, a := range d.Answers {
 		p.Answers[id] = a
@@ -902,7 +902,7 @@ type FileView struct {
 
 // isAccepted — текущая версия совпадает с базой, и нет комментариев «отвечен», ждущих `␣a`.
 func isAccepted(f *File) bool {
-	if f.BaseSource.Kind == "repository" || f.BaseSource.Kind == "unknown" {
+	if f.BaseSource.Kind != "owner" {
 		return false
 	}
 	if f.Base < 0 || f.Current < 0 || !same(f.Versions[f.Base], f.Versions[f.Current]) {

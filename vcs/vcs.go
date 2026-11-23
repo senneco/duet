@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -92,6 +93,12 @@ func ValidPath(path string) bool {
 // Два чтения содержимого окружены тремя проверками состояния. Это ограниченная
 // проверка стабильности, а не блокировка чужих процессов и не постоянное наблюдение.
 func Collect(ctx context.Context, p Provider, dir string, additional []string) Snapshot {
+	return CollectWithMaterials(ctx, p, dir, additional, nil)
+}
+
+// CollectWithMaterials добавляет сохранённые материалы только после определения
+// рабочей копии. При повторе сбора принадлежность определяется заново.
+func CollectWithMaterials(ctx context.Context, p Provider, dir string, additional []string, workspaceMaterials func(Workspace) []string) Snapshot {
 	out := Snapshot{Protocol: ProtocolVersion}
 	fail := func(code string, err error) Snapshot {
 		if errors.Is(err, context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded {
@@ -158,7 +165,11 @@ func Collect(ctx context.Context, p Provider, dir string, additional []string) S
 			}
 		}
 		materials := make(map[string]bool)
-		for _, path := range additional {
+		pathsToRead := additional
+		if workspaceMaterials != nil {
+			pathsToRead = slices.Concat(additional, workspaceMaterials(*w))
+		}
+		for _, path := range pathsToRead {
 			if !filepath.IsAbs(path) {
 				path = filepath.Join(abs, path)
 			}
@@ -246,12 +257,16 @@ func (e *Entry) check(stage string, content Content, err error) {
 		e.Diagnostics = append(e.Diagnostics, Diagnostic{Path: e.Path, Code: stage, Message: err.Error()})
 		return
 	}
+	label := "Файл на диске"
+	if stage == "original" {
+		label = "Исходная версия файла"
+	}
 	switch content.Kind {
 	case "text", "absent":
 	case "unsupported":
-		e.Diagnostics = append(e.Diagnostics, Diagnostic{Path: e.Path, Code: "unsupported", Message: stage + ": " + content.Reason})
+		e.Diagnostics = append(e.Diagnostics, Diagnostic{Path: e.Path, Code: "unsupported", Message: label + " — " + content.Reason})
 	default:
-		e.Diagnostics = append(e.Diagnostics, Diagnostic{Path: e.Path, Code: "contract", Message: stage + ": отсутствует результат чтения"})
+		e.Diagnostics = append(e.Diagnostics, Diagnostic{Path: e.Path, Code: "contract", Message: label + " — отсутствует результат чтения"})
 	}
 }
 

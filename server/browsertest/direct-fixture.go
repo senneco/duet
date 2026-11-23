@@ -31,6 +31,9 @@ func main() {
 		if e != nil {
 			panic(e)
 		}
+		if e = c.AcceptFile(id, p); e != nil {
+			panic(e)
+		}
 		if r.URL.Query().Has("new") {
 			if e = c.AgentStart(id); e != nil {
 				panic(e)

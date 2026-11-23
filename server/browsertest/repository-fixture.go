@@ -65,16 +65,22 @@ func main() {
 			write(other, "Чужой материал")
 			otherID, _, e = c.CreateReview("Другое ревью", []core.Submission{{Path: other, Content: "Чужой материал"}})
 			must(e)
-			_, e = c.AddComment(otherID, other, nil, "Сохранить комментарий", nil, false)
-			must(e)
-			must(c.AcceptFile(otherID, other))
-			if mode == "recover" {
-				_, e = c.PrepareWeb(core.Session{ID: "previous", Cwd: root}, otherID, []string{other})
+			cm, err := c.AddComment(otherID, other, nil, "Сохранить комментарий", nil, false)
+			must(err)
+			if mode == "problems" {
+				must(c.AcceptFile(otherID, other))
+				must(c.SetEditing(otherID, true))
+				write(other, "Материал изменился после принятия")
+			} else {
+				must(c.Send(otherID, false))
+				_, e = c.Take(otherID)
 				must(e)
-				_, e = c.Stop("previous", false)
+				write(other, "Исправленный материал")
+				_, e = c.AgentFinish(otherID, []core.Submission{{Path: other, Content: "Исправленный материал"}},
+					[]core.Answer{{CommentID: cm, Text: "Исправил по замечанию"}})
 				must(e)
+				must(c.Disconnect(otherID))
 			}
-			write(other, "Материал изменился после принятия")
 		}
 		if mode == "problems" {
 			bin = filepath.Join(root, "image.bin")
@@ -131,6 +137,7 @@ func main() {
 			must(err)
 		case "fix":
 			must(os.Remove(bin))
+			must(c.SetEditing(otherID, false))
 			git(root, "add", "another-review.md")
 			git(root, "commit", "-qm", "resolve fixture conflict")
 		}

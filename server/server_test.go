@@ -276,6 +276,9 @@ func TestSyncProgress(t *testing.T) {
 func TestReadAPI(t *testing.T) {
 	e := setup(t)
 	id := e.review(map[string]string{"a.md": "раз два\n"})
+	if err := e.c.AcceptFile(id, e.path("a.md")); err != nil {
+		t.Fatal(err)
+	}
 	if err := e.c.AgentStart(id); err != nil {
 		t.Fatal(err)
 	}

@@ -101,11 +101,11 @@ func TestRevertWritesDisk(t *testing.T) {
 	c, p := newProj(t)
 	r, a := newReview(t, c, p, "a.md", "2\n", "1\n")
 	must(t, c.RevertToBase(r, a))
-	if p.read("a.md") != "1\n" || fv(t, c, r, a).State != StateAccepted {
+	if p.read("a.md") != "1\n" || fv(t, c, r, a).State == StateAccepted {
 		t.Fatal(p.read("a.md"))
 	}
-	// Файл снова совпадает с базой — ревью принято целиком, агент узнаёт и об этом.
-	wantNotices(t, c, r, Notice{Reason: NoticeRevert, Files: []string{a}}, Notice{Reason: NoticeAccepted, Files: []string{a}})
+	// Исходник восстановлен, файл ещё ждёт явного принятия.
+	wantNotices(t, c, r, Notice{Reason: NoticeRevert, Files: []string{a}})
 }
 
 // 205: файл поменяли на диске, пока открыт редактор, — правка не сохраняется без подтверждения;
@@ -264,7 +264,7 @@ func TestDiskDeleteIsOwnerEdit(t *testing.T) {
 	}
 	p.write("a.md", "1\n")
 	c.Poll()
-	if v := fv(t, c, r, a); v.State != StateAccepted {
+	if v := fv(t, c, r, a); v.State == StateAccepted {
 		t.Fatalf("%+v", v)
 	}
 }
@@ -276,6 +276,7 @@ func TestDiskBackToBase(t *testing.T) {
 	b := p.write("b.md", "b2\n")
 	_, err := c.AddFiles(r, []Submission{{Path: b, Content: "b2\n", Original: orig("b1\n")}})
 	must(t, err)
+	must(t, c.AcceptFile(r, a))
 	must(t, c.Sync(r, nil))
 	p.write("a.md", "ветка\n")
 	c.Poll()
