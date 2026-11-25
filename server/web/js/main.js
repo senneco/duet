@@ -2101,6 +2101,25 @@ function rangeOf(a, b) {
   return r;
 }
 
+function numberedLine(target) {
+  const number = target.closest('.code .no, .code2 .no');
+  if (!number?.textContent) return null;
+  const row = number.closest('.ln, .rr');
+  return row?.matches('.rr') ? number.nextElementSibling : row?.querySelector('.tx[data-p]');
+}
+
+function wholeLines(a, b) {
+  const first = a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_PRECEDING ? b : a;
+  const last = first === a ? b : a;
+  const start = document.createTreeWalker(first, NodeFilter.SHOW_TEXT).nextNode();
+  let end = last.lastChild;
+  while (end.lastChild) end = end.lastChild;
+  const range = document.createRange();
+  range.setStart(start, 0);
+  range.setEnd(end, end.length);
+  return range;
+}
+
 function setSelection(range) {
   const a = pointPos(range.startContainer, range.startOffset);
   const b = pointPos(range.endContainer, range.endOffset);
@@ -2127,12 +2146,29 @@ $('#sc').addEventListener('mousedown', (e) => {
   if (e.detail > 1) clearTimeout(oldTimer); // двойной клик — выделить слово, а не раскрыть «как было»
   if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
   window.getSelection().removeAllRanges();
+  const line = numberedLine(e.target);
+  if (line) {
+    drag = { line, lineEnd: line };
+    drawSelection($('#sc'), wholeLines(line, line));
+    return;
+  }
   const c = caretAt(e.clientX, e.clientY);
   drag = { a: c && inText(c[0]) ? c : null, b: null, x: e.clientX, y: e.clientY, el: e.target, single: e.detail <= 1, word: e.detail === 2 && c && inText(c[0]) ? wordRange(c) : null };
   if (drag.word) drawSelection($('#sc'), drag.word);
 });
 
 document.addEventListener('mousemove', (e) => {
+  if (drag?.line) {
+    const end = numberedLine(e.target);
+    const root = drag.line.closest('.code, .code2');
+    if (!end || end === drag.lineEnd || end.closest('.code, .code2') !== root) return;
+    if (root.matches('.code2') && end.dataset.p[0] !== drag.line.dataset.p[0]) return;
+    drag.lineEnd = end;
+    const sc = $('#sc');
+    sc.querySelectorAll(':scope > .smenu').forEach((m) => m.remove());
+    drawSelection(sc, wholeLines(drag.line, end));
+    return;
+  }
   if (!drag || !drag.a) return;
   if (!drag.b && Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) < 3) return;
   const c = caretAt(e.clientX, e.clientY);
@@ -2148,6 +2184,10 @@ document.addEventListener('mouseup', (e) => {
   if (!drag) return;
   const d = drag;
   drag = null;
+  if (d.line) {
+    setSelection(wholeLines(d.line, d.lineEnd));
+    return;
+  }
   if (d.word || (d.a && d.b)) {
     const r = d.word ? (d.b ? extendWords(d.word, wordRange(d.b) || rangeOf(d.b, d.b)) : d.word) : rangeOf(d.a, d.b);
     if (!r.collapsed && setSelection(r)) return;

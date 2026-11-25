@@ -257,6 +257,7 @@ mark.wa { background: var(--add-w) }
 .code .ln { display: grid; grid-template-columns: 44px 44px 22px minmax(0, 1fr) }
 .code.plain .ln { grid-template-columns: 0 52px 14px minmax(0, 1fr) }
 .code .no { color: var(--fg4); text-align: right; padding-right: 6px; user-select: none; font-size: 12px; overflow: hidden }
+.code .no:not(:empty), .code2 .no:not(:empty) { cursor: pointer }
 .code .sg { text-align: center; user-select: none; color: var(--fg3) }
 .code .tx { white-space: pre-wrap; word-break: break-word; padding-right: 24px }
 .code .ln.del .sg, .code .ln.del .tx { background: var(--del-bg) }

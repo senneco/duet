@@ -32,15 +32,17 @@ export function extendWords(anchor, word) {
   return r;
 }
 
-// DOM двух колонок чередует левую и правую ячейки. Диапазон режем по тексту
-// исходной стороны: общий DOM Range захватывает и противоположные ячейки.
+// Общий DOM Range захватывает номера строк и обе колонки.
+// Для подсветки и копирования берём только текст нужных ячеек.
 export function selectionRanges(range) {
   const el = range.startContainer.nodeType === 3 ? range.startContainer.parentElement : range.startContainer;
-  const root = el.closest('.two, .code2');
+  const root = el.closest('.two, .code2, .code');
   const side = el.closest('[data-p]')?.dataset.p[0];
   if (!root || !side) return [range];
   const out = [];
-  for (const span of root.querySelectorAll(`[data-p^="${side}"]`)) {
+  const selector = root.matches('.code') ? '.tx[data-p]' : `[data-p^="${side}"]`;
+  for (const span of root.querySelectorAll(selector)) {
+    if (!range.intersectsNode(span)) continue;
     const walk = document.createTreeWalker(span, NodeFilter.SHOW_TEXT);
     let node;
     while ((node = walk.nextNode())) {
