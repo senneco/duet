@@ -155,6 +155,7 @@ async function loadReview(id) {
   // «Вернуть файлы всё равно» — через 10 секунд после «останавливается…».
   if (S.review.stopping && !S.stopSince) { S.stopSince = Date.now(); setTimeout(renderOverlays, 10100); }
   if (!S.review.stopping) S.stopSince = 0;
+  if (S.toast?.summary === id) summary();
   diskNotice(id);
   // Редактор в этой вкладке закрыт, а ядро считает его открытым (вкладку перезагрузили) — закрываем.
   if (S.review.editing && !S.edit) act('editing', { on: false }).catch(() => {});
@@ -829,7 +830,7 @@ let toastTimer = 0;
 function toast(x) {
   S.toast = x;
   clearTimeout(toastTimer);
-  if (x && x.ok) toastTimer = setTimeout(() => { S.toast = null; renderOverlays(); renderStatus(); }, 6000);
+  if (x && x.ok && !x.pending) toastTimer = setTimeout(() => { S.toast = null; renderOverlays(); renderStatus(); }, 6000);
   renderOverlays();
   renderStatus();
 }
@@ -1227,19 +1228,32 @@ async function accept() {
   summary();
 }
 
-// summary — всё принято: ревью принято целиком или что ещё мешает.
+// summary — итог принятия, который обновляется вместе с ревью.
 function summary() {
   const t = T();
   const r = S.review;
-  if (r.accepted) { toast({ ok: true, title: t.allAccepted, short: `✓ ${t.allAccepted}` }); return; }
   const left = [];
-  if (r.completeness && !r.completeness.complete) left.push(r.completeness.problems?.[0]?.message || (S.lang === 'ru' ? 'Нужно проверить изменения' : 'Changes need checking'));
-  if (r.unsent) left.push(t.leftUnsent(r.unsent));
-  if (r.questions) left.push(t.leftQuestions(r.questions));
-  if (r.hasResponse) left.push(t.leftResponse);
-  if (r.diskChanged && r.diskChanged.length) left.push(t.leftDisk(r.diskChanged.length));
-  if (r.working) left.push(t.leftWorking);
-  toast({ ok: true, title: t.filesAccepted, text: esc(left.join(' · ')), short: `✓ ${t.filesAccepted}` });
+  let title = t.filesAccepted;
+  let pending = false;
+  if (r.accepted && !r.unsent) {
+    title = t.allAccepted;
+    pending = r.acceptanceDelivery === 'pending';
+    if (pending) left.push(t.acceptanceSending);
+    else if (r.acceptanceDelivery === 'delivered') left.push(t.acceptanceDelivered);
+    else if (!r.agent) left.push(t.acceptanceNoAgent);
+  } else {
+    if (r.files.some(f => f.state !== 'moved' && !f.problemOnly && !isAccepted(f))) title = t.acceptanceOpen;
+    if (r.completeness && !r.completeness.complete) left.push(r.completeness.problems?.[0]?.message || (S.lang === 'ru' ? 'Нужно проверить изменения' : 'Changes need checking'));
+    if (r.unsent) left.push(t.leftUnsent(r.unsent));
+    if (r.questions) left.push(t.leftQuestions(r.questions));
+    if (r.hasResponse) left.push(t.leftResponse);
+    if (r.diskChanged && r.diskChanged.length) left.push(t.leftDisk(r.diskChanged.length));
+    if (r.working) left.push(t.leftWorking);
+  }
+  const text = (pending ? '<span class="spin" aria-hidden="true"></span> ' : '') + esc(left.join(' · '));
+  const previous = S.toast;
+  if (previous?.summary === r.id && previous.title === title && previous.text === text && previous.pending === pending) return;
+  toast({ ok: true, title, text, short: title === t.acceptanceOpen ? title : `✓ ${title}`, pending, summary: r.id });
 }
 
 function toggleCols() {

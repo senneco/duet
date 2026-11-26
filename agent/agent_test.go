@@ -179,3 +179,33 @@ func TestCommandEditWhileUnviewed(t *testing.T) {
 		t.Fatal(v, err)
 	}
 }
+
+func TestCodexAcceptanceWaitsForQueue(t *testing.T) {
+	f := setup(t, "codex")
+	check := func(want string) {
+		t.Helper()
+		r, err := f.c.Review(f.r)
+		if err != nil || !r.Accepted || r.AcceptanceDelivery != want {
+			t.Fatalf("delivery = %q, accepted = %v, error = %v, want %q", r.AcceptanceDelivery, r.Accepted, err, want)
+		}
+	}
+	if err := f.c.AcceptFile(f.r, f.path); err != nil {
+		t.Fatal(err)
+	}
+	f.s.Queue = func(core.Session, string) error {
+		check("pending")
+		return os.ErrPermission
+	}
+	f.s.deliverCodex()
+	check("pending")
+	delete(f.s.queueRetry, "s1")
+	f.s.Queue = func(core.Session, string) error {
+		check("pending")
+		if _, notices, err := f.c.Deliver("s1"); err != nil || len(notices) != 0 {
+			t.Fatalf("повторная передача во время отправки: %v, %v", notices, err)
+		}
+		return nil
+	}
+	f.s.deliverCodex()
+	check("delivered")
+}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 	"time"
 )
@@ -68,6 +69,7 @@ func (c *Core) attach(s Session, r *Review) error {
 			c.disconnect(r)
 		}
 		r.Notices = nil // новый агент получит ревью целиком, старые сообщения ему ни к чему
+		r.AcceptedBy = ""
 	}
 	if cur, ok := c.s.Sessions[s.ID]; ok && cur.Review != "" && cur.Review != r.ID {
 		if prev, ok := c.s.Reviews[cur.Review]; ok {
@@ -562,6 +564,15 @@ func (c *Core) stop(r *Review, final, deliverComments bool) (StopResult, error) 
 // Deliver — что пора передать агенту сессии: новые комментарии (они становятся «в работе»)
 // и сообщения duet. Если ничего нет, оба пустые.
 func (c *Core) Deliver(sessionID string) ([]AgentComment, []Notice, error) {
+	return c.deliver(sessionID, false)
+}
+
+// DeliverForQueue сохраняет уведомление о принятии до подтверждения очереди.
+func (c *Core) DeliverForQueue(sessionID string) ([]AgentComment, []Notice, error) {
+	return c.deliver(sessionID, true)
+}
+
+func (c *Core) deliver(sessionID string, queued bool) ([]AgentComment, []Notice, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	_, r, err := c.sessionReview(sessionID)
@@ -575,13 +586,60 @@ func (c *Core) Deliver(sessionID string) ([]AgentComment, []Notice, error) {
 		return nil, nil, err
 	}
 	cms := c.take(r)
-	ns := r.Notices
-	r.Notices = nil
+	var ns, keep []Notice
+	for _, n := range r.Notices {
+		if n.Reason == NoticeAccepted {
+			if r.queuedAcceptance != nil {
+				keep = append(keep, n)
+				continue
+			}
+			if queued {
+				r.queuedAcceptance = &n
+				keep = append(keep, n)
+			} else {
+				r.AcceptedBy = sessionID
+			}
+		}
+		ns = append(ns, n)
+	}
+	r.Notices = keep
 	if len(cms) == 0 && len(ns) == 0 {
 		return nil, nil, nil
 	}
+	if err := c.save(); err != nil {
+		if queued {
+			r.queuedAcceptance = nil
+		}
+		return nil, nil, err
+	}
 	c.changed(r.ID)
-	return cms, ns, c.save()
+	return cms, ns, nil
+}
+
+// FinishQueuedAcceptance завершает попытку передачи уведомления в очередь.
+func (c *Core) FinishQueuedAcceptance(sessionID, reviewID string, notice Notice, delivered bool) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	_, r, err := c.sessionReview(sessionID)
+	if err != nil || r.ID != reviewID {
+		return nil
+	}
+	if r.queuedAcceptance == nil || !r.queuedAcceptance.At.Equal(notice.At) {
+		return nil
+	}
+	r.queuedAcceptance = nil
+	if !delivered {
+		return nil
+	}
+	for i, n := range r.Notices {
+		if n.Reason == NoticeAccepted && n.At.Equal(notice.At) {
+			r.Notices = slices.Delete(r.Notices, i, i+1)
+			r.AcceptedBy = sessionID
+			c.changed(r.ID)
+			return c.save()
+		}
+	}
+	return nil
 }
 
 // Pending — у агента свободной сессии есть что получить.

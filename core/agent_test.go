@@ -320,10 +320,26 @@ func TestAcceptedNotice(t *testing.T) {
 	c, p := newProj(t)
 	r, a := agentReview(t, c, p, "a.md", "2\n", "1\n")
 	must(t, c.AcceptFile(r, a))
+	v, err := c.Review(r)
+	must(t, err)
+	if !v.Accepted || v.AcceptanceDelivery != "pending" {
+		t.Fatalf("%+v", v)
+	}
 	_, ns, err := c.Deliver("s1")
 	must(t, err)
 	if len(ns) != 1 || ns[0].Reason != NoticeAccepted || ns[0].Files[0] != a {
 		t.Fatalf("%+v", ns)
+	}
+	v, err = c.Review(r)
+	must(t, err)
+	if !v.Accepted || v.AcceptanceDelivery != "delivered" {
+		t.Fatalf("%+v", v)
+	}
+	addC(t, c, r, a, nil, "Ещё вопрос")
+	v, err = c.Review(r)
+	must(t, err)
+	if v.Accepted || v.Unsent != 1 || v.AcceptanceDelivery != "" {
+		t.Fatalf("%+v", v)
 	}
 }
 

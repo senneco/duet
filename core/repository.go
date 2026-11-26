@@ -294,6 +294,8 @@ func (c *Core) repositoryInputs(r *Review, additional []string) ([]Submission, e
 }
 
 func (c *Core) removeAcceptedNotices(r *Review) {
+	r.AcceptedBy = ""
+	r.queuedAcceptance = nil
 	ns := r.Notices[:0]
 	for _, n := range r.Notices {
 		if n.Reason != NoticeAccepted {

@@ -30,7 +30,8 @@ type Service struct {
 	// URL — адрес ревью для владельца.
 	URL func(review string) string
 	// Queue — передать сообщение свободной сессии Codex (по умолчанию `codex queue`).
-	Queue func(s core.Session, text string) error
+	Queue      func(s core.Session, text string) error
+	queueRetry map[string]time.Time
 	// Alive — жив ли процесс агента (по умолчанию — сигнал 0).
 	Alive func(pid int) bool
 
@@ -39,7 +40,7 @@ type Service struct {
 }
 
 func New(c *core.Core, home string, url func(string) string) *Service {
-	s := &Service{core: c, Home: home, URL: url, Queue: codexQueue, Alive: alive, waiters: map[string]chan struct{}{}}
+	s := &Service{core: c, Home: home, URL: url, Queue: codexQueue, Alive: alive, waiters: map[string]chan struct{}{}, queueRetry: map[string]time.Time{}}
 	s.syncMarkers()
 	return s
 }
@@ -148,18 +149,33 @@ func (s *Service) anyAlive(pids []int) bool {
 
 // deliverCodex — свободная сессия Codex получает комментарии и сообщения очередью сессии.
 func (s *Service) deliverCodex() {
+	now := time.Now()
+	for id, retry := range s.queueRetry {
+		if !now.Before(retry) {
+			delete(s.queueRetry, id)
+		}
+	}
 	for _, se := range s.core.Sessions() {
-		if se.Agent != "codex" || se.Review == "" || s.core.Busy(se.ID) || !s.core.Pending(se.ID) {
+		if now.Before(s.queueRetry[se.ID]) || se.Agent != "codex" || se.Review == "" || s.core.Busy(se.ID) || !s.core.Pending(se.ID) {
 			continue
 		}
-		cms, ns, err := s.core.Deliver(se.ID)
+		cms, ns, err := s.core.DeliverForQueue(se.ID)
 		if err != nil || (len(cms) == 0 && len(ns) == 0) {
 			continue
 		}
 		s.core.SetBusy(se.ID, true) // сообщение начнёт ход агента
-		if err := s.Queue(se, delivery(se.Cwd, cms, ns)); err != nil {
-			log.Printf("wake codex %s: %v", se.ID, err)
+		queueErr := s.Queue(se, delivery(se.Cwd, cms, ns))
+		if queueErr != nil {
+			log.Printf("wake codex %s: %v", se.ID, queueErr)
+			s.queueRetry[se.ID] = time.Now().Add(2 * time.Second)
 			s.core.SetBusy(se.ID, false)
+		}
+		for _, n := range ns {
+			if n.Reason == core.NoticeAccepted {
+				if err := s.core.FinishQueuedAcceptance(se.ID, se.Review, n, queueErr == nil); err != nil {
+					log.Printf("confirm delivery to codex %s: %v", se.ID, err)
+				}
+			}
 		}
 	}
 }

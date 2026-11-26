@@ -379,6 +379,7 @@ func (c *Core) acceptedCheck(r *Review) {
 		return
 	}
 	r.Open = false
+	r.AcceptedBy = ""
 	var files []string
 	for _, f := range c.files(r) {
 		if f.Current >= 0 {

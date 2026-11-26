@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -123,7 +124,8 @@ type Busy struct {
 }
 
 type Review struct {
-	backgroundStop *backgroundStop
+	backgroundStop   *backgroundStop
+	queuedAcceptance *Notice
 
 	Materials     []string      `json:"materials,omitempty"`
 	RepositoryDir string        `json:"repositoryDir,omitempty"`
@@ -155,7 +157,8 @@ type Review struct {
 	// Restored — файлы, которые duet перезаписал после последнего «прервать».
 	Restored []string `json:"restored,omitempty"`
 	// Notices — сообщения агенту, которые он ещё не забрал.
-	Notices []Notice `json:"notices,omitempty"`
+	Notices    []Notice `json:"notices,omitempty"`
+	AcceptedBy string   `json:"acceptedBy,omitempty"` // сессия, получившая уведомление о полном принятии
 	// Draft — то, что агент уже сделал в заходе, который ещё продолжается.
 	Draft     *Response   `json:"draft,omitempty"`
 	Responses []*Response `json:"responses,omitempty"` // вся история
@@ -1013,7 +1016,8 @@ func (c *Core) File(reviewID, path string) (FileView, error) {
 
 // ReviewView — ревью целиком.
 type ReviewView struct {
-	Completeness *Completeness `json:"completeness,omitempty"`
+	AcceptanceDelivery string        `json:"acceptanceDelivery,omitempty"`
+	Completeness       *Completeness `json:"completeness,omitempty"`
 
 	ID          string     `json:"id"`
 	Title       string     `json:"title"`
@@ -1160,6 +1164,13 @@ func (c *Core) reviewView(r *Review) ReviewView {
 	}
 	rv.AgentLost = !r.Agent && c.count(r, CommentWorking) > 0
 	rv.Accepted = c.allDone(r) && len(rv.DiskChanged) == 0
+	if rv.Accepted && rv.Agent && r.Session != "" {
+		if r.Open || slices.ContainsFunc(r.Notices, func(n Notice) bool { return n.Reason == NoticeAccepted }) {
+			rv.AcceptanceDelivery = "pending"
+		} else if r.AcceptedBy == r.Session {
+			rv.AcceptanceDelivery = "delivered"
+		}
+	}
 	return rv
 }
 
